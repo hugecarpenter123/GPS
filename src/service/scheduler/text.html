@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<body>
+  <div>
+    <input id="schedule-date" type="date" />
+    <input id="schedule-time" type="text" size="5" placeholder="hh:mm:ss"/>
+    <input type="datetime-local" step="1">
+    <input type="time" step="1" >
+    <button id="schedule-button">Schedule</button>
+  </div>
+
+  <script>
+    let div = document.createElement('div');
+    div.style.marginTop='8px'
+    div.innerHTML = `    <input id="schedule-date" type="date" />
+    <input id="schedule-time" type="text" size="5" placeholder="hh:mm:ss" class=""/>
+    <button>Schedule</button>`
+
+  </script>
+
+</body>
+</html>

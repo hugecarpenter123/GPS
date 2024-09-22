@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="./config-popup.css">
+  <title>Document</title>
+</head>
+
+<body>
+  <div id="config-popup-container" class="">
+    <div id="config-popup-header">
+      <h1>GPS config</h1>
+      <div id="close-popup">&#10006;</div>
+    </div>
+    <div id="config-popup-content">
+      <div class="input-wrapper">
+        <input type="checkbox" id="city-switch" checked />
+        <label for="city-switch">Switch cities automatically</label>
+      </div>
+      <div class="input-wrapper">
+        <input type="checkbox" id="farm" checked />
+        <div class="label-chevron">
+          <label for="farm">
+            Farm manager
+          </label>
+          <svg xmlns="http://www.w3.org/2000/svg" class="arrow-down rotate" width="16" height="16" fill="currentColor"
+            class="bi bi-chevron-down" viewBox="0 0 16 16">
+            <path fill-rule="evenodd"
+              d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708" />
+          </svg>
+        </div>
+        <div class="expandable-section">
+          <div class="section-header"></div>
+          <div class="section-content">
+            <div class="input-wapper">
+              <label>
+                Time interval
+              </label>
+              <select id="time-interval-select">
+                <option value="5m">5m</option>
+                <option value="20m">20m</option>
+                <option value="1h30m">1h 30m</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="input-wrapper">
+        <input type="checkbox" id="resources" disabled />
+        <label for="resources">Resources manager (in progress)</label>
+      </div>
+      <div class="input-wrapper">
+        <input type="checkbox" id="guard" disabled />
+        <label for="guard">Guard (in progress)</label>
+      </div>
+
+      <div id="button-panel">
+        <button id="submit">Submit</button>
+        <button type="reset" id="cancel-all">Cancel all</button>
+      </div>
+    </div>
+    <div class="show-trigger">
+      GPS
+    </div>
+  </div>
+</body>
+
+</html>

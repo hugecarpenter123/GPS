@@ -1,0 +1,169 @@
+#config-popup-container * {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: Arial, Helvetica, sans-serif;
+  color: black;
+}
+
+#config-popup-header {
+  margin-bottom: 24px;
+  text-shadow: 2px 2px 2px gray;
+}
+
+#config-popup-container {
+  position: absolute;
+  top: 50%;
+  right: 50%;
+  transform: translate(50%, -50%);
+  box-shadow: 0px 3px 8px 0px rgba(157, 157, 157, 0.4);
+  border-radius: 4px;
+  width: 350px;
+  max-width: 80%;
+  overflow: hidden;
+  background-color: antiquewhite;
+  border: 1px solid rgba(165, 125, 11, 1);
+  z-index: 100;
+  padding: 16px;
+}
+
+.input-wrapper {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  justify-items: start;
+  column-gap: 8px;
+  row-gap: 8px;
+  align-items: center;
+  margin-top: 16px;
+}
+
+.input-wrapper label {
+  background-color: none;
+}
+
+.expandable-section {
+  grid-column-start: 2;
+}
+
+#config-popup-content {
+  display: flex;
+  flex-direction: column;
+  border-radius: 4px;
+  gap: 8px;
+}
+
+#config-popup-content h1 {
+  font-weight: 500;
+  font-size: 1.7rem;
+  align-self: center;
+  margin-bottom: 8px;
+}
+
+.label-chevron {
+  display: flex;
+  align-items: center;
+  gap:8px
+}
+
+
+#button-panel {
+  align-self: flex-end;
+  margin-top: 20px;
+}
+
+#button-panel button {
+  padding: 4px;
+  cursor: pointer;
+}
+
+#config-popup-container.minimized {
+  top: auto;
+  bottom: 150px;
+  right: 30px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  box-shadow: none;
+}
+
+
+.show-trigger {
+  display: none;
+}
+
+#close-popup {
+  cursor: pointer;
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  transition-duration: 125ms;
+  color: tomato;
+  text-shadow: 0px 0px 2px black;
+}
+
+#close-popup:hover {
+  animation: freak 1s ease-in both infinite;
+}
+
+#config-popup-container.minimized #config-popup-content {
+  display: none;
+}
+
+#config-popup-container.minimized #config-popup-header {
+  display: none;
+}
+
+#config-popup-container.minimized {
+  padding: 0;
+}
+
+#config-popup-container.minimized .show-trigger {
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-shadow: 0px 1px 1px rgba(165, 125, 11, 1);
+}
+
+.section-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 5px;
+}
+
+.section-content {
+  display: flex;
+  flex-direction: column;
+  margin-left: 20px;
+}
+
+.arrow-down {
+  cursor: pointer;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.rotate {
+  transform: rotate(180deg);
+}
+
+@keyframes freak {
+  0% {
+    transform: scale(1);
+  }
+
+  33.33% {
+    transform: scale(0.8);
+  }
+
+  66.66% {
+    transform: scale(1.2);
+  }
+}
