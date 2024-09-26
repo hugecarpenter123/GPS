@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+  <style>
+    #scheduler-lookup-list  {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    #scheduler-lookup-list .scheduler-item {
+      font-size: 12px;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(100px, min-content)) 50px;
+      padding: 10px;
+    }
+    #scheduler-lookup-list button  {
+      background-color: red;
+      font-size: 12px;
+      width: 50px;
+      color: white;
+      border: none;
+      padding: 2px 8px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <ul id="scheduler-lookup-list">
+    <li class="scheduler-item">
+      <div class="source-city">12:00</div>
+      <div class="destination-city">12:00</div>
+      <div class="departure-time">12:00</div>
+      <div class="arrival-time">12:00</div>
+      <button class="delete-button">usuń</button>
+    </li>
+  </ul>
+</body>
+</html>

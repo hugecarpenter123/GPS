@@ -1,12 +1,10 @@
 import EventEmitter from "events";
 import gpsConfig, { FarmTimeInterval } from "../../../gps.config";
 import ConfigManager from "../../utility/config-manager";
-import { addDelay, getTimeInFuture, textToMs } from "../../utility/plain-utility";
+import { addDelay, areArraysContentsEqual as areArraysEqual, textToMs } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
 import { performComplexClick, waitForElement, waitForElementFromNode, waitForElements } from "../../utility/ui-utility";
-import { run } from "node:test";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
-import { time } from "console";
 
 type ScheduleItem = {
   scheduledDate: Date;
@@ -19,9 +17,8 @@ export default class FarmManager extends EventEmitter {
   private citySwitch!: CitySwitchManager;
   private configManager!: ConfigManager;
   private config!: typeof gpsConfig.farmConfig;
-  private scheduler: NodeJS.Timeout | null = null;
   private schedulerArray: ScheduleItem[] = [];
-  private scheduledDate: Date | null = null;
+  private previousVillageSelectors: string[] = [];
   private messageDialogObserver: MutationObserver | null = null;
   private lock!: Lock;
 
@@ -44,9 +41,11 @@ export default class FarmManager extends EventEmitter {
   }
 
   public async start() {
-    console.log('FarmManager started');
-    this.RUN = true;
-    await this.farmVillages();
+    if (!this.RUN) {
+      console.log('FarmManager started');
+      this.RUN = true;
+      await this.initFarmAllVillages();
+    }
   }
 
   /**
@@ -66,59 +65,10 @@ export default class FarmManager extends EventEmitter {
    * -sposób przechodzenia między wioskami ten sam: inicjalna funkcja start, która bierze Locka raz na wszystkie iteracje miast
    *  a potem farmienie przez callbacki
    */
-  private async farmVillages() {
+  private async farmVillages(city: CityInfo) {
     try {
       this.lock.acquire();
-
-      await waitForElement('[name="island_view"]').then((islandView) => islandView?.click());
-      await addDelay(333);
-
-      const villages = await waitForElements('a.owned.farm_town[data-same_island="true"]');
-      const villagesAmount = villages.length;
-
-      if (!villages || villages.length === 0) return;
-      const villageStyleSelectors = Array.from(villages).map(v => {
-        return `[style="${v.getAttribute('style')}"]`
-      })
-
-      await performComplexClick(villages[0])
-      const unlockTime = await this.getUnlockTimeOrNull(await waitForElement('.farm_towns'));
-      if (unlockTime) {
-        await waitForElement('.btn_wnd.close', 1000)
-          .then((el) => el.click())
-          .catch(() => { });
-        this.scheduleNextFarmingOperation(unlockTime);
-        return;
-      }
-
-      // zrób nasłuchiwacza popopów z `class="js-window-main-container classic_window dialog  "` popup `confirmation`
-      // buttony: `class="btn_cancel button_new"` albo `class="btn_confirm button_new"`
-      this.mountMessageDailogObserver();
-
-      for (const selector of villageStyleSelectors) {
-        let village: HTMLElement | null = null;
-        let farmOptions: NodeListOf<HTMLElement> | null = null;
-        do {
-          village = await waitForElement(selector);
-          await performComplexClick(village);
-          await addDelay(100);
-        } while (!(farmOptions = await waitForElements('.action_card.resources_bpv .card_click_area', 500).catch(() => null)))
-
-        const farmOptionIndex = this.getFarmOptionIndex(farmOptions!.length);
-        farmOptions![farmOptionIndex].click();
-        const closeButton = await waitForElement('.btn_wnd.close', 1000).catch(() => { });
-        closeButton?.click();
-
-        // Flaga, która sprawia natychmiastowe przerwanie pętli i zwrócienie locka
-        if (!run) {
-          return;
-        }
-
-        await addDelay(100);
-      }
-
-      // zaplanuj kolejny cykl
-      this.scheduleNextFarmingOperation(this.config.farmInterval);
+      await this.farmVillagesFlow(city);
     } catch (e) {
       console.warn('FarmManager.farmVillages().catch', e);
     } finally {
@@ -128,68 +78,89 @@ export default class FarmManager extends EventEmitter {
     }
   }
 
-  private async initFarmAllVillages() {
-    try {
-      this.lock.acquire();
-      if (this.citySwitch.getCityList().length === 1) {
-        await this.farmVillages();
+  /**
+   * Make sure, that if there are 2 or more cities on the same isle not to duplicate farming operation and scheduling.
+   * Although nothing bad or unpredictable will happen, it is a waste of resources. 
+   * Solution
+   * :store villages unique selectors, and check if previous ones (on condtition that there is more than 1 village) are not the same.
+   *  -if previous ones are the same, omit
+   *  -else allow normal flow
+   */
+  private async farmVillagesFlow(city: CityInfo) {
+    await waitForElement('[name="island_view"]').then((islandView) => islandView?.click());
+    await addDelay(333);
+
+    const villages = await waitForElements('a.owned.farm_town[data-same_island="true"]');
+
+    if (!villages || villages.length === 0) return;
+    const villageStyleSelectors = Array.from(villages).map(v => {
+      return `[style="${v.getAttribute('style')}"]`
+    })
+
+    await performComplexClick(villages[0])
+    const unlockTime = await this.getUnlockTimeOrNull(await waitForElement('.farm_towns'));
+    if (unlockTime) {
+      await waitForElement('.btn_wnd.close', 1000)
+        .then((el) => el.click())
+        .catch(() => { });
+
+      this.scheduleNextFarmingOperationForCity(unlockTime, city);
+      return;
+    }
+
+    // zrób nasłuchiwacza popopów z `class="js-window-main-container classic_window dialog  "` popup `confirmation`
+    // buttony: `class="btn_cancel button_new"` albo `class="btn_confirm button_new"`
+    this.mountMessageDailogObserver();
+
+    for (const selector of villageStyleSelectors) {
+      let village: HTMLElement | null = null;
+      let farmOptions: NodeListOf<HTMLElement> | null = null;
+      do {
+        village = await waitForElement(selector);
+        await performComplexClick(village);
+        await addDelay(100);
+      } while (!(farmOptions = await waitForElements('.action_card.resources_bpv .card_click_area', 333).catch(() => null)))
+
+      const farmOptionIndex = this.getFarmOptionIndex(farmOptions!.length);
+      farmOptions![farmOptionIndex].click();
+      const closeButton = await waitForElement('.btn_wnd.close', 1000).catch(() => { });
+      closeButton?.click();
+
+      // Flaga, która sprawia natychmiastowe przerwanie pętli i zwrócienie locka
+      if (!this.RUN) {
         return;
       }
 
-      for (const cityInfo of this.citySwitch.getCityList()) {
+      await addDelay(100);
+    }
+
+    // zaplanuj kolejny cykl
+    this.scheduleNextFarmingOperationForCity(this.config.farmInterval, city);
+  }
+
+  /**
+   * Bierze locka, iteruje przez wszystkie miasta, farmi wszystkie wioski danego miasta, dodaje osobnego callbacka dla każdego miasta.
+   * Po przejściu powraca do pierwszego miasta, zwraca locka, a wioski będą farmione przez osobną metodę: 'farmVillages'.
+   */
+  private async initFarmAllVillages() {
+    // const cityList = this.citySwitch.getCityList();
+
+    // Quickfix, init farming only for one city per island
+    const cityList = this.citySwitch.getCityList().reduce((acc: CityInfo[], cityInfo) => {
+      if (!acc.some(el => el.isleId === cityInfo.isleId)) {
+        acc.push(cityInfo);
+      }
+      return acc;
+    }, []);
+
+    try {
+      this.lock.acquire();
+      for (const cityInfo of cityList) {
         await cityInfo.switchAction();
         await addDelay(100);
-
-        await waitForElement('[name="island_view"]').then((islandView) => islandView?.click());
-        await addDelay(333);
-
-        const villages = await waitForElements('a.owned.farm_town[data-same_island="true"]');
-
-        if (!villages || villages.length === 0) return;
-        const villageStyleSelectors = Array.from(villages).map(v => {
-          return `[style="${v.getAttribute('style')}"]`
-        })
-
-        await performComplexClick(villages[0])
-        const unlockTime = await this.getUnlockTimeOrNull(await waitForElement('.farm_towns'));
-        if (unlockTime) {
-          await waitForElement('.btn_wnd.close', 1000)
-            .then((el) => el.click())
-            .catch(() => { });
-          this.scheduleNextFarmingOperationForCity(unlockTime, cityInfo);
-          return;
-        }
-
-        // zrób nasłuchiwacza popopów z `class="js-window-main-container classic_window dialog  "` popup `confirmation`
-        // buttony: `class="btn_cancel button_new"` albo `class="btn_confirm button_new"`
-        this.mountMessageDailogObserver();
-
-        for (const selector of villageStyleSelectors) {
-          let village: HTMLElement | null = null;
-          let farmOptions: NodeListOf<HTMLElement> | null = null;
-          do {
-            village = await waitForElement(selector);
-            await performComplexClick(village);
-            await addDelay(100);
-          } while (!(farmOptions = await waitForElements('.action_card.resources_bpv .card_click_area', 500).catch(() => null)))
-
-          const farmOptionIndex = this.getFarmOptionIndex(farmOptions!.length);
-          farmOptions![farmOptionIndex].click();
-          const closeButton = await waitForElement('.btn_wnd.close', 1000).catch(() => { });
-          closeButton?.click();
-
-          // Flaga, która sprawia natychmiastowe przerwanie pętli i zwrócienie locka
-          if (!run) {
-            return;
-          }
-
-          await addDelay(100);
-        }
-
-        // zaplanuj kolejny cykl
-        this.scheduleNextFarmingOperation(this.config.farmInterval);
+        await this.farmVillagesFlow(cityInfo);
       }
-
+      if (cityList.length !== 1) cityList[0].switchAction();
     } catch (e) {
       console.warn('FarmManager.farmVillages().catch', e);
     } finally {
@@ -197,15 +168,6 @@ export default class FarmManager extends EventEmitter {
       this.messageDialogObserver?.disconnect();
       this.emit('farmingFinished');
     }
-  }
-
-  private scheduleNextFarmingOperation = (timeInterval: number) => {
-    console.log('Schedule next farming operation at:', getTimeInFuture(timeInterval))
-    this.scheduledDate = new Date(Date.now() + timeInterval);
-    this.scheduler = setTimeout(() => {
-      this.scheduler = null;
-      this.farmVillages();
-    }, timeInterval);
   }
 
   private scheduleNextFarmingOperationForCity = (timeInterval: number, city: CityInfo) => {
@@ -219,13 +181,14 @@ export default class FarmManager extends EventEmitter {
     const timeout = setTimeout(async () => {
       await city.switchAction();
       await addDelay(100);
-      this.farmVillages();
+      this.farmVillages(city);
 
       this.schedulerArray = this.schedulerArray.filter(item => item !== scheduleItem)
     }, timeInterval);
 
     scheduleItem.timeout = timeout;
     this.schedulerArray.push(scheduleItem as ScheduleItem);
+    console.log('scheduler:', this.schedulerArray);
   }
 
   /**
@@ -312,11 +275,6 @@ export default class FarmManager extends EventEmitter {
   public stop() {
     this.RUN = false;
     console.log('FarmManager stopped');
-    if (this.scheduler) {
-      clearInterval(this.scheduler);
-      this.scheduler = null;
-    }
-
     this.schedulerArray.forEach(item => {
       clearTimeout(item.timeout);
     })

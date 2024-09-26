@@ -21,7 +21,18 @@ export const addDelay = (time: number = 1000): Promise<void> => {
 export const getTimeInFuture = (timeMs: number): string => {
   const now = new Date();
   const futureDate = new Date(now.getTime() + timeMs);
-  return `${futureDate.getHours()}:${futureDate.getMinutes()}:${futureDate.getSeconds()}`;
+  return `${futureDate.getHours().toString().padStart(2, '0')}:${futureDate.getMinutes().toString().padStart(2, '0')}:${futureDate.getSeconds().toString().padStart(2, '0')}`;
+}
+
+export const formatDateToSimpleString = (date: Date): string => {
+  return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+}
+
+export const msToTimeString = (ms: number): string => {
+  const hours = Math.floor(ms / (1000 * 60 * 60));
+  const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((ms % (1000 * 60)) / 1000);
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 
 export function getRandomInt(max: number) {
@@ -32,16 +43,10 @@ export const areGridsEqual = (grid1: [number, number], grid2: [number, number]):
   return grid1[0] === grid2[0] && grid1[1] === grid2[1];
 }
 
-export const triggerHover = (element: HTMLElement) => {
-  element.dispatchEvent(new Event('mouseover', {
-    bubbles: true,
-    cancelable: true,
-  }));
-}
-
-export const cancelHover = (element: HTMLElement) => {
-  element.dispatchEvent(new Event('mouseout', {
-    bubbles: true,
-    cancelable: true,
-  }));
+export function areArraysContentsEqual(arr1: string[], arr2: string[]): boolean {
+  if (arr1.length !== arr2.length) return false;
+  for (let i = 0; i < arr1.length; i++) {
+    if (arr1[i] !== arr2[i]) return false;
+  }
+  return true;
 }

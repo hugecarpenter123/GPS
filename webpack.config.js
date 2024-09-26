@@ -46,6 +46,7 @@ module.exports = {
     ],
   },
   resolve: {
+    fullySpecified: false,
     extensions: ['.ts', '.js', '.json', '.css'],
     fallback: {
       events: require.resolve("events/"),

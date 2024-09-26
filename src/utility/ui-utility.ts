@@ -14,6 +14,20 @@ export function simulateClick(element: HTMLElement) {
   }
 }
 
+export const triggerHover = (element: HTMLElement) => {
+  element.dispatchEvent(new Event('mouseover', {
+    bubbles: true,
+    cancelable: true,
+  }));
+}
+
+export const cancelHover = (element: HTMLElement) => {
+  element.dispatchEvent(new Event('mouseout', {
+    bubbles: true,
+    cancelable: true,
+  }));
+}
+
 // Funkcja do ustawienia wartości i wywołania zdarzeń
 export function setInputValue(inputElement: HTMLInputElement, value: string | number) {
   // Sprawdzenie, czy element jest rzeczywiście <input>
