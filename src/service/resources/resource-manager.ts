@@ -88,4 +88,11 @@ export default class ResourceManager {
 
     return resourcesInfo;
   }
+
+  private hasEnoughResources(requiredResources: { wood: number, stone: number, iron: number }) {
+    const wood = Number(document.querySelector<HTMLLIElement>('[data-type="wood"] .amount.ui-game-selectable')!.textContent);
+    const stone = Number(document.querySelector<HTMLLIElement>('[data-type="stone"] .amount.ui-game-selectable')!.textContent);
+    const iron = Number(document.querySelector<HTMLLIElement>('[data-type="iron"] .amount.ui-game-selectable')!.textContent);
+    return wood >= requiredResources.wood && stone >= requiredResources.stone && iron >= requiredResources.iron;
+  }
 }

@@ -5,6 +5,7 @@
   "main": "main.ts",
   "scripts": {
     "build": "webpack",
+    "build:readable": "webpack --mode development --devtool source-map",
     "start": "webpack serve --mode development"
   },
   "keywords": [],

@@ -1,7 +1,7 @@
 import EventEmitter from "events";
 import gpsConfig, { FarmTimeInterval } from "../../../gps.config";
 import ConfigManager from "../../utility/config-manager";
-import { addDelay, areArraysContentsEqual as areArraysEqual, textToMs } from "../../utility/plain-utility";
+import { addDelay, areArraysContentsEqual as areArraysEqual, isMobile, textToMs } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
 import { performComplexClick, waitForElement, waitForElementFromNode, waitForElements } from "../../utility/ui-utility";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
@@ -87,8 +87,10 @@ export default class FarmManager extends EventEmitter {
    *  -else allow normal flow
    */
   private async farmVillagesFlow(city: CityInfo) {
-    // await waitForElement('[name="island_view"]').then((islandView) => islandView?.click());
-    // await addDelay(333);
+    if (isMobile()) {
+      await waitForElement('[name="island_view"]').then((islandView) => islandView?.click());
+      await addDelay(333);
+    }
 
     const villages = await waitForElements('a.owned.farm_town[data-same_island="true"]');
 

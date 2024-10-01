@@ -6,7 +6,6 @@
 export const textToMs = (text: string): number => {
   const timeArray = text.split(':').map(el => parseInt(el));
   const timeout = (timeArray[0] * 1000 * 60 * 60) + (timeArray[1] * 1000 * 60) + (timeArray[2] * 1000);
-  console.log('sparsowano czas:', timeout)
   return timeout;
 }
 
@@ -49,4 +48,13 @@ export function areArraysContentsEqual(arr1: string[], arr2: string[]): boolean 
     if (arr1[i] !== arr2[i]) return false;
   }
   return true;
+}
+
+export function isMobile(): boolean {
+  if ((navigator as any).userAgentData) {
+    return (navigator as any).userAgentData.mobile
+  } else {
+    if (navigator.userAgent.match(/iPhone/i) || navigator.userAgent.match(/iPad/i) || navigator.userAgent.match(/Android/i)) return true;
+    return false; 
+  }
 }

@@ -1,4 +1,4 @@
-import { addDelay, textToMs } from "../../../utility/plain-utility";
+import { addDelay, getTimeInFuture, textToMs } from "../../../utility/plain-utility";
 import Lock from "../../../utility/ui-lock";
 import { cancelHover, triggerHover, waitForElement, waitForElementFromNode, waitForElements } from "../../../utility/ui-utility";
 import builderCss from './queue.css';
@@ -18,27 +18,6 @@ type QueueItem = {
   building: Building,
   toLvl: number
 }
-
-/**
- * Overview
-  Za każdym razem dy ratusz jest odwiedzany:
-  -dodaj "fikcyjną kolejkę" pod prawdziwą
-  -dodaj przycisk przy każdym budynku, który doda budynek do kolejki
-    :każdy budynek musi być ubiektem z unikatowym identyfikatorem:
-    * nazwa enum
-    * selektor rozbudowy
-    * ?lvl do rozbudowy
-    * image url
-  -pozwól okienku miec scrolla vertykalnego
-  -renderuj w fikcyjnej kolejce obiekty z arrajki
-
-  Fikcyjna kolejka musi wiedzieć czy może dodać element do kolejki, a jeżeli nie, to kiedy będzie mogła dodać.
-  Jeżel kolejka ma miejsce, ale nie da się przycisnąć przycisku buduj:
-  -spradź czy brak populacji jest problemem, jeżeli tak - dodaj do kolejki farmę
-  -jeżeli brak surowców, nasłuchuj na event `farm finished` dotyczącego danego miasta lub sprawdzaj możliwość co 5 minut
-  -jeżeli magazyn jest za mały dodaj do kolejki magazyn
-
- */
 
 export default class CityBuilder {
   private static readonly queueContainerId = 'additional-queue';
@@ -60,7 +39,7 @@ export default class CityBuilder {
   private lock!: Lock;
   private resourceManager!: ResourceManager;
   private buildSchedule: NodeJS.Timeout | null = null;
-  // private speedUpSchedule: NodeJS.Timeout | null = null;
+  
   private speedUpSchedule: { timeout: NodeJS.Timeout, promise: Promise<void> } | null = null;
   private RUN: boolean = false;
   private queue: Array<QueueItem> = [];
@@ -112,6 +91,17 @@ export default class CityBuilder {
   </div>
   <button id="show-builder">Toggle builder</button>
   */
+
+  private writeToStorage() {
+    localStorage.setItem('cityBuilderQueue', JSON.stringify(this.queue));
+  }
+
+  private readFromStorage() {
+    const queue = localStorage.getItem('cityBuilderQueue');
+    if (queue) {
+      this.queue = JSON.parse(queue);
+    }
+  }
 
   private addBuildButtons() {
     // <div id="build-container">
@@ -210,14 +200,15 @@ export default class CityBuilder {
     console.log('--------revalidateQueueItemLevels', building, fromIndex);
     const itemsToRevalidate = this.queue.filter((item, index) => index >= fromIndex && item.building.name === building.name);
     itemsToRevalidate.forEach((item) => {
-      console.log('\t-before rebuild:', JSON.stringify(item));
-      item.toLvl--;
-      item.id = `${item.building.name}-${item.toLvl}`;
+      const newToLvl = item.toLvl - 1;
+      const newId = `${item.building.name}-${newToLvl}`;
       const queueItemEl = document.querySelector(`[data-id="${item.id}"]`);
       if (queueItemEl) {
-        queueItemEl.querySelector('.up')!.textContent = `+${item.toLvl}`;
+        queueItemEl.querySelector('.up')!.textContent = `+${newToLvl}`;
+        queueItemEl.setAttribute('data-id', newId);
       }
-      console.log('\t-after rebuild:', JSON.stringify(item));
+      item.toLvl = newToLvl;
+      item.id = newId;
     });
   }
 
@@ -250,7 +241,6 @@ export default class CityBuilder {
     }
     else {
       if (this.allowUnsequentialBuilds) {
-        console.log('queue length is not 1, trying to add to real queue');
         const newestItem = this.queue[this.queue.length - 1];
         this.tryAddToRealQueue(newestItem);
       } else {
@@ -280,18 +270,24 @@ export default class CityBuilder {
     // if there is an empty slot, try to build
     if (await this.isEmptySlot()) {
       console.log('\t-there is an empty slot, trying to build');
-      // if building is not maxed, and can be build, it adds to real queue, if not then waits for 5 minutes in intervals and checks again
       this.checkIfItemCanBeBuiltAndAddDeleteOrSchedule(building, item);
     } else {
-      // if there is no empty slot, it checks how much time is left to finish first build, if it is less than 5 minutes, it tries to speed up
-      console.log('\t-No empty slot, trying to speed up first build');
-      await this.trySpeedUpFirstBuildOrSchedule();
-      if (this.speedUpSchedule) {
-        console.log('\t\t-waiting to speed up first build before continuing...');
-        await this.speedUpSchedule.promise;
-      }
-      console.log('\t\t-speed up finished, checking if item can be built');
-      this.checkIfItemCanBeBuiltAndAddDeleteOrSchedule(building, item);
+      this.setTimeoutForNextSpeedUpAndSchedule();
+    }
+  }
+
+  private async setTimeoutForNextSpeedUpAndSchedule() {
+    const timeToSpeedUp = await this.getTimeToCanSpeedUp();
+    if (timeToSpeedUp <= 0) {
+      console.log('\t-will speed up first build immediately');
+      await this.speedUpFirstBuild();
+      this.performBuildSchedule();
+    } else {
+      console.log('\t-speed up will be scheduled at:', getTimeInFuture(timeToSpeedUp));
+      this.buildSchedule = setTimeout(async () => {
+        await this.speedUpFirstBuild();
+        this.performBuildSchedule();
+      }, timeToSpeedUp);
     }
   }
 
@@ -299,19 +295,20 @@ export default class CityBuilder {
     console.log('trySpeedUpFirstBuildOrSchedule')
     if (!this.speedUpSchedule) {
       console.log('\t-speedUpSchedule does not exist, creating new one');
+      await addDelay(1000);
       const timeToSpeedUp = await this.getTimeToCanSpeedUp();
       console.log('\t-timeToSpeedUp:', timeToSpeedUp);
       if (timeToSpeedUp <= 0) {
         console.log('\t-will speed up first build immediately');
         await this.speedUpFirstBuild();
-        await addDelay(4000);
+        await addDelay(1000);
       } else {
         console.log('\t-speed up will be scheduled');
         let timeout!: NodeJS.Timeout;
         const promise = new Promise<void>(async (res) => {
           timeout = setTimeout(async () => {
             await this.speedUpFirstBuild();
-            await addDelay(4000);
+            await addDelay(1000);
             res();
             console.log('\t\t-speedUpFirstBuild finished, clearing speedUpSchedule');
             this.speedUpSchedule = null;
@@ -325,14 +322,12 @@ export default class CityBuilder {
   }
 
   private async checkIfItemCanBeBuiltAndAddDeleteOrSchedule(building: Building, item: QueueItem, forced: boolean = false) {
-    console.log('checkIfItemCanBeBuiltAndAddDeleteOrSchedule, item:', item);
-    console.log(`at this point queue should have empty slot ${!!(await this.isEmptySlot())}`)
+    console.log('check if can build item:', item);
     let canBuild = await this.canBuild(building);
     console.log('\t-canBuild:', canBuild);
     if (canBuild === true) {
       console.log('\t-canBuild is true, building...');
       await building.buildAction();
-      await this.trySpeedUpFirstBuildOrSchedule();
       this.shiftQueueCleanScheduleAndTryNext(item);
     }
     else if (canBuild === 'maxed') {
@@ -352,10 +347,9 @@ export default class CityBuilder {
           if (canBuild === true) {
             console.log('\t\t-canBuild is true, building...');
             await building.buildAction();
-            await this.trySpeedUpFirstBuildOrSchedule();
             this.shiftQueueCleanScheduleAndTryNext(item);
           }
-        }, 5 * 1000 * 60);
+        }, 1000 * 30);
       }
       // TODO: !!! IMPORTANT: if farm or magazine needs to be built first, BUT they are already maxed, then infinite loop happens, create 
       // additional flag passed to this function to prevent infinite loops (for example: forced=true) think of something
@@ -385,20 +379,7 @@ export default class CityBuilder {
         port mógł być schedulowany. Ten warunek nie upewnia się czy w kolejce na pewno znajduje się tartak 15,
         ale gdy przyjdzie jego kolej zapełnić kolejkę, to scheduler odpowiednio to rozwiąże.
          */
-        console.log('\t\t-try speed up first build or schedule');
-        await this.trySpeedUpFirstBuildOrSchedule();
-        if (this.speedUpSchedule) {
-          await this.speedUpSchedule.promise;
-        }
-        console.log('\t\t-speedUpSchedule finished, checking if item can be built');
-        this.checkIfItemCanBeBuiltAndAddDeleteOrSchedule(building, item);
-        // this.buildSchedule = setTimeout(async () => {
-        //   await this.speedUpSchedule!.promise;
-        //   this.checkIfItemCanBeBuiltAndAddDeleteOrSchedule(building, item);
-        // }, await this.getTimeToCanSpeedUp())
-        // NOTE: albo to
-        //   await this.speedUpSchedule!.promise;
-        //   this.checkIfItemCanBeBuiltAndAddDeleteOrSchedule(building, item);
+        this.setTimeoutForNextSpeedUpAndSchedule();
       } else {
         console.log('Item cannot be scheduled, because it has not met requirements');
         this.shiftQueueCleanScheduleAndTryNext(item);
@@ -421,8 +402,11 @@ export default class CityBuilder {
 
   private shiftQueueCleanScheduleAndTryNext(item: QueueItem) {
     this.queue.shift();
-    this.buildSchedule && clearInterval(this.buildSchedule);
-    this.buildSchedule = null;
+    if (this.buildSchedule) {
+      clearInterval(this.buildSchedule);
+      clearTimeout(this.buildSchedule);
+      this.buildSchedule = null;
+    }
     this.clearUIQueueItem(item);
     this.tryScheduleNextBuild();
   }
@@ -445,7 +429,11 @@ export default class CityBuilder {
   private async speedUpFirstBuild() {
     this.goToCityView();
     const freeButton = await waitForElement('[data-order_index="0"] .type_free', 2000).catch(() => null);
-    freeButton?.click();
+    if (freeButton) {
+      freeButton.click();
+    } else {
+      throw new Error('No free button found');
+    }
   }
 
   private async getFirstElementInTheRealQueue() {
@@ -514,12 +502,16 @@ export default class CityBuilder {
 
   private async isEmptySlot() {
     this.goToCityView()
-    return (await waitForElements('.construction_queue_order_container.instant_buy .js-queue-item.empty_slot', 4000).catch(() => [])).length > 0;
+    await addDelay(3000);
+    return await waitForElement('.construction_queue_order_container.instant_buy .js-queue-item.empty_slot', 2000)
+      .then(() => true)
+      .catch(() => false);
   }
 
   private async getTimeToCanSpeedUp(): Promise<number> {
     this.goToCityView();
-    const firstOrder = await waitForElement('[data-order_index="0"]', 4000).catch(() => null);
+    await addDelay(1000);
+    const firstOrder = await waitForElement('[data-order_index="0"] .countdown.js-item-countdown', 3000).catch(() => null);
     if (firstOrder) {
       return textToMs(firstOrder.textContent!) - 5 * 60 * 1000;
     }
