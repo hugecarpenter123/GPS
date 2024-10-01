@@ -87,8 +87,8 @@ export default class FarmManager extends EventEmitter {
    *  -else allow normal flow
    */
   private async farmVillagesFlow(city: CityInfo) {
-    await waitForElement('[name="island_view"]').then((islandView) => islandView?.click());
-    await addDelay(333);
+    // await waitForElement('[name="island_view"]').then((islandView) => islandView?.click());
+    // await addDelay(333);
 
     const villages = await waitForElements('a.owned.farm_town[data-same_island="true"]');
 

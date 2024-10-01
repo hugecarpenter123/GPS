@@ -1,5 +1,6 @@
 import ConfigManager from "../../utility/config-manager";
-import { waitForElement } from "../../utility/ui-utility";
+import { addDelay } from "../../utility/plain-utility";
+import { cancelHover, triggerHover, waitForElement } from "../../utility/ui-utility";
 
 export default class ResourceManager {
   private static instance: ResourceManager;
@@ -9,8 +10,9 @@ export default class ResourceManager {
 
   private constructor() {
     this.configManager = ConfigManager.getInstance();
-    this.minPopulationBuffer = this.configManager.getConfig().resources.minPopulationBuffer;
-    this.storeAlmostFullPercentage = this.configManager.getConfig().resources.storeAlmostFullPercentage;
+    // NOTE: error with fetching this conig data ! probabaly storage sinchronization problem
+    this.minPopulationBuffer = this.configManager.getConfig()?.resources?.minPopulationBuffer ?? 100;
+    this.storeAlmostFullPercentage = this.configManager.getConfig()?.resources?.storeAlmostFullPercentage ?? 0.9;
   }
 
   public static getInstance(): ResourceManager {
@@ -26,14 +28,40 @@ export default class ResourceManager {
   public stop() {
   }
 
-  public async getResources() {
-    const wood = Number(await waitForElement('[data-type="wood"] .amount.ui-game-selectable'));
-    const stone = Number(await waitForElement('[data-type="stone"] .amount.ui-game-selectable'));
-    const iron = Number(await waitForElement('[data-type="iron"] .amount.ui-game-selectable'));
-    const population = Number(await waitForElement('[data-type="population"] .amount.ui-game-selectable'));
+  public async getStoreCapacity() {
+    // let maxSizeElement: HTMLDivElement | null = null;
+    // do {
+    //   triggerHover(document.querySelector<HTMLDivElement>('[data-type="wood"] .amount.ui-game-selectable')!);
+    //   await addDelay(100);
+    // } while (!(maxSizeElement = document.querySelector<HTMLDivElement>('.island_resource_info span:nth-of-type(2)')))
 
-    const maxSizeText = (await waitForElement('.island_resource_info span:nth-of-type(2)')).textContent;
+    triggerHover(document.querySelector<HTMLDivElement>('[data-type="wood"] .amount.ui-game-selectable')!);
+    const maxSizeText = await waitForElement('.island_resource_info span:nth-of-type(2)');
+    const storeMaxSize = parseInt(maxSizeText?.textContent?.match(/\d+/)?.[0] || '0');
+    cancelHover(document.querySelector<HTMLDivElement>('[data-type="wood"] .amount.ui-game-selectable')!);
+    return storeMaxSize;
+  }
+
+  public getPopulation() {
+    const population = Number(document.querySelector<HTMLDivElement>('[data-type="population"] .amount.ui-game-selectable')!.textContent);
+    return population;
+  }
+
+  public async getResourcesInfo() {
+    const wood = Number((await waitForElement('[data-type="wood"] .amount.ui-game-selectable')).textContent);
+    const stone = Number((await waitForElement('[data-type="stone"] .amount.ui-game-selectable')).textContent);
+    const iron = Number((await waitForElement('[data-type="iron"] .amount.ui-game-selectable')).textContent);
+    const population = Number((await waitForElement('[data-type="population"] .amount.ui-game-selectable')).textContent);
+
+    const resourceItem = await waitForElement('[data-type="wood"] .amount.ui-game-selectable')
+    let maxSizeElement: HTMLDivElement | null = null;
+    do {
+      triggerHover(resourceItem);
+      await addDelay(333);
+    } while (!(maxSizeElement = document.querySelector<HTMLDivElement>('.island_resource_info span:nth-of-type(2)')))
+    const maxSizeText = maxSizeElement.textContent;
     const storeMaxSize = parseInt(maxSizeText?.match(/\d+/)?.[0] || '0');
+    cancelHover(resourceItem);
 
     const resourcesInfo = {
       wood: {

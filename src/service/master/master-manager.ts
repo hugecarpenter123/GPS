@@ -1,15 +1,17 @@
 import ConfigPopup from "../../ui/config-popup";
+import CityBuilder from "../city/builder/city-builder";
 import CitySwitchManager from "../city/city-switch-manager";
 import FarmManager from "../farm/farm-manager";
 import Scheduler from "../scheduler/Scheduler";
 
-type Managers = 'farmManager' | 'switchManager' | 'scheduler';
+type Managers = 'farmManager' | 'switchManager' | 'scheduler' | 'builder';
 
 export default class MasterManager {
   private static instance: MasterManager
   private farmManager!: FarmManager;
   private switchManager!: CitySwitchManager;
   private scheduler!: Scheduler;
+  private builder!: CityBuilder;
   private configMenuWindow!: ConfigPopup;
 
   private pausedManagersSnapshot: {
@@ -18,6 +20,7 @@ export default class MasterManager {
       farmManager: false,
       switchManager: false,
       scheduler: false,
+      builder: false,
     };
   private constructor() {
     // Private constructor to prevent direct instantiation
@@ -29,6 +32,7 @@ export default class MasterManager {
       MasterManager.instance.farmManager = await FarmManager.getInstance();
       MasterManager.instance.switchManager = await CitySwitchManager.getInstance();
       MasterManager.instance.scheduler = await Scheduler.getInstance();
+      MasterManager.instance.builder = CityBuilder.getInstance();
       MasterManager.instance.initConfigDialog();
     }
     return MasterManager.instance;
@@ -57,6 +61,17 @@ export default class MasterManager {
         this.farmManager.stop();
       }
     }
+    if (this.configMenuWindow.isBuilderChecked()) {
+      if (!this.builder.isRunning()) {
+        console.log('Builder will be started...')
+        this.builder.start();
+      }
+    } else {
+      if (this.builder.isRunning()) {
+        console.log('Builder will be stopped...')
+        this.builder.stop();
+      }
+    }
   }
 
   private async initConfigDialog() {
@@ -81,10 +96,14 @@ export default class MasterManager {
     if (!except.includes('scheduler')) {
       this.scheduler.stop();
     }
+    if (!except.includes('builder')) {
+      this.builder.stop();
+    }
     this.pausedManagersSnapshot = {
       farmManager: !this.farmManager.isRunning(),
       switchManager: !this.switchManager.isRunning(),
       scheduler: !this.scheduler.isRunning(),
+      builder: !this.builder.isRunning(),
     };
     console.log('pauseRunningManagers', this.pausedManagersSnapshot);
   }
@@ -107,6 +126,11 @@ export default class MasterManager {
             this.scheduler.run();
           }
           break;
+        case 'builder':
+          if (isPaused && !except.includes('builder')) {
+            this.builder.start();
+          }
+          break;
       }
     });
 
@@ -121,5 +145,6 @@ export default class MasterManager {
     this.farmManager.stop();
     this.switchManager.stop();
     this.scheduler.stop();
+    this.builder.stop();
   }
 }

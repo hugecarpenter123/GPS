@@ -15,17 +15,26 @@ export function simulateClick(element: HTMLElement) {
 }
 
 export const triggerHover = (element: HTMLElement) => {
-  element.dispatchEvent(new Event('mouseover', {
+  element && element.dispatchEvent(new Event('mouseover', {
     bubbles: true,
     cancelable: true,
   }));
 }
 
 export const cancelHover = (element: HTMLElement) => {
-  element.dispatchEvent(new Event('mouseout', {
+  element && element.dispatchEvent(new Event('mouseout', {
     bubbles: true,
     cancelable: true,
   }));
+}
+
+function appendChildAtIndex(parent: HTMLElement, newChild: HTMLElement, index: number) {
+  const children = parent.children;
+  if (index >= children.length) {
+    parent.appendChild(newChild);
+  } else {
+    parent.insertBefore(newChild, children[index]);
+  }
 }
 
 // Funkcja do ustawienia wartości i wywołania zdarzeń

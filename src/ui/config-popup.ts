@@ -11,7 +11,7 @@ export default class ConfigPopup extends EventEmitter {
 
   private switch: boolean;
   private farm: boolean;
-  private resources: boolean;
+  private builder: boolean;
   private guard: boolean;
 
   private farmInterval: FarmTimeInterval;
@@ -23,7 +23,7 @@ export default class ConfigPopup extends EventEmitter {
 
     this.switch = true;
     this.farm = true;
-    this.resources = false;
+    this.builder = false;
     this.guard = false;
 
     this.farmInterval = this.config.farmConfig.farmInterval;
@@ -36,8 +36,8 @@ export default class ConfigPopup extends EventEmitter {
     return this.farm;
   };
 
-  public isResourcesChecked = () => {
-    return this.resources;
+  public isBuilderChecked = () => {
+    return this.builder;
   };
 
   public isGuardChecked = () => {
@@ -51,7 +51,7 @@ export default class ConfigPopup extends EventEmitter {
     const container = document.querySelector('#config-popup-container') as HTMLElement;
     const switchCheckbox = container.querySelector('#city-switch');
     const plunderCheckbox = container.querySelector('#farm');
-    const resourcesCheckbox = container.querySelector('#resources');
+    const builderCheckbox = container.querySelector('#builder');
     const guardCheckbox = container.querySelector('#guard');
     const timeIntervalSelect = container.querySelector('#time-interval-select');
     const showTrigger = container.querySelector('.show-trigger');
@@ -68,8 +68,8 @@ export default class ConfigPopup extends EventEmitter {
         this.switch = false;
         (plunderCheckbox as HTMLInputElement)!.checked = false;
         this.farm = false;
-        (resourcesCheckbox as HTMLInputElement)!.checked = false;
-        this.resources = false;
+        (builderCheckbox as HTMLInputElement)!.checked = false;
+        this.builder = false;
         (guardCheckbox as HTMLInputElement)!.checked = false;
         this.guard = false;
       }
@@ -94,8 +94,8 @@ export default class ConfigPopup extends EventEmitter {
     plunderCheckbox!.addEventListener('change', () => {
       this.farm = (plunderCheckbox as HTMLInputElement).checked;
     });
-    resourcesCheckbox!.addEventListener('change', () => {
-      this.resources = (resourcesCheckbox as HTMLInputElement).checked;
+    builderCheckbox!.addEventListener('change', () => {
+      this.builder = (builderCheckbox as HTMLInputElement).checked;
     });
     guardCheckbox!.addEventListener('change', () => {
       this.guard = (guardCheckbox as HTMLInputElement).checked;
@@ -125,7 +125,7 @@ export default class ConfigPopup extends EventEmitter {
     // get initial data from config and change
     (container.querySelector('#city-switch') as HTMLInputElement)!.checked = this.switch;
     (container.querySelector('#farm') as HTMLInputElement)!.checked = this.farm;
-    (container.querySelector('#resources') as HTMLInputElement)!.checked = this.resources;
+    (container.querySelector('#builder') as HTMLInputElement)!.checked = this.builder;
     (container.querySelector('#guard') as HTMLInputElement)!.checked = this.guard;
 
     const intervalSelectElement = (container.querySelector('#time-interval-select') as HTMLSelectElement)
@@ -168,7 +168,7 @@ export default class ConfigPopup extends EventEmitter {
   public getManagersFlags = () => {
     return {
       farm: this.farm,
-      resources: this.resources,
+      builder: this.builder,
       guard: this.guard,
     }
   }
