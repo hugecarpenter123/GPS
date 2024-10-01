@@ -1,4 +1,5 @@
 import ConfigPopup from "../../ui/config-popup";
+import { addDelay } from "../../utility/plain-utility";
 import CityBuilder from "../city/builder/city-builder";
 import CitySwitchManager from "../city/city-switch-manager";
 import FarmManager from "../farm/farm-manager";
@@ -34,8 +35,47 @@ export default class MasterManager {
       MasterManager.instance.scheduler = await Scheduler.getInstance();
       MasterManager.instance.builder = CityBuilder.getInstance();
       MasterManager.instance.initConfigDialog();
+      MasterManager.instance.initCaptchaPrevention();
     }
     return MasterManager.instance;
+  }
+
+  // id="recaptcha_window"
+  // document.querySelector('[class="recaptcha-checkbox-border"]')
+  // document.querySelector('#recaptcha_window [class="caption js-caption"]').click()
+  private initCaptchaPrevention() {
+    new MutationObserver(async (mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'childList') {
+          const recaptchaWindow = document.querySelector('#recaptcha_window');
+          const captchaCurtain = document.querySelector('#captcha_curtain');
+          if (recaptchaWindow) {
+            const checkbox = recaptchaWindow.querySelector<HTMLElement>('[class="recaptcha-checkbox-border"]');
+            if (checkbox) {
+              await addDelay(4000);
+              checkbox.click();
+              const caption = recaptchaWindow.querySelector<HTMLElement>('#recaptcha_window [class="caption js-caption"]');
+              if (caption) {
+                await addDelay(4000);
+                caption.click();
+              }
+            }
+          } else if (captchaCurtain) {
+            const checkbox = captchaCurtain.querySelector<HTMLElement>('[class="captcha-checkbox-border"]');
+            if (checkbox) {
+              await addDelay(2000);
+              checkbox.click();
+              const caption = captchaCurtain.querySelector<HTMLElement>('#captcha_curtain [class="caption js-caption"]');
+              if (caption) {
+                await addDelay(2000);
+                caption.click();
+              }
+            }
+          }
+        }
+      }
+    }).observe(document.body, { childList: true });
+
   }
 
   private async runManagersFromConfig(): Promise<void> {
@@ -50,17 +90,6 @@ export default class MasterManager {
         this.switchManager.stop();
       }
     }
-    if (this.configMenuWindow.isFarmChecked()) {
-      if (!this.farmManager.isRunning()) {
-        console.log('FarmManager will be started...')
-        await this.farmManager.start();
-      }
-    } else {
-      if (this.farmManager.isRunning()) {
-        console.log('FarmManager will be stopped...')
-        this.farmManager.stop();
-      }
-    }
     if (this.configMenuWindow.isBuilderChecked()) {
       if (!this.builder.isRunning()) {
         console.log('Builder will be started...')
@@ -70,6 +99,17 @@ export default class MasterManager {
       if (this.builder.isRunning()) {
         console.log('Builder will be stopped...')
         this.builder.stop();
+      }
+    }
+    if (this.configMenuWindow.isFarmChecked()) {
+      if (!this.farmManager.isRunning()) {
+        console.log('FarmManager will be started...')
+        await this.farmManager.start();
+      }
+    } else {
+      if (this.farmManager.isRunning()) {
+        console.log('FarmManager will be stopped...')
+        this.farmManager.stop();
       }
     }
   }

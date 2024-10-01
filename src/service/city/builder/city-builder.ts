@@ -1,3 +1,10 @@
+// id="recaptcha_window"
+// document.querySelector('[class="recaptcha-checkbox-border"]')
+// document.querySelector('#recaptcha_window [class="caption js-caption"]').click()
+
+
+
+
 import { addDelay, getTimeInFuture, textToMs } from "../../../utility/plain-utility";
 import Lock from "../../../utility/ui-lock";
 import { cancelHover, triggerHover, waitForElement, waitForElementFromNode, waitForElements } from "../../../utility/ui-utility";
@@ -39,7 +46,7 @@ export default class CityBuilder {
   private lock!: Lock;
   private resourceManager!: ResourceManager;
   private buildSchedule: NodeJS.Timeout | null = null;
-  
+
   private speedUpSchedule: { timeout: NodeJS.Timeout, promise: Promise<void> } | null = null;
   private RUN: boolean = false;
   private queue: Array<QueueItem> = [];
@@ -50,9 +57,9 @@ export default class CityBuilder {
       CityBuilder.instance = new CityBuilder();
       CityBuilder.instance.lock = Lock.getInstance();
       CityBuilder.instance.resourceManager = ResourceManager.getInstance();
-      CityBuilder.instance.loadQueueFromStorage();
       CityBuilder.instance.addStyle();
       CityBuilder.instance.renderUI();
+      CityBuilder.instance.loadQueueFromStorage();
     }
     return CityBuilder.instance;
   }
@@ -91,17 +98,6 @@ export default class CityBuilder {
   </div>
   <button id="show-builder">Toggle builder</button>
   */
-
-  private writeToStorage() {
-    localStorage.setItem('cityBuilderQueue', JSON.stringify(this.queue));
-  }
-
-  private readFromStorage() {
-    const queue = localStorage.getItem('cityBuilderQueue');
-    if (queue) {
-      this.queue = JSON.parse(queue);
-    }
-  }
 
   private addBuildButtons() {
     // <div id="build-container">
@@ -188,6 +184,7 @@ export default class CityBuilder {
           this.revalidateQueueItemLevels(queueItem.building, index);
         }
         queueItemEl.remove();
+        this.saveQueueToStorage();
       } else {
         console.log('Item not found in queue');
       }
@@ -229,6 +226,7 @@ export default class CityBuilder {
 
     this.addBuldingToUIQueue(queueItem);
     this.queue.push(queueItem);
+    this.saveQueueToStorage();
     console.log('pushed to queue:', this.queue);
     this.tryAddToRealQueueOrSchedule();
   }
@@ -342,12 +340,11 @@ export default class CityBuilder {
       }
     }
     else {
-      const areResourcesStackable = await this.areResourcesStackable(building);
-      if (areResourcesStackable === true) {
+      const resourcesInfo = await this.areResourcesStackable(building);
+      if (resourcesInfo.areStackable === true) {
         console.log('\t-areResourcesStackable is true, scheduling build');
         this.buildSchedule = setInterval(async () => {
-          let canBuild = await this.canBuild(building);
-          if (canBuild === true) {
+          if (this.resourceManager.hasEnoughResources(resourcesInfo.requiredResources) && (await this.canBuild(building))) {
             console.log('\t\t-canBuild is true, building...');
             await building.buildAction();
             this.shiftQueueCleanScheduleAndTryNext(item);
@@ -356,7 +353,7 @@ export default class CityBuilder {
       }
       // TODO: !!! IMPORTANT: if farm or magazine needs to be built first, BUT they are already maxed, then infinite loop happens, create 
       // additional flag passed to this function to prevent infinite loops (for example: forced=true) think of something
-      else if (areResourcesStackable === 'population' && this.allowCriticalBuilds) {
+      else if (resourcesInfo.areStackable === 'population' && this.allowCriticalBuilds) {
         console.log('\t\t-areResourcesStackable is population, adding farm to queue');
         const farm = buildings.farm;
         const buildingLvl = await this.getBuildingCurrentLvl(farm);
@@ -366,7 +363,7 @@ export default class CityBuilder {
         this.addBuldingToUIQueue(queueItem, 'start');
         this.performBuildSchedule();
       }
-      else if (areResourcesStackable === 'storage' && this.allowCriticalBuilds) {
+      else if (resourcesInfo.areStackable === 'storage' && this.allowCriticalBuilds) {
         console.log('\t\t-areResourcesStackable is storage, adding storage to queue');
         const storage = buildings.storage;
         const buildingLvl = await this.getBuildingCurrentLvl(storage);
@@ -375,7 +372,7 @@ export default class CityBuilder {
         this.queue.unshift(queueItem);
         this.addBuldingToUIQueue(queueItem, 'start');
         this.performBuildSchedule();
-      } else if (areResourcesStackable === 'alreadyStacked' && !(await this.isQueueEmpty())) {
+      } else if (resourcesInfo.areStackable === 'alreadyStacked' && !(await this.isQueueEmpty())) {
         console.log('\t\t-areResourcesStackable is alreadyStacked, scheduling build');
         /*
         Ten warunek upewnia się, że jeżeli w prawdziwej kolejce znajduje się tartak 15, to żeby 
@@ -405,6 +402,7 @@ export default class CityBuilder {
 
   private shiftQueueCleanScheduleAndTryNext(item: QueueItem) {
     this.queue.shift();
+    this.saveQueueToStorage();
     if (this.buildSchedule) {
       clearInterval(this.buildSchedule);
       clearTimeout(this.buildSchedule);
@@ -439,11 +437,6 @@ export default class CityBuilder {
     }
   }
 
-  private async getFirstElementInTheRealQueue() {
-    const firstElementInTheQueue = await waitForElement('[data-order_index="0"]');
-    return firstElementInTheQueue;
-  }
-
   private async canBuild(building: Building): Promise<boolean | 'maxed'> {
     await this.tryGoToBuildMode();
     const buildButton = await waitForElement(`${building.elementSelector} ${buildingsSelectors.buildButton}`, 2000).catch(() => null);
@@ -454,7 +447,7 @@ export default class CityBuilder {
     return canBuild;
   }
 
-  private async areResourcesStackable(building: Building): Promise<true | 'population' | 'storage' | 'alreadyStacked'> {
+  private async areResourcesStackable(building: Building): Promise<{ areStackable: boolean | 'storage' | 'population' | 'alreadyStacked', requiredResources: { wood: number, stone: number, iron: number } }> {
     console.log('areResourcesStackable');
     await this.tryGoToBuildMode();
     // const buildButton = await waitForElement(`${building.elementSelector} ${buildingsSelectors.buildButton}`);
@@ -479,22 +472,26 @@ export default class CityBuilder {
       \t- Required iron: ${requiredIron}`);
 
     console.log('Current resources:', resourcesInfo);
-
+    const requiredResources = {
+      wood: requiredWood,
+      stone: requiredStone,
+      iron: requiredIron,
+    };
     if (requiredPopulation > (resourcesInfo.population.amount)) {
-      return 'population';
+      return { areStackable: 'population', requiredResources: { wood: 0, stone: 0, iron: 0 } };
     }
     if ([requiredWood, requiredStone, requiredIron].reduce((acc, curr) => curr > acc ? curr : acc, 0) > resourcesInfo.storeMaxSize) {
-      return 'storage';
+      return { areStackable: 'storage', requiredResources };
     }
     if (requiredWood <= (resourcesInfo).wood.amount &&
       requiredStone <= (resourcesInfo).stone.amount &&
       requiredIron <= (resourcesInfo).iron.amount &&
       requiredPopulation <= (resourcesInfo).population.amount
     ) {
-      return 'alreadyStacked';
+      return { areStackable: 'alreadyStacked', requiredResources };
     }
-    return true;
-  }
+    return { areStackable: true, requiredResources }
+  };
 
   private addStyle() {
     const style = document.createElement('style');
@@ -522,7 +519,17 @@ export default class CityBuilder {
   }
 
   private loadQueueFromStorage() {
-    // do it later
+    const queue = localStorage.getItem('cityBuilderQueue');
+    if (queue) {
+      this.queue = JSON.parse(queue);
+    }
+    this.queue.forEach(item => {
+      this.addBuldingToUIQueue(item);
+    });
+  }
+
+  private saveQueueToStorage() {
+    localStorage.setItem('cityBuilderQueue', JSON.stringify(this.queue));
   }
 
   private async isQueueEmpty() {
@@ -533,11 +540,18 @@ export default class CityBuilder {
   public start() {
     this.RUN = true;
     document.getElementById(CityBuilder.toggleBuilderButtonId)!.classList.remove('hidden');
+    if (this.queue.length > 0 && !this.buildSchedule) {
+      this.performBuildSchedule();
+    }
   }
   public stop() {
     console.log('Stopping');
     this.RUN = false;
-    this.buildSchedule = null;
+    if (this.buildSchedule) {
+      clearInterval(this.buildSchedule);
+      clearTimeout(this.buildSchedule);
+      this.buildSchedule = null;
+    }
     document.getElementById(CityBuilder.toggleBuilderButtonId)!.classList.add('hidden');
   }
   public isRunning() {
