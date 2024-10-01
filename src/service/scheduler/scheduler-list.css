@@ -1,0 +1,89 @@
+#table-container {
+  max-height: 50vh;
+  overflow-y: auto;
+  border: 1px solid #ddd;
+  width: fit-content;
+}
+
+#scheduler-lookup-table {
+  font-family: Arial, Helvetica, sans-serif;
+  border-collapse: collapse;
+  font-size: 18px;
+  text-align: left;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1000;
+  background-color: antiquewhite;
+}
+
+#no-schedules {
+  text-align: center;
+  height: 50px;
+}
+
+.attack {
+  font-weight: 600;
+  color: #d32f2f;
+}
+
+.support {
+  font-weight: 600;
+  color: #2979ff;
+}
+
+#scheduler-lookup-table * {
+  font-size: 14px;
+}
+
+#scheduler-lookup-table th,
+#scheduler-lookup-table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+}
+
+#scheduler-lookup-table th {
+  background-color: #f2f2f2;
+  font-weight: bold;
+}
+
+#scheduler-lookup-table td {
+  text-wrap: nowrap;
+}
+
+
+.cancel-button {
+  background-color: #f44336;
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition-duration: 150ms;
+}
+
+.cancel-button:hover {
+  background-color: #d32f2f;
+}
+
+#scheduler-toggle-button {
+  padding: 4px 8px;
+  font-size: 12px;
+  font-variant: small-caps;
+  cursor: pointer;
+  border-radius: 20px;
+  position: absolute;
+  bottom: 220px;
+  right: 10px;
+  margin: 0;
+  z-index: 1000;
+  transition-duration: 150ms;
+}
+
+#scheduler-toggle-button:hover {
+  background-color: #ddd;
+}
+
+.hidden {
+  display: none;
+}

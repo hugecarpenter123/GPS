@@ -1,41 +1,54 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Document</title>
-  <style>
-    #scheduler-lookup-list  {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }
-    #scheduler-lookup-list .scheduler-item {
-      font-size: 12px;
-      display: grid;
-      grid-template-columns: repeat(4, minmax(100px, min-content)) 50px;
-      padding: 10px;
-    }
-    #scheduler-lookup-list button  {
-      background-color: red;
-      font-size: 12px;
-      width: 50px;
-      color: white;
-      border: none;
-      padding: 2px 8px;
-      cursor: pointer;
-    }
-  </style>
+  <link rel="stylesheet" href="scheduler-list.css">
 </head>
+
 <body>
-  <ul id="scheduler-lookup-list">
-    <li class="scheduler-item">
-      <div class="source-city">12:00</div>
-      <div class="destination-city">12:00</div>
-      <div class="departure-time">12:00</div>
-      <div class="arrival-time">12:00</div>
-      <button class="delete-button">usuń</button>
-    </li>
-  </ul>
+  <div id="table-container">
+    <table id="scheduler-lookup-table">
+      <thead>
+        <tr>
+          <th id="operation-type">Operation Type</th>
+          <th class="source-city">Source City</th>
+          <th class="destination-city">Destination City</th>
+          <th class="departure-time">Departure Time</th>
+          <th class="arrival-time">Arrival Time</th>
+          <th class="actions"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td colspan="6" id="no-schedules" class="hidden">No schedules</td>
+        </tr>
+        <tr class="scheduler-item">
+          <td class="operation-type support">Support</td>
+          <td class="source-city">city of madagaskar</td>
+          <td class="destination-city">twoja stara</td>
+          <td class="departure-time">12:11:52</td>
+          <td class="arrival-time">13:24:21</td>
+          <td class="actions">
+            <button class="cancel-button">Cancel</button>
+          </td>
+        </tr>
+        <tr class="scheduler-item">
+          <td class="operation-type attack">Attack</td>
+          <td class="source-city">city of madagaskar</td>
+          <td class="destination-city">twoja stara</td>
+          <td class="departure-time">12:11:52</td>
+          <td class="arrival-time">13:24:21</td>
+          <td class="actions">
+            <button class="cancel-button">Cancel</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <button id="scheduler-toggle-button">scheduler</button>
 </body>
+
 </html>

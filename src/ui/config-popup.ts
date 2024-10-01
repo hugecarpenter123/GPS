@@ -23,7 +23,7 @@ export default class ConfigPopup extends EventEmitter {
 
     this.switch = true;
     this.farm = true;
-    this.builder = false;
+    this.builder = true;
     this.guard = false;
 
     this.farmInterval = this.config.farmConfig.farmInterval;

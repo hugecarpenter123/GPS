@@ -7,6 +7,8 @@ import ArmyMovement from "../army/army-movement";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
 import MasterManager from "../master/master-manager";
 import buttonPanelExtension from './button-panel-extension.html';
+import schedulerListHtml from './scheduler-list-prod.html';
+import schedulerListCss from './scheduler-list.css';
 
 enum OperationType {
   ARMY_ATTACK,
@@ -73,6 +75,7 @@ export default class Scheduler {
       Scheduler.instance.citySwitchManager = await CitySwitchManager.getInstance();
       Scheduler.instance.config = ConfigManager.getInstance().getConfig();
       Scheduler.instance.addUIExtenstion();
+      Scheduler.instance.addSchedulerListConfigWindow();
       Scheduler.instance.synchronizeSchedulerWithStorage();
     }
     return Scheduler.instance;
@@ -201,8 +204,10 @@ export default class Scheduler {
           if (scheduleTimeout.timeout30s) clearTimeout(scheduleTimeout.timeout30s)
           if (scheduleTimeout.timeout10s) clearTimeout(scheduleTimeout.timeout10s)
           if (scheduleTimeout.timeoutAction) clearTimeout(scheduleTimeout.timeoutAction)
-          if (this.isLockTakenByScheduler) this.lock.release();
-          this.isLockTakenByScheduler = false;
+          if (this.isLockTakenByScheduler) {
+            this.lock.release();
+            this.isLockTakenByScheduler = false;
+          }
           this.scheduler = this.scheduler.filter(item => item !== schedulerItem)
           localStorage.setItem('scheduler', JSON.stringify(this.scheduler));
           this.tryRestoreManagers();
@@ -211,7 +216,7 @@ export default class Scheduler {
           setTimeout(() => {
             this.scheduler = this.scheduler.filter((item) => item !== schedulerItem);
             localStorage.setItem('scheduler', JSON.stringify(this.scheduler));
-          }, 10 * 60 * 1000);
+          }, 0);
           if (this.isLockTakenByScheduler) this.lock.release();
           this.isLockTakenByScheduler = false;
           this.tryRestoreManagers();
@@ -280,7 +285,8 @@ export default class Scheduler {
 
       }, halfMinuteBeforeAction);
 
-      this.scheduler.push(schedulerItem)
+      this.scheduler.push(schedulerItem);
+      this.addSchedulerItemToUI(schedulerItem);
       localStorage.setItem('scheduler', JSON.stringify(this.scheduler));
       this.info = 'Operation scheduled'
       console.log('Scheduler.extendAttackSupportUI.schedulerItem', schedulerItem);
@@ -294,6 +300,7 @@ export default class Scheduler {
   private synchronizeSchedulerWithStorage() {
     const storageScheduler = JSON.parse(localStorage.getItem('scheduler') || '[]') as ScheduleItem[];
     storageScheduler.forEach(schedulerItem => this.hydrateSchedulerItem(schedulerItem));
+    this.handleIfSchedulerListIsEmpty();
   }
 
   private hydrateSchedulerItem(schedulerItem: ScheduleItem) {
@@ -320,10 +327,13 @@ export default class Scheduler {
       }
 
       schedulerItem.postActionCleanup = () => {
+        // TODO: w pzyszłości item powinien byc usuwany 10 minut później, bo będzie można zaplanować jego odwołanie zawczasu
         setTimeout(() => {
           this.scheduler = this.scheduler.filter((item) => item !== schedulerItem);
           localStorage.setItem('scheduler', JSON.stringify(this.scheduler));
-        }, 10 * 60 * 1000);
+          this.removeSchedulerItemFromUI(schedulerItem);
+          this.handleIfSchedulerListIsEmpty();
+        }, 0);
         if (this.isLockTakenByScheduler) this.lock.release();
         this.isLockTakenByScheduler = false;
         this.tryRestoreManagers();
@@ -393,6 +403,7 @@ export default class Scheduler {
       }, halfMinuteBeforeAction);
 
       this.scheduler.push(schedulerItem);
+      this.addSchedulerItemToUI(schedulerItem);
       console.log('Scheduler.hydrateSchedulerItem.item', schedulerItem);
     }
   }
@@ -565,6 +576,72 @@ export default class Scheduler {
     observer.observe(document.body, {
       childList: true,
     });
-
   }
+
+  private addSchedulerListConfigWindow(): void {
+    const style = document.createElement('style');
+    style.textContent = schedulerListCss;
+    document.head.appendChild(style);
+
+    const schedulerListConfigWindow = document.createElement('div');
+    schedulerListConfigWindow.innerHTML = schedulerListHtml;
+    document.body.appendChild(schedulerListConfigWindow);
+
+    this.addSchedulerListConfigListeners();
+  }
+
+  private addSchedulerListConfigListeners(): void {
+    const toggleButton = document.querySelector<HTMLButtonElement>('#scheduler-toggle-button');
+    toggleButton?.addEventListener('click', () => {
+      const tableContainer = document.querySelector<HTMLDivElement>('#table-container');
+      tableContainer?.classList.toggle('hidden');
+    });
+  }
+
+  private addSchedulerItemToUI(schedulerItem: ScheduleItem): void {
+    const table = document.querySelector<HTMLTableElement>('#scheduler-lookup-table tbody');
+    const row = table!.insertRow();
+    const id = this.getSchedulerItemId(schedulerItem);
+    row.setAttribute('data-scheduler-item-id', id);
+
+    const operaitonTypeCell = row.insertCell();
+    operaitonTypeCell.textContent = schedulerItem.operationType === OperationType.ARMY_ATTACK ? 'Attack' : 'Support';
+    operaitonTypeCell.classList.add(schedulerItem.operationType === OperationType.ARMY_ATTACK ? 'attack' : 'support');
+    row.insertCell().textContent = schedulerItem.sourceCity.name;
+    row.insertCell().textContent = schedulerItem.targetCityIdSelector;
+    row.insertCell().textContent = schedulerItem.actionDate.toLocaleTimeString();
+    row.insertCell().textContent = schedulerItem.targetDate.toLocaleTimeString();
+
+    const cancelButtonCell = row.insertCell();
+    const cancelButton = document.createElement('button');
+    cancelButton.classList.add('cancel-button');
+    cancelButton.textContent = 'Cancel';
+    cancelButton.addEventListener('click', () => {
+      schedulerItem.cancelSchedule();
+      this.removeSchedulerItemFromUI(schedulerItem);
+    });
+    cancelButtonCell.appendChild(cancelButton);
+    this.handleIfSchedulerListIsEmpty();
+  }
+
+  private removeSchedulerItemFromUI(schedulerItem: ScheduleItem): void {
+    const table = document.querySelector<HTMLTableElement>('#scheduler-lookup-table tbody');
+    const row = table!.querySelector(`[data-scheduler-item-id="${this.getSchedulerItemId(schedulerItem)}"]`);
+    row!.remove();
+    this.handleIfSchedulerListIsEmpty();
+  }
+
+  private getSchedulerItemId(schedulerItem: ScheduleItem): string {
+    return schedulerItem.operationType + schedulerItem.sourceCity.name + schedulerItem.targetCityIdSelector + schedulerItem.targetDate.getTime() + schedulerItem.actionDate.getTime();
+  }
+
+  private handleIfSchedulerListIsEmpty(): void {
+    const noSchedules = document.querySelector<HTMLTableElement>('#no-schedules');
+    if (this.scheduler.length === 0) {
+      noSchedules!.classList.remove('hidden');
+    } else {
+      noSchedules!.classList.add('hidden');
+    }
+  }
+
 }

@@ -262,6 +262,9 @@ export default class CityBuilder {
   }
 
   private async performBuildSchedule() {
+    if (!this.queue.length) {
+      return;
+    }
     // get first item from queue
     const item = this.queue[0];
     const building = item.building;
@@ -458,11 +461,11 @@ export default class CityBuilder {
     do {
       triggerHover(document.querySelector(`${building.elementSelector} ${buildingsSelectors.buildButton}`)!);
       await addDelay(333);
-    } while (!document.querySelector('#popup_content img[alt="Wood"]'));
-    const requiredWood = Number((await waitForElement('#popup_content img[alt="Wood"]', 3000)).nextSibling!.textContent!);
-    const requiredStone = Number((await waitForElement('#popup_content img[alt="Stone"]', 0)).nextSibling!.textContent!);
-    const requiredIron = Number((await waitForElement('#popup_content img[alt="Silver coins"]', 0)).nextSibling!.textContent!);
-    const requiredPopulation = Number((await waitForElement('img[alt="Food"]', 0)).nextSibling!.textContent!);
+    } while (!document.querySelector('#popup_content img[src="https://gppl.innogamescdn.com/images/game/res/wood.png"]'));
+    const requiredWood = Number((await waitForElement('#popup_content img[src="https://gppl.innogamescdn.com/images/game/res/wood.png"]', 3000)).nextSibling!.textContent!);
+    const requiredStone = Number((await waitForElement('#popup_content img[src="https://gppl.innogamescdn.com/images/game/res/stone.png"]', 0)).nextSibling!.textContent!);
+    const requiredIron = Number((await waitForElement('#popup_content img[src="https://gppl.innogamescdn.com/images/game/res/iron.png"]', 0)).nextSibling!.textContent!);
+    const requiredPopulation = Number((await waitForElement('#popup_content img[src="https://gppl.innogamescdn.com/images/game/res/pop.png"]', 0)).nextSibling!.textContent!);
     cancelHover(document.querySelector(`${building.elementSelector} ${buildingsSelectors.buildButton}`)!);
 
     const resourcesInfo = await this.resourceManager.getResourcesInfo();
