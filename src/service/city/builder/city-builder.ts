@@ -1,10 +1,3 @@
-// id="recaptcha_window"
-// document.querySelector('[class="recaptcha-checkbox-border"]')
-// document.querySelector('#recaptcha_window [class="caption js-caption"]').click()
-
-
-
-
 import { addDelay, getTimeInFuture, textToMs } from "../../../utility/plain-utility";
 import Lock from "../../../utility/ui-lock";
 import { cancelHover, triggerHover, waitForElement, waitForElementFromNode, waitForElements } from "../../../utility/ui-utility";
@@ -12,13 +5,7 @@ import builderCss from './queue.css';
 import builderHtml from './builder-prod.html';
 import { Building, buildings, buildingsSelectors } from "./buildings";
 import ResourceManager from "../../resources/resource-manager";
-
-
-type BuildingId = '#building_main_main' | '#building_main_hide'
-  | '#building_main_lumber' | '#building_main_stoner' | '#building_main_ironer'
-  | '#building_main_market' | '#building_main_docks' | '#building_main_barracks'
-  | '#building_main_wall' | '#building_main_storage' | '#building_main_farm'
-  | '#building_main_academy' | '#building_main_temple'
+import { CityInfo } from "../city-switch-manager";
 
 type QueueItem = {
   id: string,
@@ -50,6 +37,14 @@ export default class CityBuilder {
   private speedUpSchedule: { timeout: NodeJS.Timeout, promise: Promise<void> } | null = null;
   private RUN: boolean = false;
   private queue: Array<QueueItem> = [];
+
+  private mainQueue: {
+    city: CityInfo,
+    queue: Array<QueueItem>
+    schedule: NodeJS.Timeout | null
+  } | null = null;
+
+
   private constructor() { }
 
   public static getInstance(): CityBuilder {
@@ -152,7 +147,7 @@ export default class CityBuilder {
     queueItemEl.className = CityBuilder.queueItemClass;
     queueItemEl.style.backgroundImage = queueItem.building.backgroundImageProp;
     queueItemEl.setAttribute('data-id', queueItem.id);
-    position === 'start' ? appendChildAtIndex(additionalQueue, queueItemEl, 0) : additionalQueue.appendChild(queueItemEl);
+    position === 'start' ? this.appendChildAtIndex(additionalQueue, queueItemEl, 0) : additionalQueue.appendChild(queueItemEl);
 
     // <div class="up">+1</div>
     const upButton = document.createElement('div');
@@ -557,9 +552,16 @@ export default class CityBuilder {
   public isRunning() {
     return this.RUN;
   }
+  private appendChildAtIndex(additionalQueue: HTMLElement, queueItemEl: HTMLDivElement, index: number) {
+    additionalQueue.insertBefore(queueItemEl, additionalQueue.children[index]);
+  }
 
+  private rerenderQueue(queue: Array<QueueItem>) {
+    document.getElementById('additional-queue')!.innerHTML = '';
+    queue.forEach(item => {
+      this.addBuldingToUIQueue(item);
+    });
+  }
 }
 
-function appendChildAtIndex(additionalQueue: HTMLElement, queueItemEl: HTMLDivElement, arg2: number) {
-  throw new Error("Function not implemented.");
-}
+

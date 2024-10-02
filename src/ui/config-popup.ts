@@ -15,6 +15,7 @@ export default class ConfigPopup extends EventEmitter {
   private guard: boolean;
 
   private farmInterval: FarmTimeInterval;
+  private humanize: boolean;
 
   constructor() {
     super();
@@ -27,6 +28,7 @@ export default class ConfigPopup extends EventEmitter {
     this.guard = false;
 
     this.farmInterval = this.config.farmConfig.farmInterval;
+    this.humanize = this.config.farmConfig.humanize;
   }
 
   public isSwitchChecked = () => {
@@ -56,6 +58,8 @@ export default class ConfigPopup extends EventEmitter {
     const timeIntervalSelect = container.querySelector('#time-interval-select');
     const showTrigger = container.querySelector('.show-trigger');
     const closeTrigger = container.querySelector('#close-popup');
+    const humanizeCheckbox = container.querySelector('#humanize-checkbox');
+
     if (!container) throw new Error('"#config-popup-container" couldn\'t be found.')
 
     closeTrigger!.addEventListener('click', () => {
@@ -75,8 +79,9 @@ export default class ConfigPopup extends EventEmitter {
       }
 
       // update config related fields and persist them to local storage if changed
-      if (this.config.farmConfig.farmInterval !== this.farmInterval) {
+      if (this.config.farmConfig.farmInterval !== this.farmInterval || this.config.farmConfig.humanize !== this.humanize) {
         this.config.farmConfig.farmInterval = this.farmInterval;
+        this.config.farmConfig.humanize = this.humanize;
         this.configManager.persistConfig();
       }
 
@@ -114,6 +119,10 @@ export default class ConfigPopup extends EventEmitter {
     farmSectionArrow!.addEventListener('click', () => {
       farmSectionContainer!.classList.toggle('hidden');
       farmSectionArrow!.classList.toggle('rotate');
+    });
+
+    humanizeCheckbox!.addEventListener('change', () => {
+      this.humanize = (humanizeCheckbox as HTMLInputElement).checked;
     });
     // END farm section
   }

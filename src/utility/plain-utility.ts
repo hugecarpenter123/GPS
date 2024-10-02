@@ -58,3 +58,7 @@ export function isMobile(): boolean {
     return false; 
   }
 }
+
+export const getRandomMs = (min: number, max: number): number => {
+  return Math.floor(Math.random() * (max - min + 1) + min);
+}

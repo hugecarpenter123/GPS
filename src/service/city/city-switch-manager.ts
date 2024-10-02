@@ -1,3 +1,4 @@
+import EventEmitter from "events";
 import { performComplexClick, waitForElement } from "../../utility/ui-utility";
 
 export type CityInfo = {
@@ -7,18 +8,30 @@ export type CityInfo = {
   switchAction: () => Promise<void>;
 }
 
-export default class CitySwitchManager {
+export default class CitySwitchManager extends EventEmitter {
   private static instance: CitySwitchManager;
   private RUN: boolean = false;
   private cityList: CityInfo[] = [];
-  private constructor() { }
+  private constructor() { super(); }
 
   public static async getInstance(): Promise<CitySwitchManager> {
     if (!CitySwitchManager.instance) {
       CitySwitchManager.instance = new CitySwitchManager();
       CitySwitchManager.instance.cityList = await CitySwitchManager.instance.initCityList();
+      CitySwitchManager.instance.mountObserver();
     }
     return CitySwitchManager.instance;
+  }
+
+  private mountObserver() {
+    new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'characterData') {
+          this.emit('cityChange', this.getCurrentCity());
+          console.log('cityChange:', this.getCurrentCity());
+        }
+      }
+    }).observe(document.body, { characterData: true });
   }
 
 
@@ -75,7 +88,6 @@ export default class CitySwitchManager {
   }
 
   public getCityByName(name: string) {
-    console.log('getCityByName:', this.cityList.find(city => city.name === name))
     return this.cityList.find(city => city.name === name)!;
   }
 

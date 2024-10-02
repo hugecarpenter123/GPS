@@ -15,7 +15,8 @@ const config = {
     storeAlmostFullPercentage: 0.9,
   },
   farmConfig: {
-    farmInterval: FarmTimeInterval.FiveMinutes
+    farmInterval: FarmTimeInterval.FiveMinutes,
+    humanize: false,
   },
   general: {
     antyTimingMs: 3000,

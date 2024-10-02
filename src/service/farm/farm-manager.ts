@@ -1,7 +1,7 @@
 import EventEmitter from "events";
 import gpsConfig, { FarmTimeInterval } from "../../../gps.config";
 import ConfigManager from "../../utility/config-manager";
-import { addDelay, areArraysContentsEqual as areArraysEqual, isMobile, textToMs } from "../../utility/plain-utility";
+import { addDelay, areArraysContentsEqual as areArraysEqual, getRandomMs, isMobile, textToMs } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
 import { performComplexClick, waitForElement, waitForElementFromNode, waitForElements } from "../../utility/ui-utility";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
@@ -87,7 +87,7 @@ export default class FarmManager extends EventEmitter {
    *  -else allow normal flow
    */
   private async farmVillagesFlow(city: CityInfo) {
-    if (isMobile()) {
+    if (this.config.humanize) {
       await waitForElement('[name="island_view"]').then((islandView) => islandView?.click());
       await addDelay(333);
     }
@@ -118,15 +118,20 @@ export default class FarmManager extends EventEmitter {
       let village: HTMLElement | null = null;
       let farmOptions: NodeListOf<HTMLElement> | null = null;
       do {
+        if (this.config.humanize) await addDelay(getRandomMs(500, 1600));
         village = await waitForElement(selector);
         await performComplexClick(village);
         await addDelay(100);
       } while (!(farmOptions = await waitForElements('.action_card.resources_bpv .card_click_area', 333).catch(() => null)))
 
-      const farmOptionIndex = this.getFarmOptionIndex(farmOptions!.length);
+      const farmOptionIndex = this.getFarmOptionIndex();
+
       farmOptions![farmOptionIndex].click();
+      if (this.config.humanize) await addDelay(getRandomMs(500, 1600));
+
       const closeButton = await waitForElement('.btn_wnd.close', 1000).catch(() => { });
       closeButton?.click();
+      if (this.config.humanize) await addDelay(getRandomMs(500, 1600));
 
       // Flaga, która sprawia natychmiastowe przerwanie pętli i zwrócienie locka
       if (!this.RUN) {
@@ -159,7 +164,7 @@ export default class FarmManager extends EventEmitter {
       this.lock.acquire();
       for (const cityInfo of cityList) {
         await cityInfo.switchAction();
-        await addDelay(100);
+        this.config.humanize ? await addDelay(getRandomMs(500, 1600)) : await addDelay(100);
         await this.farmVillagesFlow(cityInfo);
       }
       if (cityList.length !== 1) cityList[0].switchAction();
@@ -236,44 +241,21 @@ export default class FarmManager extends EventEmitter {
   /**
    * Depending on the length of the farm options, it returns the index of the farm option to click.
    */
-  private getFarmOptionIndex(farmOptionsLength: number) {
-    if (farmOptionsLength === 4) {
-      switch (this.config.farmInterval) {
-        case FarmTimeInterval.FiveMinutes:
-          return 0;
-        case FarmTimeInterval.TwentyMinutes:
-          return 1;
-        case FarmTimeInterval.OneHourAndHalf:
-          return 2;
-        case FarmTimeInterval.FourHours:
-          return 3;
-        default:
-          return 0;
-      }
-    } else {
-
-      switch (this.config.farmInterval) {
-        case FarmTimeInterval.FiveMinutes:
-          return 0;
-        case FarmTimeInterval.TenMinutes:
-          return 4;
-        case FarmTimeInterval.TwentyMinutes:
-          return 1;
-        case FarmTimeInterval.FortyMinutes:
-          return 5;
-        case FarmTimeInterval.OneHourAndHalf:
-          return 2;
-        case FarmTimeInterval.ThreeHours:
-          return 6;
-        case FarmTimeInterval.FourHours:
-          return 3;
-        case FarmTimeInterval.EightHours:
-          return 7;
-        default:
-          return 0;
-      }
+  private getFarmOptionIndex() {
+    switch (this.config.farmInterval) {
+      case FarmTimeInterval.FiveMinutes || FarmTimeInterval.TenMinutes:
+        return 0;
+      case FarmTimeInterval.TwentyMinutes || FarmTimeInterval.FortyMinutes:
+        return 1;
+      case FarmTimeInterval.OneHourAndHalf || FarmTimeInterval.ThreeHours:
+        return 2;
+      case FarmTimeInterval.FourHours || FarmTimeInterval.EightHours:
+        return 3;
+      default:
+        return 0;
     }
   }
+
   public stop() {
     this.RUN = false;
     console.log('FarmManager stopped');
