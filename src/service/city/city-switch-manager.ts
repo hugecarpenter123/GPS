@@ -1,5 +1,6 @@
 import EventEmitter from "events";
-import { performComplexClick, waitForElement } from "../../utility/ui-utility";
+import { performComplexClick, waitForElement, waitForElements } from "../../utility/ui-utility";
+import { addDelay } from "../../utility/plain-utility";
 
 export type CityInfo = {
   name: string;
@@ -39,19 +40,39 @@ export default class CitySwitchManager extends EventEmitter {
    * Method parses list of city, and creates shortcut access.
    */
   private async initCityList(): Promise<CityInfo[]> {
-    const dropdownTrigger = await waitForElement('.caption.js-viewport');
+    const dropdownTrigger = await waitForElement('.town_groups_dropdown.btn_toggle_town_groups_menu');
     dropdownTrigger.click();
     const townListElement = await waitForElement('.group_towns');
     const townList = townListElement.querySelectorAll('span.town_name');
 
-    const cityList = Array.from(townList).map(town => {
+    const cityList: CityInfo[] = [];
+
+    for (const town of townList) {
+      console.log('initCityList.town:', town);
       const cityId = town.parentElement!.getAttribute('data-townid');
-      const isleId = Array.from(document.querySelector(`#town_${cityId}`)!.classList)
-        .find(cls => cls.match(/town_\d+_\d+_\d+/))!
-        .match(/town_(\d+_\d+)_\d+/)![1];
+      console.log('\t-cityId:', cityId);
+      await this.openTownList();
+      console.log('\t-openTownList');
+      // for (const el of townList) {
+      for (const el of Array.from(await waitForElements('.group_towns span.town_name', 3000))) {
+        console.log('\t\t-element to match, element searched:', el.textContent, town.textContent);
+        if (el.textContent === town.textContent) {
+          console.log('\t\t\t-found matched element:', el, 'click it');
+          (el as HTMLElement).click();
+          break;
+        }
+      };
+      await addDelay(100);
+      // here switch to city in order to element be in the dom
+      document.querySelector<HTMLElement>('.btn_jump_to_town.circle_button.jump_to_town')!.click();
+      console.log('\t-click', document.querySelector<HTMLElement>('.btn_jump_to_town.circle_button.jump_to_town'));
+
+      const isleId = Array.from((await waitForElement(`#town_${cityId}`, 3000))?.classList ?? [])
+        .find(cls => cls.match(/town_\d+_\d+_\d+/))
+        ?.match(/town_(\d+_\d+)_\d+/)?.[1] ?? '';
       const name = town.textContent!;
 
-      const cityInfo = {
+      cityList.push({
         name,
         cityId,
         isleId,
@@ -59,26 +80,63 @@ export default class CitySwitchManager extends EventEmitter {
           try {
             let townListElement = await waitForElement('.group_towns', 500).catch(() => null);
             if (!townListElement) {
-              const dropdownTrigger = await waitForElement('.caption.js-viewport');
-              dropdownTrigger.click();
+              const dropdownTrigger = await waitForElement('.town_groups_dropdown.btn_toggle_town_groups_menu', 3000).catch(() => null);
+              if (dropdownTrigger) {
+                dropdownTrigger.click();
+                townListElement = await waitForElement('.group_towns', 3000);
+              }
+              else {
+                console.warn('dropdownTrigger not found');
+                await this.clickArrowUntilCityFound(name);
+              }
             }
-            townListElement = await waitForElement('.group_towns', 3000);
             const targetTown = Array.from(townListElement!.querySelectorAll('span.town_name'))
               .find(el => el.textContent === town.textContent);
 
-            console.log('switchAction from element:', targetTown);
             (targetTown as HTMLElement).click();
+            document.querySelector<HTMLElement>('.btn_jump_to_town.circle_button.jump_to_town')!.click();
           } catch (e) {
             console.warn('switchAction.catch:', e);
           }
         }
-      }
-      return cityInfo
-    });
-
+      });
+    }
     console.log('CitySwitchManager.cityList.initialized:', cityList)
-
+    await this.goBackToFirstTown();
     return cityList;
+  }
+
+  private async openTownList() {
+    if (!(await waitForElement('.group_towns', 1000).catch(() => null))) {
+      const dropdownTrigger = await waitForElement('.town_groups_dropdown.btn_toggle_town_groups_menu');
+      dropdownTrigger.click();
+    }
+  }
+
+  private async goBackToFirstTown() {
+    document.querySelector<HTMLElement>('.btn_next_town.button_arrow.right')!.click();
+    document.querySelector<HTMLElement>('.btn_jump_to_town.circle_button.jump_to_town')!.click();
+  }
+
+  private async clickArrowUntilCityFound(cityName: string) {
+    const cityWrapper = document.querySelector(`.town_name_area`)!;
+    const arrowLeft = cityWrapper.querySelector<HTMLElement>('.btn_prev_town.button_arrow.left')!;
+    const arrowRight = cityWrapper.querySelector<HTMLElement>('.btn_next_town.button_arrow.right')!;
+    do {
+      arrowRight.click();
+      await addDelay(1500);
+      if (document.querySelector('div.town_name')!.textContent === cityName) {
+        return;
+      }
+    } while (arrowRight.classList.contains('disabled'));
+
+    do {
+      arrowLeft.click();
+      await addDelay(1500);
+      if (document.querySelector('div.town_name')!.textContent === cityName) {
+        return;
+      }
+    } while (!arrowLeft.classList.contains('disabled'));
   }
 
   public getCurrentCity() {
@@ -108,4 +166,8 @@ export default class CitySwitchManager extends EventEmitter {
     this.RUN = false;
   }
 
+}
+
+function sleep(arg0: number) {
+  throw new Error("Function not implemented.");
 }

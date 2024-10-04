@@ -1,6 +1,7 @@
 import ConfigManager from "../../utility/config-manager";
 import { addDelay } from "../../utility/plain-utility";
 import { cancelHover, triggerHover, waitForElement } from "../../utility/ui-utility";
+import { CityInfo } from "../city/city-switch-manager";
 
 export default class ResourceManager {
   private static instance: ResourceManager;
@@ -89,7 +90,8 @@ export default class ResourceManager {
     return resourcesInfo;
   }
 
-  public hasEnoughResources(requiredResources: { wood: number, stone: number, iron: number }) {
+  public async hasEnoughResources(requiredResources: { wood: number, stone: number, iron: number }, city: CityInfo) {
+    await city.switchAction();
     const wood = Number(document.querySelector<HTMLLIElement>('[data-type="wood"] .amount.ui-game-selectable')!.textContent);
     const stone = Number(document.querySelector<HTMLLIElement>('[data-type="stone"] .amount.ui-game-selectable')!.textContent);
     const iron = Number(document.querySelector<HTMLLIElement>('[data-type="iron"] .amount.ui-game-selectable')!.textContent);

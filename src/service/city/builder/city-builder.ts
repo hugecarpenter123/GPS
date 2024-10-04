@@ -5,12 +5,18 @@ import builderCss from './queue.css';
 import builderHtml from './builder-prod.html';
 import { Building, buildings, buildingsSelectors } from "./buildings";
 import ResourceManager from "../../resources/resource-manager";
-import { CityInfo } from "../city-switch-manager";
+import CitySwitchManager, { CityInfo } from "../city-switch-manager";
 
 type QueueItem = {
   id: string,
   building: Building,
   toLvl: number
+}
+
+type CityQueue = {
+  city: CityInfo,
+  queue: Array<QueueItem>
+  schedule: NodeJS.Timeout | null
 }
 
 export default class CityBuilder {
@@ -26,6 +32,7 @@ export default class CityBuilder {
 
 
   private static instance: CityBuilder;
+  private citySwitchManager!: CitySwitchManager;
   private allowUnsequentialBuilds: boolean = false;
   private allowCriticalBuilds: boolean = true;
 
@@ -38,20 +45,17 @@ export default class CityBuilder {
   private RUN: boolean = false;
   private queue: Array<QueueItem> = [];
 
-  private mainQueue: {
-    city: CityInfo,
-    queue: Array<QueueItem>
-    schedule: NodeJS.Timeout | null
-  } | null = null;
+  private mainQueue: Array<CityQueue> = [];
 
 
   private constructor() { }
 
-  public static getInstance(): CityBuilder {
+  public static async getInstance(): Promise<CityBuilder> {
     if (!CityBuilder.instance) {
       CityBuilder.instance = new CityBuilder();
       CityBuilder.instance.lock = Lock.getInstance();
       CityBuilder.instance.resourceManager = ResourceManager.getInstance();
+      CityBuilder.instance.citySwitchManager = await CitySwitchManager.getInstance();
       CityBuilder.instance.addStyle();
       CityBuilder.instance.renderUI();
       CityBuilder.instance.loadQueueFromStorage();
@@ -72,7 +76,7 @@ export default class CityBuilder {
       const buildContainer = document.getElementById(CityBuilder.buildContainerId)!;
       buildContainer.classList.toggle('hidden');
       if (!buildContainer.classList.contains('hidden')) {
-        this.tryGoToBuildMode();
+        this.tryGoToBuildMode('current');
       } else {
         this.tryExitBuildMode();
       }
@@ -117,7 +121,10 @@ export default class CityBuilder {
     });
   }
 
-  private async tryGoToBuildMode() {
+  private async tryGoToBuildMode(city: CityInfo | 'current') {
+    if (city !== 'current') {
+      await city.switchAction();
+    }
     document.querySelector<HTMLDivElement>('[name="city_overview"]')?.click();
     const buildModeButton = await waitForElement('[class="construction_queue_build_button"] div', 2000);
     if (!buildModeButton.classList.contains('active')) {
@@ -133,7 +140,17 @@ export default class CityBuilder {
   }
 
   private onOptionBuildButtonClick(building: Building) {
-    this.addToQueue(building);
+    const currentCity = this.citySwitchManager.getCurrentCity();
+    let currentCityQueue = this.mainQueue.find((queueObj) => queueObj.city === currentCity);
+    if (!currentCityQueue) {
+      currentCityQueue = {
+        city: currentCity,
+        queue: [],
+        schedule: null
+      };
+      this.mainQueue.push(currentCityQueue);
+    }
+    this.addToQueue(building, currentCityQueue);
   }
 
   /**
@@ -141,7 +158,7 @@ export default class CityBuilder {
    * @param building 
    * @returns 
    */
-  private addBuldingToUIQueue(queueItem: QueueItem, position: 'start' | 'end' = 'end') {
+  private addBuldingToUIQueue(queueItem: QueueItem, position: 'start' | 'end' = 'end', cityQueue: CityQueue) {
     const additionalQueue = document.getElementById('additional-queue')!;
     const queueItemEl = document.createElement('div');
     queueItemEl.className = CityBuilder.queueItemClass;
@@ -162,21 +179,21 @@ export default class CityBuilder {
     cancelButton.innerHTML = '&#x2715;';
     queueItemEl.appendChild(cancelButton);
     cancelButton.addEventListener('click', () => {
-      const index = this.queue.findIndex(item => item.id === queueItem.id);
+      const index = cityQueue.queue.findIndex(item => item.id === queueItem.id);
       if (index !== -1) {
         if (index === 0) {
-          this.queue.shift();
+          cityQueue.queue.shift();
           if (this.buildSchedule) {
             clearInterval(this.buildSchedule);
             clearTimeout(this.buildSchedule);
             this.buildSchedule = null;
           }
-          this.revalidateQueueItemLevels(queueItem.building, index);
-          this.tryScheduleNextBuild();
+          this.revalidateQueueItemLevels(queueItem.building, index, cityQueue);
+          this.tryScheduleNextBuild(cityQueue);
         }
         else {
-          this.queue.splice(index, 1);
-          this.revalidateQueueItemLevels(queueItem.building, index);
+          cityQueue.queue.splice(index, 1);
+          this.revalidateQueueItemLevels(queueItem.building, index, cityQueue);
         }
         queueItemEl.remove();
         this.saveQueueToStorage();
@@ -188,9 +205,9 @@ export default class CityBuilder {
     return queueItemEl;
   }
 
-  public revalidateQueueItemLevels(building: Building, fromIndex: number) {
+  public revalidateQueueItemLevels(building: Building, fromIndex: number, cityQueue: CityQueue) {
     console.log('--------revalidateQueueItemLevels', building, fromIndex);
-    const itemsToRevalidate = this.queue.filter((item, index) => index >= fromIndex && item.building.name === building.name);
+    const itemsToRevalidate = cityQueue.queue.filter((item, index) => index >= fromIndex && item.building.name === building.name);
     itemsToRevalidate.forEach((item) => {
       const newToLvl = item.toLvl - 1;
       const newId = `${item.building.name}-${newToLvl}`;
@@ -204,47 +221,55 @@ export default class CityBuilder {
     });
   }
 
-  private async addToQueue(building: Building) {
-    console.log('addToQueue', building);
-    await this.tryGoToBuildMode();
+  private async addToQueue(building: Building, cityQueue: CityQueue) {
+    await this.tryGoToBuildMode(cityQueue.city);
 
-    const buildingcurrentLvlText = (await waitForElement(`${building.elementSelector} ${buildingsSelectors.currentLvl}`)).textContent;
-    const currentLvl = buildingcurrentLvlText !== 'max' ? Number(buildingcurrentLvlText) : Infinity;
+    const buildingcurrentLvlText = await waitForElement(`${building.elementSelector} ${buildingsSelectors.currentLvl}`, 2000)
+      .then(el => el.textContent)
+      .catch(() => null);
+    const currentLvl = (buildingcurrentLvlText !== 'max' || buildingcurrentLvlText !== null) ? Number(buildingcurrentLvlText) : Infinity;
     if (currentLvl === Infinity) {
       return;
     }
 
-    const lvlCounter = this.queue.filter(item => item.building.name === building.name).length + 1;
+    const lvlCounter = cityQueue.queue.filter(item => item.building.name === building.name).length + 1;
     const id = `${building.name}-${currentLvl + lvlCounter}`;
     const queueItem = { id, building, toLvl: currentLvl + lvlCounter };
     console.log('queueItem', queueItem);
 
-    this.addBuldingToUIQueue(queueItem);
-    this.queue.push(queueItem);
+    this.addBuldingToUIQueue(queueItem, 'end', cityQueue);
+    cityQueue.queue.push(queueItem);
     this.saveQueueToStorage();
-    console.log('pushed to queue:', this.queue);
-    this.tryAddToRealQueueOrSchedule();
+    console.log('pushed to queue:', cityQueue.queue);
+    this.tryAddToRealQueueOrSchedule(cityQueue);
   }
 
-  private tryAddToRealQueueOrSchedule() {
-    console.log('tryAddToRealQueueOrSchedule', this.queue);
-    if (this.queue.length === 1) {
+  private async tryAddToRealQueueOrSchedule(cityQueue: CityQueue) {
+    // try{
+    //   this.lock.acquire();
+    // } catch (e) {
+    //   console.warn('tryAddToRealQueueOrSchedule.catchblock:', `${cityQueue.city.name}`, e);
+    // } finally {
+    //   this.lock.release();
+    // }
+
+    if (cityQueue.queue.length === 1) {
       console.log('queue length is 1, performing build schedule');
-      this.performBuildSchedule();
+      await this.performBuildSchedule(cityQueue);
     }
     else {
       if (this.allowUnsequentialBuilds) {
-        const newestItem = this.queue[this.queue.length - 1];
-        this.tryAddToRealQueue(newestItem);
+        const newestItem = cityQueue.queue[cityQueue.queue.length - 1];
+        await this.tryAddToRealQueue(newestItem, cityQueue);
       } else {
         console.log('queue length is not 1, but unsequential builds are not allowed, another element waits for its turn');
       }
     }
   }
 
-  private async tryAddToRealQueue(item: QueueItem) {
+  private async tryAddToRealQueue(item: QueueItem, cityQueue: CityQueue) {
     console.log('tryAddToRealQueue', item);
-    if (await this.isEmptySlot() && await this.canBuild(item.building)) {
+    if (await this.isEmptySlot(cityQueue.city) && await this.canBuild(item.building, cityQueue.city)) {
       console.log('can build, adding to real queue');
       await item.building.buildAction();
       this.clearUIQueueItem(item);
@@ -254,97 +279,101 @@ export default class CityBuilder {
     }
   }
 
-  private async performBuildSchedule() {
-    if (!this.queue.length) {
+  private async performBuildSchedule(cityQueue: CityQueue) {
+    if (!cityQueue || !cityQueue.queue.length) {
       return;
     }
     // get first item from queue
-    const item = this.queue[0];
-    const building = item.building;
+    const item = cityQueue.queue[0];
     console.log('performBuildSchedule, with item:', item);
 
     // if there is an empty slot, try to build
-    if (await this.isEmptySlot()) {
+    if (await this.isEmptySlot(cityQueue.city)) {
       console.log('\t-there is an empty slot, trying to build');
-      this.checkIfItemCanBeBuiltAndAddDeleteOrSchedule(building, item);
+      await this.checkIfItemCanBeBuiltAndAddDeleteOrSchedule(cityQueue, item);
     } else {
-      this.setTimeoutForNextSpeedUpAndSchedule();
+      await this.setTimeoutForNextSpeedUpAndSchedule(cityQueue);
     }
   }
 
-  private async setTimeoutForNextSpeedUpAndSchedule() {
-    const timeToSpeedUp = await this.getTimeToCanSpeedUp();
+  private async setTimeoutForNextSpeedUpAndSchedule(cityQueue: CityQueue) {
+    const timeToSpeedUp = await this.getTimeToCanSpeedUp(cityQueue.city);
     if (timeToSpeedUp <= 0) {
       console.log('\t-will speed up first build immediately');
       await this.speedUpFirstBuild();
-      this.performBuildSchedule();
+      await this.performBuildSchedule(cityQueue);
     } else {
       console.log('\t-speed up will be scheduled at:', getTimeInFuture(timeToSpeedUp));
       this.buildSchedule = setTimeout(async () => {
         await this.speedUpFirstBuild();
-        this.performBuildSchedule();
+        this.performBuildSchedule(cityQueue);
       }, timeToSpeedUp);
     }
   }
 
-  private async trySpeedUpFirstBuildOrSchedule() {
-    console.log('trySpeedUpFirstBuildOrSchedule')
-    if (!this.speedUpSchedule) {
-      console.log('\t-speedUpSchedule does not exist, creating new one');
-      await addDelay(1000);
-      const timeToSpeedUp = await this.getTimeToCanSpeedUp();
-      console.log('\t-timeToSpeedUp:', timeToSpeedUp);
-      if (timeToSpeedUp <= 0) {
-        console.log('\t-will speed up first build immediately');
-        await this.speedUpFirstBuild();
-        await addDelay(1000);
-      } else {
-        console.log('\t-speed up will be scheduled');
-        let timeout!: NodeJS.Timeout;
-        const promise = new Promise<void>(async (res) => {
-          timeout = setTimeout(async () => {
-            await this.speedUpFirstBuild();
-            await addDelay(1000);
-            res();
-            console.log('\t\t-speedUpFirstBuild finished, clearing speedUpSchedule');
-            this.speedUpSchedule = null;
-          }, timeToSpeedUp);
-        });
-        this.speedUpSchedule = { timeout, promise };
-      }
-    } else {
-      console.log('\t-but speedup is already scheduled, do nothing...');
-    }
-  }
+  // private async trySpeedUpFirstBuildOrSchedule() {
+  //   console.log('trySpeedUpFirstBuildOrSchedule')
+  //   if (!this.speedUpSchedule) {
+  //     console.log('\t-speedUpSchedule does not exist, creating new one');
+  //     await addDelay(1000);
+  //     const timeToSpeedUp = await this.getTimeToCanSpeedUp();
+  //     console.log('\t-timeToSpeedUp:', timeToSpeedUp);
+  //     if (timeToSpeedUp <= 0) {
+  //       console.log('\t-will speed up first build immediately');
+  //       await this.speedUpFirstBuild();
+  //       await addDelay(1000);
+  //     } else {
+  //       console.log('\t-speed up will be scheduled');
+  //       let timeout!: NodeJS.Timeout;
+  //       const promise = new Promise<void>(async (res) => {
+  //         timeout = setTimeout(async () => {
+  //           await this.speedUpFirstBuild();
+  //           await addDelay(1000);
+  //           res();
+  //           console.log('\t\t-speedUpFirstBuild finished, clearing speedUpSchedule');
+  //           this.speedUpSchedule = null;
+  //         }, timeToSpeedUp);
+  //       });
+  //       this.speedUpSchedule = { timeout, promise };
+  //     }
+  //   } else {
+  //     console.log('\t-but speedup is already scheduled, do nothing...');
+  //   }
+  // }
 
-  private async checkIfItemCanBeBuiltAndAddDeleteOrSchedule(building: Building, item: QueueItem, forced: boolean = false) {
+  private async checkIfItemCanBeBuiltAndAddDeleteOrSchedule(cityQueue: CityQueue, item: QueueItem, forced: boolean = false) {
+    const building = item.building;
+
     console.log('check if can build item:', item);
-    let canBuild = await this.canBuild(building);
+    const canBuild = await this.canBuild(building, cityQueue.city);
     console.log('\t-canBuild:', canBuild);
     if (canBuild === true) {
       console.log('\t-canBuild is true, building...');
       await building.buildAction();
-      this.shiftQueueCleanScheduleAndTryNext(item);
+      await this.shiftQueueCleanScheduleAndTryNext(item, cityQueue);
     }
     else if (canBuild === 'maxed') {
       console.log('\t-canBuild is maxed, shifting queue');
       if (forced) {
+        this.clearUIQueueItem(cityQueue.queue[1]);
+        cityQueue.queue.splice(1, 1);
+        await this.shiftQueueCleanScheduleAndTryNext(item, cityQueue);
         // TODO: here should remove two first items from queue
       } else {
-        this.shiftQueueCleanScheduleAndTryNext(item);
+        await this.shiftQueueCleanScheduleAndTryNext(item, cityQueue);
       }
     }
     else {
-      const resourcesInfo = await this.areResourcesStackable(building);
+      const resourcesInfo = await this.areResourcesStackable(building, cityQueue.city);
       if (resourcesInfo.areStackable === true) {
         console.log('\t-areResourcesStackable is true, scheduling build');
         this.buildSchedule = setInterval(async () => {
-          if (this.resourceManager.hasEnoughResources(resourcesInfo.requiredResources) && (await this.canBuild(building))) {
+          if ((await this.resourceManager.hasEnoughResources(resourcesInfo.requiredResources, cityQueue.city)) && (await this.canBuild(building, cityQueue.city))) {
             console.log('\t\t-canBuild is true, building...');
             await building.buildAction();
-            this.shiftQueueCleanScheduleAndTryNext(item);
+            await this.shiftQueueCleanScheduleAndTryNext(item, cityQueue);
           }
-        }, 1000 * 30);
+        }, 1000 * 60);
       }
       // TODO: !!! IMPORTANT: if farm or magazine needs to be built first, BUT they are already maxed, then infinite loop happens, create 
       // additional flag passed to this function to prevent infinite loops (for example: forced=true) think of something
@@ -354,9 +383,9 @@ export default class CityBuilder {
         const buildingLvl = await this.getBuildingCurrentLvl(farm);
         const id = `${farm.name}-${buildingLvl}`;
         const queueItem = { id, building, toLvl: buildingLvl + 1 };
-        this.queue.unshift(queueItem);
-        this.addBuldingToUIQueue(queueItem, 'start');
-        this.performBuildSchedule();
+        cityQueue.queue.unshift(queueItem);
+        this.addBuldingToUIQueue(queueItem, 'start', cityQueue);
+        await this.performBuildSchedule(cityQueue);
       }
       else if (resourcesInfo.areStackable === 'storage' && this.allowCriticalBuilds) {
         console.log('\t\t-areResourcesStackable is storage, adding storage to queue');
@@ -364,9 +393,9 @@ export default class CityBuilder {
         const buildingLvl = await this.getBuildingCurrentLvl(storage);
         const id = `${storage.name}-${buildingLvl}`;
         const queueItem = { id, building, toLvl: buildingLvl + 1 };
-        this.queue.unshift(queueItem);
-        this.addBuldingToUIQueue(queueItem, 'start');
-        this.performBuildSchedule();
+        cityQueue.queue.unshift(queueItem);
+        this.addBuldingToUIQueue(queueItem, 'start', cityQueue);
+        await this.performBuildSchedule(cityQueue);
       } else if (resourcesInfo.areStackable === 'alreadyStacked' && !(await this.isQueueEmpty())) {
         console.log('\t\t-areResourcesStackable is alreadyStacked, scheduling build');
         /*
@@ -374,10 +403,10 @@ export default class CityBuilder {
         port mógł być schedulowany. Ten warunek nie upewnia się czy w kolejce na pewno znajduje się tartak 15,
         ale gdy przyjdzie jego kolej zapełnić kolejkę, to scheduler odpowiednio to rozwiąże.
          */
-        this.setTimeoutForNextSpeedUpAndSchedule();
+        await this.setTimeoutForNextSpeedUpAndSchedule(cityQueue);
       } else {
         console.log('Item cannot be scheduled, because it has not met requirements');
-        this.shiftQueueCleanScheduleAndTryNext(item);
+        await this.shiftQueueCleanScheduleAndTryNext(item, cityQueue);
       }
     }
   }
@@ -395,23 +424,23 @@ export default class CityBuilder {
     }
   }
 
-  private shiftQueueCleanScheduleAndTryNext(item: QueueItem) {
-    this.queue.shift();
+  private async shiftQueueCleanScheduleAndTryNext(item: QueueItem, cityQueue: CityQueue) {
+    cityQueue.queue.shift();
     this.saveQueueToStorage();
-    if (this.buildSchedule) {
-      clearInterval(this.buildSchedule);
-      clearTimeout(this.buildSchedule);
-      this.buildSchedule = null;
+    if (cityQueue.schedule) {
+      clearInterval(cityQueue.schedule);
+      clearTimeout(cityQueue.schedule);
+      cityQueue.schedule = null;
     }
     this.clearUIQueueItem(item);
-    this.tryScheduleNextBuild();
+    await this.tryScheduleNextBuild(cityQueue);
   }
 
-  private async tryScheduleNextBuild() {
-    console.log('tryScheduleNextBuild, queue:', this.queue);
-    if (this.queue.length > 0) {
+  private async tryScheduleNextBuild(cityQueue: CityQueue) {
+    console.log('tryScheduleNextBuild, queue:', cityQueue.queue);
+    if (cityQueue.queue.length > 0) {
       console.log('\t-queue is not empty, performing build schedule');
-      this.performBuildSchedule();
+      this.performBuildSchedule(cityQueue);
     }
   }
 
@@ -432,8 +461,8 @@ export default class CityBuilder {
     }
   }
 
-  private async canBuild(building: Building): Promise<boolean | 'maxed'> {
-    await this.tryGoToBuildMode();
+  private async canBuild(building: Building, city: CityInfo): Promise<boolean | 'maxed'> {
+    await this.tryGoToBuildMode(city);
     const buildButton = await waitForElement(`${building.elementSelector} ${buildingsSelectors.buildButton}`, 2000).catch(() => null);
     if (!buildButton) {
       return 'maxed';
@@ -442,9 +471,9 @@ export default class CityBuilder {
     return canBuild;
   }
 
-  private async areResourcesStackable(building: Building): Promise<{ areStackable: boolean | 'storage' | 'population' | 'alreadyStacked', requiredResources: { wood: number, stone: number, iron: number } }> {
+  private async areResourcesStackable(building: Building, city: CityInfo): Promise<{ areStackable: boolean | 'storage' | 'population' | 'alreadyStacked', requiredResources: { wood: number, stone: number, iron: number } }> {
     console.log('areResourcesStackable');
-    await this.tryGoToBuildMode();
+    await this.tryGoToBuildMode(city);
     // const buildButton = await waitForElement(`${building.elementSelector} ${buildingsSelectors.buildButton}`);
     do {
       triggerHover(document.querySelector(`${building.elementSelector} ${buildingsSelectors.buildButton}`)!);
@@ -495,16 +524,18 @@ export default class CityBuilder {
   }
 
 
-  private async isEmptySlot() {
+  private async isEmptySlot(city: CityInfo) {
     this.goToCityView()
-    await addDelay(3000);
+    await city.switchAction();
+    await addDelay(1000);
     return await waitForElement('.construction_queue_order_container.instant_buy .js-queue-item.empty_slot', 2000)
       .then(() => true)
       .catch(() => false);
   }
 
-  private async getTimeToCanSpeedUp(): Promise<number> {
+  private async getTimeToCanSpeedUp(city: CityInfo): Promise<number> {
     this.goToCityView();
+    await city.switchAction();
     await addDelay(1000);
     const firstOrder = await waitForElement('[data-order_index="0"] .countdown.js-item-countdown', 3000).catch(() => null);
     if (firstOrder) {
@@ -516,15 +547,19 @@ export default class CityBuilder {
   private loadQueueFromStorage() {
     const queue = localStorage.getItem('cityBuilderQueue');
     if (queue) {
-      this.queue = JSON.parse(queue);
+      this.mainQueue = JSON.parse(queue);
     }
-    this.queue.forEach(item => {
-      this.addBuldingToUIQueue(item);
-    });
+    const currentCity = this.citySwitchManager.getCurrentCity();
+    const currentCityQueue = this.mainQueue.find(queue => queue.city === currentCity);
+    if (currentCityQueue) {
+      currentCityQueue.queue.forEach(item => {
+        this.addBuldingToUIQueue(item, 'end', currentCityQueue);
+      });
+    }
   }
 
   private saveQueueToStorage() {
-    localStorage.setItem('cityBuilderQueue', JSON.stringify(this.queue));
+    localStorage.setItem('cityBuilderQueue', JSON.stringify(this.mainQueue));
   }
 
   private async isQueueEmpty() {
@@ -535,9 +570,9 @@ export default class CityBuilder {
   public start() {
     this.RUN = true;
     document.getElementById(CityBuilder.toggleBuilderButtonId)!.classList.remove('hidden');
-    if (this.queue.length > 0 && !this.buildSchedule) {
-      this.performBuildSchedule();
-    }
+    Object.values(this.mainQueue).forEach(async cityQueue => {
+      await this.performBuildSchedule(cityQueue);
+    });
   }
   public stop() {
     console.log('Stopping');
@@ -556,10 +591,10 @@ export default class CityBuilder {
     additionalQueue.insertBefore(queueItemEl, additionalQueue.children[index]);
   }
 
-  private rerenderQueue(queue: Array<QueueItem>) {
+  private rerenderQueue(queue: Array<QueueItem>, cityQueue: CityQueue) {
     document.getElementById('additional-queue')!.innerHTML = '';
     queue.forEach(item => {
-      this.addBuldingToUIQueue(item);
+      this.addBuldingToUIQueue(item, 'end', cityQueue);
     });
   }
 }

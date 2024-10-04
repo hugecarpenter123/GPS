@@ -92,7 +92,7 @@ export default class FarmManager extends EventEmitter {
       await addDelay(333);
     }
 
-    const villages = await waitForElements('a.owned.farm_town[data-same_island="true"]');
+    const villages = await waitForElements('a.owned.farm_town[data-same_island="true"]', 3000).catch(() => null);
 
     if (!villages || villages.length === 0) return;
     const villageStyleSelectors = Array.from(villages).map(v => {
@@ -113,6 +113,7 @@ export default class FarmManager extends EventEmitter {
     // zrób nasłuchiwacza popopów z `class="js-window-main-container classic_window dialog  "` popup `confirmation`
     // buttony: `class="btn_cancel button_new"` albo `class="btn_confirm button_new"`
     this.mountMessageDailogObserver();
+
 
     for (const selector of villageStyleSelectors) {
       let village: HTMLElement | null = null;
@@ -141,8 +142,12 @@ export default class FarmManager extends EventEmitter {
       await addDelay(100);
     }
 
+    await performComplexClick(document.querySelector(villageStyleSelectors[0])!);
+    let timeout = await this.getUnlockTimeOrNull(await waitForElement('.farm_towns')) ?? this.config.farmInterval;
+    await waitForElement('.btn_wnd.close', 1000).then(el => el.click()).catch(() => { });
+
     // zaplanuj kolejny cykl
-    this.scheduleNextFarmingOperationForCity(this.config.farmInterval, city);
+    this.scheduleNextFarmingOperationForCity(timeout, city);
   }
 
   /**
@@ -154,16 +159,22 @@ export default class FarmManager extends EventEmitter {
 
     // Quickfix, init farming only for one city per island
     const cityList = this.citySwitch.getCityList().reduce((acc: CityInfo[], cityInfo) => {
-      if (!acc.some(el => el.isleId === cityInfo.isleId)) {
+      if (!cityInfo.isleId || !acc.some(el => el.isleId === cityInfo.isleId)) {
         acc.push(cityInfo);
       }
       return acc;
     }, []);
+    console.warn('BARTEK PATRZ TUTAJ- city list:', cityList);
+
+    // temporary solution
+    // const cityList = this.citySwitch.getCityList();
+    // console.warn('BARTEK PATRZ TUTAJ- city list:', cityList);
 
     try {
       this.lock.acquire();
       for (const cityInfo of cityList) {
         await cityInfo.switchAction();
+        console.warn('BARTEK PATRZ TUTAJ - przejdź do miasta:', cityInfo);
         this.config.humanize ? await addDelay(getRandomMs(500, 1600)) : await addDelay(100);
         await this.farmVillagesFlow(cityInfo);
       }
@@ -229,6 +240,7 @@ export default class FarmManager extends EventEmitter {
         const getTextInterval = setInterval(() => {
           if (unlcokTimeEl?.textContent) {
             clearInterval(getTextInterval);
+            console.log('next unlock time:', unlcokTimeEl.textContent);
             res(textToMs(unlcokTimeEl.textContent))
           }
         }, 100)

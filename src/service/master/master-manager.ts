@@ -33,7 +33,7 @@ export default class MasterManager {
       MasterManager.instance.farmManager = await FarmManager.getInstance();
       MasterManager.instance.switchManager = await CitySwitchManager.getInstance();
       MasterManager.instance.scheduler = await Scheduler.getInstance();
-      MasterManager.instance.builder = CityBuilder.getInstance();
+      MasterManager.instance.builder = await CityBuilder.getInstance();
       MasterManager.instance.initConfigDialog();
       MasterManager.instance.initCaptchaPrevention();
     }
