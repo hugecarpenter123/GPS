@@ -1,7 +1,7 @@
 import EventEmitter from "events";
 import gpsConfig, { FarmTimeInterval } from "../../../gps.config";
 import ConfigManager from "../../utility/config-manager";
-import { addDelay, areArraysContentsEqual as areArraysEqual, getRandomMs, isMobile, textToMs } from "../../utility/plain-utility";
+import { addDelay, areArraysContentsEqual as areArraysEqual, getRandomMs, isMobile, shuffleArray, textToMs } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
 import { performComplexClick, waitForElement, waitForElementFromNode, waitForElements } from "../../utility/ui-utility";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
@@ -20,6 +20,7 @@ export default class FarmManager extends EventEmitter {
   private schedulerArray: ScheduleItem[] = [];
   private previousVillageSelectors: string[] = [];
   private messageDialogObserver: MutationObserver | null = null;
+  private humanMessageDialogObserver: MutationObserver | null = null;
   private lock!: Lock;
 
   private RUN: boolean = false;
@@ -33,8 +34,7 @@ export default class FarmManager extends EventEmitter {
     if (!FarmManager.instance) {
       FarmManager.instance = new FarmManager();
       FarmManager.instance.citySwitch = await CitySwitchManager.getInstance()
-      FarmManager.instance.configManager = ConfigManager.getInstance();
-      FarmManager.instance.config = FarmManager.instance.configManager.getConfig().farmConfig;
+      FarmManager.instance.config = ConfigManager.getInstance().getConfig().farmConfig;
       FarmManager.instance.lock = Lock.getInstance();
     }
     return FarmManager.instance;
@@ -44,6 +44,7 @@ export default class FarmManager extends EventEmitter {
     if (!this.RUN) {
       console.log('FarmManager started');
       this.RUN = true;
+      console.log('FarmManager.start().config:', this.config);
       await this.initFarmAllVillages();
     }
   }
@@ -67,13 +68,14 @@ export default class FarmManager extends EventEmitter {
    */
   private async farmVillages(city: CityInfo) {
     try {
-      this.lock.acquire();
+      console.log('chcę farmić wioski w miescie:', city.name);
+      await this.lock.acquire();
       await this.farmVillagesFlow(city);
     } catch (e) {
       console.warn('FarmManager.farmVillages().catch', e);
     } finally {
+      this.disconnectObservers();
       this.lock.release();
-      this.messageDialogObserver?.disconnect();
       this.emit('farmingFinished');
     }
   }
@@ -86,68 +88,90 @@ export default class FarmManager extends EventEmitter {
    *  -if previous ones are the same, omit
    *  -else allow normal flow
    */
-  private async farmVillagesFlow(city: CityInfo) {
-    if (this.config.humanize) {
-      await waitForElement('[name="island_view"]').then((islandView) => islandView?.click());
-      await addDelay(333);
-    }
+  private async farmVillagesFlow(city: CityInfo, forced: boolean = false) {
+    try {
+      await city.switchAction();
 
-    const villages = await waitForElements('a.owned.farm_town[data-same_island="true"]', 3000).catch(() => null);
+      let timeout: number = this.config.farmInterval;
 
-    if (!villages || villages.length === 0) return;
-    const villageStyleSelectors = Array.from(villages).map(v => {
-      return `[style="${v.getAttribute('style')}"]`
-    })
+      this.config.humanize ? addDelay(getRandomMs(400, 1200)) : addDelay(333);
 
-    await performComplexClick(villages[0])
-    const unlockTime = await this.getUnlockTimeOrNull(await waitForElement('.farm_towns'));
-    if (unlockTime) {
-      await waitForElement('.btn_wnd.close', 1000)
-        .then((el) => el.click())
-        .catch(() => { });
+      // Selectors mapping and timeout check
+      const villages = await waitForElements('a.owned.farm_town[data-same_island="true"]', 3000).catch(() => null);
+      console.log('villages:', villages);
 
-      this.scheduleNextFarmingOperationForCity(unlockTime, city);
-      return;
-    }
+      if (!villages) throw new Error('Villages elements not found');
+      else if (villages.length === 0) return;
+      const villageStyleSelectors = Array.from(villages).map(v => {
+        return `[style="${v.getAttribute('style')}"]`
+      })
+      // shuffleArray(villageStyleSelectors);
+      const villagesAmount = villageStyleSelectors.length;
 
-    // zrób nasłuchiwacza popopów z `class="js-window-main-container classic_window dialog  "` popup `confirmation`
-    // buttony: `class="btn_cancel button_new"` albo `class="btn_confirm button_new"`
-    this.mountMessageDailogObserver();
+      // let farmWindow: HTMLElement | null = null;
 
+      // do {
+      //   await performComplexClick(document.querySelector<HTMLElement>('a.owned.farm_town[data-same_island="true"]')!);
+      //   await addDelay(100);
+      // } while (!(farmWindow = await waitForElement('.farm_towns', 1000).catch(() => null)));
 
-    for (const selector of villageStyleSelectors) {
-      let village: HTMLElement | null = null;
-      let farmOptions: NodeListOf<HTMLElement> | null = null;
-      do {
-        if (this.config.humanize) await addDelay(getRandomMs(500, 1600));
-        village = await waitForElement(selector);
-        await performComplexClick(village);
-        await addDelay(100);
-      } while (!(farmOptions = await waitForElements('.action_card.resources_bpv .card_click_area', 333).catch(() => null)))
+      // if (!forced) {
+      //   const unlockTime = await this.getUnlockTimeOrNull(farmWindow);
+      //   if (unlockTime) {
+      //     await waitForElement('.btn_wnd.close', 1000)
+      //       .then((el) => el.click())
+      //       .catch(() => { });
 
-      const farmOptionIndex = this.getFarmOptionIndex();
+      //     this.scheduleNextFarmingOperationForCity(unlockTime, city);
+      //     return;
+      //   }
+      // }
+      // END Selectors mapping and timeout check
+      this.mountMessageDialogsObservers(city);
 
-      farmOptions![farmOptionIndex].click();
-      if (this.config.humanize) await addDelay(getRandomMs(500, 1600));
+      for (const [i, villageSelector] of villageStyleSelectors.entries()) {
+        console.log(`checking village: ${villageSelector}, from town: ${city.name}`);
 
-      const closeButton = await waitForElement('.btn_wnd.close', 1000).catch(() => { });
-      closeButton?.click();
-      if (this.config.humanize) await addDelay(getRandomMs(500, 1600));
+        let counter = 0;
+        do {
+          performComplexClick(document.querySelector<HTMLElement>(villageSelector)!);
+          console.log('\t-clicked village element on the map (found/not found):', !!document.querySelector<HTMLElement>(villageSelector));
+          await addDelay(100);
+          if (counter === 3) throw new Error('Farm villages dialog didn\'t show up');
+          counter++;
+        } while (!(await waitForElement('.farm_towns', 1000).catch(() => false)));
+        this.config.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
 
-      // Flaga, która sprawia natychmiastowe przerwanie pętli i zwrócienie locka
-      if (!this.RUN) {
-        return;
+        const farmOptionIndex = this.getFarmOptionIndex();
+
+        counter = 0;
+        do {
+          await waitForElements('.btn_claim_resources.button.button_new', 500)
+            .then((els) => els[farmOptionIndex].click())
+            .catch(() => { });
+          console.log('\t-clicked button (found/not found):', !!document.querySelectorAll<HTMLElement>('.btn_claim_resources.button.button_new')[farmOptionIndex]);
+          if (counter === 3) throw new Error('Farm button not found');
+          counter++;
+          await addDelay(100);
+        } while (!await waitForElement('.actions_locked_banner.cooldown', 1000).catch(() => false));
+        this.config.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
+
+        if (i === villagesAmount - 1) {
+          timeout = await this.getUnlockTimeOrNull(await waitForElement('.farm_towns'), 2000) ?? this.config.farmInterval;
+        }
+
+        document.querySelector<HTMLElement>('.btn_wnd.close')?.click();
+        this.config.humanize ? await addDelay(getRandomMs(400, 1200)) : addDelay(100);
       }
 
-      await addDelay(100);
+      document.querySelector<HTMLElement>('.btn_wnd.close')?.click();
+      this.disconnectObservers();
+      this.scheduleNextFarmingOperationForCity(timeout + 1000, city);
+
+    } catch (e) {
+      console.warn('FarmManager.farmVillagesFlow().catch', e);
+      await this.forceRepeatFarming(city);
     }
-
-    await performComplexClick(document.querySelector(villageStyleSelectors[0])!);
-    let timeout = await this.getUnlockTimeOrNull(await waitForElement('.farm_towns')) ?? this.config.farmInterval;
-    await waitForElement('.btn_wnd.close', 1000).then(el => el.click()).catch(() => { });
-
-    // zaplanuj kolejny cykl
-    this.scheduleNextFarmingOperationForCity(timeout, city);
   }
 
   /**
@@ -164,28 +188,30 @@ export default class FarmManager extends EventEmitter {
       }
       return acc;
     }, []);
-    console.warn('BARTEK PATRZ TUTAJ- city list:', cityList);
-
-    // temporary solution
-    // const cityList = this.citySwitch.getCityList();
-    // console.warn('BARTEK PATRZ TUTAJ- city list:', cityList);
 
     try {
       this.lock.acquire();
       for (const cityInfo of cityList) {
-        await cityInfo.switchAction();
-        console.warn('BARTEK PATRZ TUTAJ - przejdź do miasta:', cityInfo);
-        this.config.humanize ? await addDelay(getRandomMs(500, 1600)) : await addDelay(100);
         await this.farmVillagesFlow(cityInfo);
       }
-      if (cityList.length !== 1) cityList[0].switchAction();
+      if (cityList.length !== 1) await cityList[0].switchAction();
     } catch (e) {
-      console.warn('FarmManager.farmVillages().catch', e);
+      console.warn('FarmManager.initFarmAllVillages().catch', e);
     } finally {
       this.lock.release();
       this.messageDialogObserver?.disconnect();
       this.emit('farmingFinished');
     }
+  }
+
+  private async forceRepeatFarming(city: CityInfo) {
+    await city.switchAction();
+    await this.farmVillagesFlow(city, true);
+  }
+
+  private disconnectObservers() {
+    this.messageDialogObserver?.disconnect();
+    this.humanMessageDialogObserver?.disconnect();
   }
 
   private scheduleNextFarmingOperationForCity = (timeInterval: number, city: CityInfo) => {
@@ -197,11 +223,8 @@ export default class FarmManager extends EventEmitter {
     }
 
     const timeout = setTimeout(async () => {
-      await city.switchAction();
-      await addDelay(100);
-      this.farmVillages(city);
-
       this.schedulerArray = this.schedulerArray.filter(item => item !== scheduleItem)
+      this.farmVillages(city);
     }, timeInterval);
 
     scheduleItem.timeout = timeout;
@@ -213,36 +236,59 @@ export default class FarmManager extends EventEmitter {
    * Metoda jest odpowiedzią na blokadę farmienia wynikającą z konieczności potwierdzenia farmienia w przypadku pełengo magazynu.
    * Metoda obserwuje czy pojawił się popup z promptem do potwierdzenia kontynuacji i klika akceptuj.
    */
-  private mountMessageDailogObserver = async () => {
-    const observer = new MutationObserver(async (mutations) => {
-      for (const mutation of mutations) {
-        if (mutation.type === 'childList') {
-          for (const node of mutation.addedNodes) {
-            if (node instanceof HTMLElement && node.getAttribute('class') === 'window_curtain ui-front show_curtain is_modal_window') {
-              await addDelay(100);
-              const confirmButton = node.querySelector('.btn_confirm.button_new') as HTMLElement;
-              confirmButton.click();
-              return;
+  private mountMessageDialogsObservers = async (city: CityInfo) => {
+    if (!this.messageDialogObserver) {
+      const observer = new MutationObserver(async (mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.type === 'childList') {
+            for (const node of mutation.addedNodes) {
+              if (node instanceof HTMLElement && node.getAttribute('class') === 'window_curtain ui-front show_curtain is_modal_window') {
+                await addDelay(100);
+                const confirmButton = node.querySelector('.btn_confirm.button_new') as HTMLElement;
+                confirmButton.click();
+                return;
+              }
             }
           }
         }
-      }
-    });
-    observer.observe(document.body, { childList: true })
-    this.messageDialogObserver = observer;
+      });
+      this.messageDialogObserver = observer;
+    }
+
+    if (!this.humanMessageDialogObserver) {
+      const observer = new MutationObserver(async (mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.type === 'childList') {
+            observer.disconnect();
+            await city.switchAction();
+          }
+        }
+      })
+
+      this.humanMessageDialogObserver = observer;
+      observer.observe(document.querySelector('#human_message')!, { childList: true, subtree: true })
+    }
+    this.messageDialogObserver.observe(document.body, { childList: true })
   }
 
-  private async getUnlockTimeOrNull(window: HTMLElement): Promise<number | null> {
-    const cooldownBar = await waitForElementFromNode(window, '.actions_locked_banner.cooldown', 500).catch(() => null);
+  private async getUnlockTimeOrNull(window: HTMLElement, timeout?: number): Promise<number | null> {
+    const cooldownBar = await waitForElementFromNode(window, '.actions_locked_banner.cooldown', timeout ?? 500).catch(() => null);
     if (cooldownBar) {
       const unlcokTimeEl = cooldownBar.querySelector('.pb_bpv_unlock_time')
       return new Promise((res, rej) => {
+        let counter = 0;
         const getTextInterval = setInterval(() => {
           if (unlcokTimeEl?.textContent) {
             clearInterval(getTextInterval);
             console.log('next unlock time:', unlcokTimeEl.textContent);
             res(textToMs(unlcokTimeEl.textContent))
           }
+          else if (counter === 10) {
+            clearInterval(getTextInterval);
+            console.warn('nie znaleziono czasu odblokowania');
+            res(null);
+          }
+          counter++;
         }, 100)
       })
     }
@@ -255,17 +301,37 @@ export default class FarmManager extends EventEmitter {
    */
   private getFarmOptionIndex() {
     switch (this.config.farmInterval) {
-      case FarmTimeInterval.FiveMinutes || FarmTimeInterval.TenMinutes:
+      case FarmTimeInterval.FirstOption:
         return 0;
-      case FarmTimeInterval.TwentyMinutes || FarmTimeInterval.FortyMinutes:
+      case FarmTimeInterval.SecondOption:
         return 1;
-      case FarmTimeInterval.OneHourAndHalf || FarmTimeInterval.ThreeHours:
+      case FarmTimeInterval.ThirdOption:
         return 2;
-      case FarmTimeInterval.FourHours || FarmTimeInterval.EightHours:
+      case FarmTimeInterval.FourthOption:
         return 3;
       default:
         return 0;
     }
+  }
+
+  private getFarmOptionTimeRegex() {
+    switch (this.config.farmInterval) {
+      case FarmTimeInterval.FirstOption:
+        return /(5|10)/;
+      case FarmTimeInterval.SecondOption:
+        return /^(20|40)/;
+      case FarmTimeInterval.ThirdOption:
+        return /^(1.*30|3\D+)/;
+      case FarmTimeInterval.FourthOption:
+        return /^(4|8)h/;
+      default:
+        return /^(5|10)/;
+    }
+  }
+
+  private getFarmOption() {
+    return Array.from(document.querySelectorAll<HTMLElement>('.btn_claim_resources.button.button_new'))
+      .find((el) => this.getFarmOptionTimeRegex().test(el.textContent ?? ''));
   }
 
   public stop() {

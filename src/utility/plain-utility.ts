@@ -50,12 +50,19 @@ export function areArraysContentsEqual(arr1: string[], arr2: string[]): boolean 
   return true;
 }
 
+export function shuffleArray(array: any[]) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+}
+
 export function isMobile(): boolean {
   if ((navigator as any).userAgentData) {
     return (navigator as any).userAgentData.mobile
   } else {
     if (navigator.userAgent.match(/iPhone/i) || navigator.userAgent.match(/iPad/i) || navigator.userAgent.match(/Android/i)) return true;
-    return false; 
+    return false;
   }
 }
 

@@ -1,4 +1,4 @@
-import gpsConfig from "../../gps.config";
+import gpsConfig, { TConfig } from "../../gps.config";
 import StorageManager from "./storage-manager";
 
 export default class ConfigManager {
@@ -6,7 +6,7 @@ export default class ConfigManager {
   private config!: typeof gpsConfig;
   private storageManager!: StorageManager;
 
-  private constructor() {}
+  private constructor() { }
 
   public static getInstance(): ConfigManager {
     if (!ConfigManager.instance) {
@@ -16,14 +16,27 @@ export default class ConfigManager {
     }
     return ConfigManager.instance;
   }
-  
+
   private initConfig(): typeof gpsConfig {
     const config = this.storageManager.readFromLocalStorage('config');
-    if (!config) {
+    if (!config || !this.isConfigStructureEqual(config, gpsConfig)) {
       this.storageManager.writeToLocalStorage('config', gpsConfig);
       return gpsConfig;
     }
     return config;
+  }
+
+  private isConfigStructureEqual(config: any, gpsConfig: any): boolean {
+    return Object.keys(config).length === Object.keys(gpsConfig).length &&
+      Object.keys(config).every(key => {
+        if (!(key in gpsConfig)) {
+          return false;
+        }
+        if (typeof config[key] === 'object' && config[key] !== null) {
+          return this.isConfigStructureEqual(config[key], gpsConfig[key]);
+        }
+        return typeof config[key] === typeof gpsConfig[key];
+      });
   }
 
   public getConfig(): typeof gpsConfig {

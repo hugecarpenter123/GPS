@@ -1,12 +1,8 @@
 export enum FarmTimeInterval {
-  FiveMinutes = 5 * 60 * 1000,
-  TenMinutes = 10 * 60 * 1000,
-  TwentyMinutes = 20 * 60 * 1000,
-  FortyMinutes = 40 * 60 * 1000,
-  OneHourAndHalf = 90 * 60 * 1000,
-  ThreeHours = 3 * 60 * 60 * 1000,
-  FourHours = 4 * 60 * 60 * 1000,
-  EightHours = 8 * 60 * 60 * 1000,
+  FirstOption = 5 * 60 * 1000,
+  SecondOption = 20 * 60 * 1000,
+  ThirdOption = 90 * 60 * 1000,
+  FourthOption = 4 * 60 * 60 * 1000,
 }
 
 const config = {
@@ -15,11 +11,17 @@ const config = {
     storeAlmostFullPercentage: 0.9,
   },
   farmConfig: {
-    farmInterval: FarmTimeInterval.FiveMinutes,
+    farmInterval: FarmTimeInterval.FirstOption,
     humanize: false,
   },
   general: {
-    antyTimingMs: 3000,
+    antyTimingMs: 9000,
+    applicationRefreshInterval: 30 * 60 * 1000, // 30 minutes
+    forcedRefresh: false,
+    switch: true,
+    farm: true,
+    builder: true,
+    guard: false,
   }
 }
 export type TConfig = typeof config;

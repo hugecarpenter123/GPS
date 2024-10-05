@@ -22,10 +22,10 @@ export default class ConfigPopup extends EventEmitter {
     this.configManager = ConfigManager.getInstance();
     this.config = this.configManager.getConfig();
 
-    this.switch = true;
-    this.farm = true;
-    this.builder = true;
-    this.guard = false;
+    this.switch = this.config.general.switch;
+    this.farm = this.config.general.farm;
+    this.builder = this.config.general.builder;
+    this.guard = this.config.general.guard;
 
     this.farmInterval = this.config.farmConfig.farmInterval;
     this.humanize = this.config.farmConfig.humanize;
@@ -79,12 +79,25 @@ export default class ConfigPopup extends EventEmitter {
       }
 
       // update config related fields and persist them to local storage if changed
-      if (this.config.farmConfig.farmInterval !== this.farmInterval || this.config.farmConfig.humanize !== this.humanize) {
+      if (this.config.farmConfig.farmInterval !== this.farmInterval ||
+        this.config.farmConfig.humanize !== this.humanize ||
+        this.config.general.switch !== this.switch ||
+        this.config.general.farm !== this.farm ||
+        this.config.general.builder !== this.builder ||
+        this.config.general.guard !== this.guard) {
+        // readability comment --------------------------------------------------------------
         this.config.farmConfig.farmInterval = this.farmInterval;
         this.config.farmConfig.humanize = this.humanize;
+        this.config.general.switch = this.switch;
+        this.config.general.farm = this.farm;
+        this.config.general.builder = this.builder;
+        this.config.general.guard = this.guard;
         this.configManager.persistConfig();
       }
 
+      if (this.farmInterval === FarmTimeInterval.FourthOption) {
+        alert('Farmienie ustawione na 4h/8h, odśwież stronę jeżeli to błąd!')
+      }
       container.classList.add('minimized');
       this.emit('managersChange');
     }));
@@ -107,6 +120,7 @@ export default class ConfigPopup extends EventEmitter {
     });
     timeIntervalSelect!.addEventListener('change', () => {
       this.farmInterval = Number((timeIntervalSelect as HTMLSelectElement).value)
+      console.log('this.farmInterval changed to: ', this.farmInterval);
     })
 
 
@@ -139,7 +153,7 @@ export default class ConfigPopup extends EventEmitter {
 
     const intervalSelectElement = (container.querySelector('#time-interval-select') as HTMLSelectElement)
     const farmIntervalValuesUnparsed = Object.values(FarmTimeInterval);
-    const farmIntervalValues = farmIntervalValuesUnparsed.slice((farmIntervalValuesUnparsed.length / 2), -1);
+    const farmIntervalValues = farmIntervalValuesUnparsed.slice((farmIntervalValuesUnparsed.length / 2));
     farmIntervalValues.forEach((value) => {
       const option = document.createElement('option')
       option.value = value.toString()
@@ -147,28 +161,24 @@ export default class ConfigPopup extends EventEmitter {
       intervalSelectElement.appendChild(option);
     });
 
-    (container.querySelector('#time-interval-select') as HTMLSelectElement)!.value = FarmTimeInterval.FiveMinutes.toString();
+    (container.querySelector('#time-interval-select') as HTMLSelectElement)!.value = this.config.farmConfig.farmInterval.toString() ?? FarmTimeInterval.FirstOption.toString();
+
+    const humanizeCheckbox = container.querySelector('#humanize-checkbox') as HTMLInputElement;
+    humanizeCheckbox.checked = this.config.farmConfig.humanize;
+
     return container;
   }
 
   private mapTimeIntervalKeyToText(value: FarmTimeInterval): string {
     switch (value) {
-      case FarmTimeInterval.FiveMinutes:
-        return "5m";
-      case FarmTimeInterval.TenMinutes:
-        return "10m";
-      case FarmTimeInterval.TwentyMinutes:
-        return "20m";
-      case FarmTimeInterval.FortyMinutes:
-        return "40m";
-      case FarmTimeInterval.OneHourAndHalf:
-        return "1h 30m";
-      case FarmTimeInterval.ThreeHours:
-        return "3h";
-      case FarmTimeInterval.FourHours:
-        return "4h";
-      case FarmTimeInterval.EightHours:
-        return "8h";
+      case FarmTimeInterval.FirstOption:
+        return "5m/10m";
+      case FarmTimeInterval.SecondOption:
+        return "20m/40m";
+      case FarmTimeInterval.ThirdOption:
+        return "1h 30m/3h";
+      case FarmTimeInterval.FourthOption:
+        return "4h/8h";
       default:
         return "Unknown interval";
     }
@@ -196,5 +206,10 @@ export default class ConfigPopup extends EventEmitter {
     document.body.appendChild(configWindowElement);
 
     this.initEventListeners();
+  }
+
+  public minimize() {
+    const container = document.querySelector<HTMLElement>('#config-popup-container');
+    container?.classList.add('minimized');
   }
 }

@@ -1,4 +1,6 @@
+import { FarmTimeInterval, TConfig } from "../../../gps.config";
 import ConfigPopup from "../../ui/config-popup";
+import ConfigManager from "../../utility/config-manager";
 import { addDelay } from "../../utility/plain-utility";
 import CityBuilder from "../city/builder/city-builder";
 import CitySwitchManager from "../city/city-switch-manager";
@@ -9,6 +11,7 @@ type Managers = 'farmManager' | 'switchManager' | 'scheduler' | 'builder';
 
 export default class MasterManager {
   private static instance: MasterManager
+  private config!: TConfig;
   private farmManager!: FarmManager;
   private switchManager!: CitySwitchManager;
   private scheduler!: Scheduler;
@@ -30,14 +33,35 @@ export default class MasterManager {
   public static async getInstance(): Promise<MasterManager> {
     if (!MasterManager.instance) {
       MasterManager.instance = new MasterManager();
-      MasterManager.instance.farmManager = await FarmManager.getInstance();
+      MasterManager.instance.config = ConfigManager.getInstance().getConfig();
       MasterManager.instance.switchManager = await CitySwitchManager.getInstance();
+      MasterManager.instance.farmManager = await FarmManager.getInstance();
       MasterManager.instance.scheduler = await Scheduler.getInstance();
       MasterManager.instance.builder = await CityBuilder.getInstance();
-      MasterManager.instance.initConfigDialog();
       MasterManager.instance.initCaptchaPrevention();
+      MasterManager.instance.initRefreshUtility();
+      MasterManager.instance.initConfigDialog();
     }
     return MasterManager.instance;
+  }
+  private initRefreshUtility(timeout?: number) {
+    setTimeout(async () => {
+      const scheduler = await Scheduler.getInstance();
+      const canRefresh = !scheduler.isRunning() || scheduler.canSafelyRefresh();
+
+      if (canRefresh) {
+        console.log('canRefresh, will refresh', canRefresh);
+        console.log('timeout ?? this.config.general.applicationRefreshInterval', timeout ?? this.config.general.applicationRefreshInterval);
+        console.log('this.config.general.applicationRefreshInterval', this.config.general.applicationRefreshInterval);
+        this.config.general.forcedRefresh = true;
+        ConfigManager.getInstance().persistConfig();
+        await addDelay(10000);
+        window.location.reload();
+      } else {
+        console.log('canRefresh', canRefresh);
+        this.initRefreshUtility(5 * 1000 * 60);
+      }
+    }, timeout ?? (this.config.general.applicationRefreshInterval + (Math.floor(Math.random() * 121) - 60)) * 1000);
   }
 
   // id="recaptcha_window"
@@ -75,7 +99,6 @@ export default class MasterManager {
         }
       }
     }).observe(document.body, { childList: true });
-
   }
 
   private async runManagersFromConfig(): Promise<void> {
@@ -120,6 +143,14 @@ export default class MasterManager {
       await this.runManagersFromConfig();
     })
     this.configMenuWindow.render();
+    if (this.config.general.forcedRefresh) {
+      this.config.general.forcedRefresh = false;
+      this.config.farmConfig.farmInterval = FarmTimeInterval.FirstOption;
+      ConfigManager.getInstance().persistConfig();
+
+      this.configMenuWindow.minimize();
+      await this.runManagersFromConfig();
+    }
   }
 
   public run(): void {
@@ -179,6 +210,12 @@ export default class MasterManager {
         this.pausedManagersSnapshot[key as Managers] = false;
       }
     });
+  }
+
+  public forceRefresh(): void {
+    this.config.general.forcedRefresh = true;
+    ConfigManager.getInstance().persistConfig();
+    window.location.reload();
   }
 
   public stopAll(): void {

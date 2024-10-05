@@ -194,7 +194,7 @@ export default class Scheduler {
         operationType: operationType,
         targetDate: targetDate,
         actionDate: actionDate,
-        sourceCity: sourceCity,
+        sourceCity: sourceCity!,
         targetCityIdSelector: targetCitySelector,
         data: inputData,
         timeoutStructure: scheduleTimeout,
@@ -307,7 +307,7 @@ export default class Scheduler {
     if (schedulerItem.operationType === OperationType.ARMY_ATTACK || schedulerItem.operationType === OperationType.ARMY_SUPPORT) {
       schedulerItem.actionDate = new Date(schedulerItem.actionDate)
       schedulerItem.targetDate = new Date(schedulerItem.targetDate)
-      schedulerItem.sourceCity = this.citySwitchManager.getCityByName(schedulerItem.sourceCity.name);
+      schedulerItem.sourceCity = this.citySwitchManager.getCityByName(schedulerItem.sourceCity.name)!; //TODO: possible erorr
 
       if (!this.canAddSchedulerItem(schedulerItem.actionDate)) {
         console.warn('unsafe operation, failed to be scheudled during hydration');
@@ -644,4 +644,7 @@ export default class Scheduler {
     }
   }
 
+  public canSafelyRefresh(): boolean {
+    return this.scheduler.length === 0 || this.scheduler.every((item) => item.actionDate > new Date(new Date().getTime() + 120 * 1000));
+  }
 }

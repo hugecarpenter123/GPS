@@ -40,4 +40,8 @@ export default class Lock {
       console.log('lock released ()')
     }
   }
+
+  public isTaken(): boolean {
+    return this.isLocked;
+  }
 }
