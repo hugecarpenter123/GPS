@@ -424,6 +424,7 @@ export default class CityBuilder {
       cityQueue.schedule = null;
     }
     this.clearUIQueueItem(item);
+    // NOTE: temporary solution
     await this.performBuildSchedule(cityQueue);
   }
 

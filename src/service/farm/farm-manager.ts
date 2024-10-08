@@ -1,9 +1,9 @@
 import EventEmitter from "events";
 import gpsConfig, { FarmTimeInterval } from "../../../gps.config";
 import ConfigManager from "../../utility/config-manager";
-import { addDelay, areArraysContentsEqual as areArraysEqual, getRandomMs, isMobile, shuffleArray, textToMs } from "../../utility/plain-utility";
+import { addDelay, getRandomMs, textToMs } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
-import { performComplexClick, waitForElement, waitForElementFromNode, waitForElements } from "../../utility/ui-utility";
+import { performComplexClick, waitForElement, waitForElementFromNode, waitForElements, waitForElementsInterval } from "../../utility/ui-utility";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
 
 type ScheduleItem = {
@@ -18,7 +18,6 @@ export default class FarmManager extends EventEmitter {
   private configManager!: ConfigManager;
   private config!: typeof gpsConfig.farmConfig;
   private schedulerArray: ScheduleItem[] = [];
-  private previousVillageSelectors: string[] = [];
   private messageDialogObserver: MutationObserver | null = null;
   private humanMessageDialogObserver: MutationObserver | null = null;
   private lock!: Lock;
@@ -68,7 +67,6 @@ export default class FarmManager extends EventEmitter {
    */
   private async farmVillages(city: CityInfo) {
     try {
-      console.log('chcę farmić wioski w miescie:', city.name);
       await this.lock.acquire();
       await this.farmVillagesFlow(city);
     } catch (e) {
@@ -97,7 +95,7 @@ export default class FarmManager extends EventEmitter {
       this.config.humanize ? addDelay(getRandomMs(400, 1200)) : addDelay(333);
 
       // Selectors mapping and timeout check
-      const villages = await waitForElements('a.owned.farm_town[data-same_island="true"]', 3000).catch(() => null);
+      const villages = await waitForElementsInterval('a.owned.farm_town[data-same_island="true"]', { timeout: 3000 }).catch(() => null);
       console.log('villages:', villages);
 
       if (!villages) throw new Error('Villages elements not found');
@@ -105,28 +103,8 @@ export default class FarmManager extends EventEmitter {
       const villageStyleSelectors = Array.from(villages).map(v => {
         return `[style="${v.getAttribute('style')}"]`
       })
-      // shuffleArray(villageStyleSelectors);
+
       const villagesAmount = villageStyleSelectors.length;
-
-      // let farmWindow: HTMLElement | null = null;
-
-      // do {
-      //   await performComplexClick(document.querySelector<HTMLElement>('a.owned.farm_town[data-same_island="true"]')!);
-      //   await addDelay(100);
-      // } while (!(farmWindow = await waitForElement('.farm_towns', 1000).catch(() => null)));
-
-      // if (!forced) {
-      //   const unlockTime = await this.getUnlockTimeOrNull(farmWindow);
-      //   if (unlockTime) {
-      //     await waitForElement('.btn_wnd.close', 1000)
-      //       .then((el) => el.click())
-      //       .catch(() => { });
-
-      //     this.scheduleNextFarmingOperationForCity(unlockTime, city);
-      //     return;
-      //   }
-      // }
-      // END Selectors mapping and timeout check
       this.mountMessageDialogsObservers(city);
 
       for (const [i, villageSelector] of villageStyleSelectors.entries()) {
@@ -134,13 +112,13 @@ export default class FarmManager extends EventEmitter {
 
         let counter = 0;
         do {
-          performComplexClick(document.querySelector<HTMLElement>(villageSelector)!);
+          await performComplexClick(document.querySelector<HTMLElement>(villageSelector)!);
           console.log('\t-clicked village element on the map (found/not found):', !!document.querySelector<HTMLElement>(villageSelector));
           await addDelay(100);
           if (counter === 3) throw new Error('Farm villages dialog didn\'t show up');
           counter++;
         } while (!(await waitForElement('.farm_towns', 1000).catch(() => false)));
-        this.config.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
+        this.config.humanize ? await addDelay(getRandomMs(400, 1200)) : addDelay(100);
 
         const farmOptionIndex = this.getFarmOptionIndex();
 
@@ -153,8 +131,8 @@ export default class FarmManager extends EventEmitter {
           if (counter === 3) throw new Error('Farm button not found');
           counter++;
           await addDelay(100);
-        } while (!await waitForElement('.actions_locked_banner.cooldown', 1000).catch(() => false));
-        this.config.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
+        } while (!await waitForElement('.actions_locked_banner.cooldown', 1500).catch(() => false));
+        this.config.humanize ? await addDelay(getRandomMs(400, 1200)) : addDelay(100);
 
         if (i === villagesAmount - 1) {
           timeout = await this.getUnlockTimeOrNull(await waitForElement('.farm_towns'), 2000) ?? this.config.farmInterval;
@@ -253,6 +231,7 @@ export default class FarmManager extends EventEmitter {
         }
       });
       this.messageDialogObserver = observer;
+      this.messageDialogObserver.observe(document.body, { childList: true })
     }
 
     if (!this.humanMessageDialogObserver) {

@@ -70,12 +70,16 @@ export function waitForElements(selector: string, timeoutMs: number = 8000): Pro
         reject(`waitForElements(${selector}) - not found within timeout`);
       }, timeoutMs);
 
-      const observer = new MutationObserver(() => {
-        const elements = document.querySelectorAll(selector) as NodeListOf<HTMLElement>;
-        if (elements.length > 0) {
-          observer.disconnect();
-          clearTimeout(timeout);
-          resolve(elements);
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.type === 'childList') {
+            const elements = document.querySelectorAll(selector) as NodeListOf<HTMLElement>;
+            if (elements.length > 0) {
+              observer.disconnect();
+              clearTimeout(timeout);
+              resolve(elements);
+            }
+          }
         }
       });
 
@@ -90,33 +94,98 @@ export function waitForElement(selector: string, timeout: number = 8000): Promis
   return new Promise((resolve, reject) => {
     const element = document.querySelector(selector) as HTMLElement;
 
-    // Jeśli element już istnieje to zostaje zwrócony odrazu
     if (element) {
-      // console.log(`${selector} - FOUND, resolve:`, element);
       return resolve(element);
     } else {
-      // console.log(`${selector} - not found, mount observer`);
 
-      // Inicjalizacja timeoutu
       const timeoutId = setTimeout(() => {
         observer.disconnect();
         reject(`${selector} - not found within timeout`);
       }, timeout);
 
-      // Inicjalizacja MutationObserver
-      const observer = new MutationObserver(() => {
-        // console.log(`${selector}.observer fired`);
-        const element = document.querySelector(selector) as HTMLElement;
-        if (element) {
-          observer.disconnect();
-          clearTimeout(timeoutId); // Czyszczenie timeoutu
-          // console.log(`\t${selector} - FOUND resolve element:`, element);
-          resolve(element);
+
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.type === 'childList') {
+            for (const node of mutation.addedNodes) {
+              if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).matches(selector)) {
+                observer.disconnect();
+                clearTimeout(timeout);
+                resolve(node as HTMLElement);
+              }
+            }
+          }
         }
       });
 
       // Rozpoczęcie obserwacji
       observer.observe(document.body, { childList: true, subtree: true });
+    }
+  });
+}
+
+type WaitForElementOptions = {
+  timeout?: number;
+  fromNode?: HTMLElement | Document;
+  interval?: number;
+}
+const WaitForElementOptionsDefaults: WaitForElementOptions = {
+  timeout: 8000,
+  fromNode: document,
+  interval: 333,
+}
+
+export function waitForElementInterval(
+  selector: string,
+  options: WaitForElementOptions = WaitForElementOptionsDefaults
+): Promise<HTMLElement> {
+  const { timeout = 8000, fromNode = document, interval = 333 } = options;
+
+  return new Promise((resolve, reject) => {
+    const element = fromNode.querySelector(selector) as HTMLElement;
+    if (element) {
+      resolve(element);
+    } else {
+      const timeoutId = setTimeout(() => {
+        clearInterval(observer);
+        reject(`${selector} - not found within timeout`);
+      }, timeout);
+
+      const observer = setInterval(() => {
+        const element = fromNode.querySelector(selector) as HTMLElement;
+        if (element) {
+          clearInterval(observer);
+          clearTimeout(timeoutId);
+          resolve(element);
+        }
+      }, interval);
+    }
+  });
+}
+
+export function waitForElementsInterval(selector: string, options: WaitForElementOptions = WaitForElementOptionsDefaults): Promise<NodeListOf<HTMLElement>> {
+  const { timeout = 8000, fromNode = document, interval = 333 } = options;
+
+  return new Promise((resolve, reject) => {
+    const elements = fromNode.querySelectorAll(selector) as NodeListOf<HTMLElement>;
+
+    if (elements.length > 0) {
+      resolve(elements);
+    } else {
+
+      const timeoutId = setTimeout(() => {
+        clearInterval(observer);
+        reject(`${selector} - not found within timeout`);
+      }, timeout);
+
+      const observer = setInterval(() => {
+        const elements = fromNode.querySelectorAll(selector) as NodeListOf<HTMLElement>;
+        if (elements.length > 0) {
+          clearInterval(observer);
+          clearTimeout(timeoutId);
+          resolve(elements);
+        }
+      }, interval);
     }
   });
 }
@@ -139,14 +208,17 @@ export function waitForElementFromNode(parentNode: HTMLElement | Document, selec
       }, timeout);
 
       // Inicjalizacja MutationObserver
-      const observer = new MutationObserver(() => {
-        // console.log(`${selector}.observer fired`);
-        const element = parentNode.querySelector(selector) as HTMLElement;
-        if (element) {
-          observer.disconnect();
-          clearTimeout(timeoutId); // Czyszczenie timeoutu
-          // console.log(`\t${selector} - FOUND resolve element:`, element);
-          resolve(element);
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.type === 'childList') {
+            for (const node of mutation.addedNodes) {
+              if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).matches(selector)) {
+                observer.disconnect();
+                clearTimeout(timeoutId);
+                resolve(node as HTMLElement);
+              }
+            }
+          }
         }
       });
 
