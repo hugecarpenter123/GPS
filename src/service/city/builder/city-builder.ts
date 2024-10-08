@@ -195,7 +195,7 @@ export default class CityBuilder {
             cityQueue.schedule = null;
           }
           this.revalidateQueueItemLevels(queueItem.building, index, cityQueue);
-          this.performBuildSchedule(cityQueue);
+          this.handleBuildSchedule(cityQueue);
         }
         else {
           cityQueue.queue.splice(index, 1);
@@ -253,7 +253,7 @@ export default class CityBuilder {
     cityQueue.queue.push(queueItem);
     this.saveQueueToStorage();
     console.log('pushed to queue:', JSON.parse(JSON.stringify(cityQueue.queue)));
-    await this.buildOrSchedule(cityQueue);
+    this.buildOrSchedule(cityQueue);
   }
 
   private async buildOrSchedule(cityQueue: CityQueue) {
@@ -264,7 +264,7 @@ export default class CityBuilder {
         clearTimeout(cityQueue.schedule);
         cityQueue.schedule = null;
       }
-      await this.performBuildSchedule(cityQueue);
+      await this.handleBuildSchedule(cityQueue);
     } else {
       console.log('\t-queue has more than one item, waiting for its turn');
     }
@@ -302,10 +302,17 @@ export default class CityBuilder {
     } else {
       console.log('\t-speed up will be scheduled at:', getTimeInFuture(timeToSpeedUp));
       cityQueue.schedule = setTimeout(async () => {
-        const emptySlots = this.getEmptySlotsCount();
-        await this.speedUpFirstBuild(cityQueue.city);
-        await this.untilEmptyslotsAreEqual(emptySlots + 1);
-        this.performBuildSchedule(cityQueue);
+        try {
+          await this.lock.acquire();
+          const emptySlots = this.getEmptySlotsCount();
+          await this.speedUpFirstBuild(cityQueue.city);
+          await this.untilEmptyslotsAreEqual(emptySlots + 1);
+          await this.performBuildSchedule(cityQueue);
+        } catch (e) {
+          console.warn('CityBuilder.performBuildSchedule().catch', e);
+        } finally {
+          this.lock.release();
+        }
       }, timeToSpeedUp);
     }
   }
@@ -329,7 +336,6 @@ export default class CityBuilder {
         this.clearUIQueueItem(cityQueue.queue[1]);
         cityQueue.queue.splice(1, 1);
         await this.shiftQueueCleanScheduleAndTryNext(item, cityQueue);
-        // TODO: here should remove two first items from queue
       } else {
         await this.shiftQueueCleanScheduleAndTryNext(item, cityQueue);
       }
@@ -348,14 +354,21 @@ export default class CityBuilder {
       if (resourcesInfo.areStackable === true) {
         console.log('\t-areResourcesStackable is true, scheduling build');
         cityQueue.schedule = setInterval(async () => {
-          if ((await this.resourceManager.hasEnoughResources(resourcesInfo.requiredResources, cityQueue.city)) && (await this.canBuild(building, cityQueue.city))) {
-            console.log('\t\t-canBuild is true, building...');
-            const emptySlots = this.getEmptySlotsCount();
-            await building.buildAction();
-            await this.untilEmptyslotsAreEqual(emptySlots - 1);
-            await this.shiftQueueCleanScheduleAndTryNext(item, cityQueue);
+          try {
+            await this.lock.acquire();
+            if ((await this.resourceManager.hasEnoughResources(resourcesInfo.requiredResources, cityQueue.city)) && (await this.canBuild(building, cityQueue.city))) {
+              console.log('\t\t-canBuild is true, building...');
+              const emptySlots = this.getEmptySlotsCount();
+              await building.buildAction();
+              await this.untilEmptyslotsAreEqual(emptySlots - 1);
+              await this.shiftQueueCleanScheduleAndTryNext(item, cityQueue);
+            }
+          } catch (e) {
+            console.warn('CityBuilder.checkIfItemCanBeBuiltAndAddDeleteOrSchedule().catch', e);
+          } finally {
+            this.lock.release();
           }
-        }, 1000 * 60);
+        }, 1000 * 120);
       }
       else if (resourcesInfo.areStackable === 'population' && this.allowCriticalBuilds) {
         console.log('\t\t-areResourcesStackable is population, adding farm to queue');
@@ -424,13 +437,23 @@ export default class CityBuilder {
       cityQueue.schedule = null;
     }
     this.clearUIQueueItem(item);
-    // NOTE: temporary solution
     await this.performBuildSchedule(cityQueue);
   }
 
   private goToCityView() {
     const cityViewBtn = document.querySelector<HTMLDivElement>('[name="city_overview"]');
     cityViewBtn?.click();
+  }
+
+  private async handleBuildSchedule(cityQueue: CityQueue) {
+    try {
+      await this.lock.acquire();
+      await this.performBuildSchedule(cityQueue);
+    } catch (e) {
+      console.warn('CityBuilder.doQueueOperation().catch', e);
+    } finally {
+      this.lock.release();
+    }
   }
 
   private async speedUpFirstBuild(city: CityInfo) {
@@ -578,7 +601,7 @@ export default class CityBuilder {
     this.RUN = true;
     document.getElementById(CityBuilder.toggleBuilderButtonId)!.classList.remove('hidden');
     Object.values(this.mainQueue).forEach(async cityQueue => {
-      await this.performBuildSchedule(cityQueue);
+      await this.handleBuildSchedule(cityQueue);
     });
   }
 
