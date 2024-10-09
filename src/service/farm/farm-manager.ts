@@ -43,7 +43,6 @@ export default class FarmManager extends EventEmitter {
     if (!this.RUN) {
       console.log('FarmManager started');
       this.RUN = true;
-      console.log('FarmManager.start().config:', this.config);
       await this.initFarmAllVillages();
     }
   }
@@ -67,12 +66,15 @@ export default class FarmManager extends EventEmitter {
    */
   private async farmVillages(city: CityInfo) {
     try {
+      console.log('farmVillages, wait for lock', city.name);
       await this.lock.acquire();
+      console.log('farmVillages, take lock', city.name);
       await this.farmVillagesFlow(city);
     } catch (e) {
       console.warn('FarmManager.farmVillages().catch', e);
     } finally {
       this.disconnectObservers();
+      console.log('farmVillages, release lock', city.name);
       this.lock.release();
       this.emit('farmingFinished');
     }
@@ -88,6 +90,7 @@ export default class FarmManager extends EventEmitter {
    */
   private async farmVillagesFlow(city: CityInfo, forced: boolean = false) {
     try {
+      console.log('farmVillagesFlow, switch to city', city.name);
       await city.switchAction();
 
       let timeout: number = this.config.farmInterval;
@@ -96,10 +99,9 @@ export default class FarmManager extends EventEmitter {
 
       // Selectors mapping and timeout check
       const villages = await waitForElementsInterval('a.owned.farm_town[data-same_island="true"]', { timeout: 3000 }).catch(() => null);
-      console.log('villages:', villages);
+      console.log('\t-villages to farm:', villages?.length);
 
-      if (!villages) throw new Error('Villages elements not found');
-      else if (villages.length === 0) return;
+      if (!villages || villages.length === 0) return;
       const villageStyleSelectors = Array.from(villages).map(v => {
         return `[style="${v.getAttribute('style')}"]`
       })
@@ -107,13 +109,14 @@ export default class FarmManager extends EventEmitter {
       const villagesAmount = villageStyleSelectors.length;
       this.mountMessageDialogsObservers(city);
 
+      console.log('\t-start farming villages');
       for (const [i, villageSelector] of villageStyleSelectors.entries()) {
-        console.log(`checking village: ${villageSelector}, from town: ${city.name}`);
+        console.log(`\t-checking village: ${villageSelector}, from town: ${city.name}`);
 
         let counter = 0;
         do {
           await performComplexClick(document.querySelector<HTMLElement>(villageSelector)!);
-          console.log('\t-clicked village element on the map (found/not found):', !!document.querySelector<HTMLElement>(villageSelector));
+          // console.log('\t-clicked village element on the map (found/not found):', !!document.querySelector<HTMLElement>(villageSelector));
           await addDelay(100);
           if (counter === 3) throw new Error('Farm villages dialog didn\'t show up');
           counter++;
@@ -127,7 +130,7 @@ export default class FarmManager extends EventEmitter {
           await waitForElements('.btn_claim_resources.button.button_new', 500)
             .then((els) => els[farmOptionIndex].click())
             .catch(() => { });
-          console.log('\t-clicked button (found/not found):', !!document.querySelectorAll<HTMLElement>('.btn_claim_resources.button.button_new')[farmOptionIndex]);
+          // console.log('\t-clicked button (found/not found):', !!document.querySelectorAll<HTMLElement>('.btn_claim_resources.button.button_new')[farmOptionIndex]);
           if (counter === 3) throw new Error('Farm button not found');
           counter++;
           await addDelay(100);
@@ -168,7 +171,9 @@ export default class FarmManager extends EventEmitter {
     }, []);
 
     try {
-      this.lock.acquire();
+      console.log('initFarmAllVillages, wait for lock');
+      await this.lock.acquire();
+      console.log('initFarmAllVillages, take lock');
       for (const cityInfo of cityList) {
         await this.farmVillagesFlow(cityInfo);
       }
