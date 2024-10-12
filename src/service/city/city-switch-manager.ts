@@ -1,6 +1,7 @@
 import EventEmitter from "events";
 import { performComplexClick, waitForElement, waitForElements } from "../../utility/ui-utility";
 import { addDelay } from "../../utility/plain-utility";
+import GeneralInfo from "../master/ui/general-info";
 
 export type CityInfo = {
   name: string;
@@ -12,12 +13,14 @@ export type CityInfo = {
 export default class CitySwitchManager extends EventEmitter {
   private static instance: CitySwitchManager;
   private RUN: boolean = false;
+  private generalInfo!: GeneralInfo;
   private cityList: CityInfo[] = [];
   private constructor() { super(); }
 
   public static async getInstance(): Promise<CitySwitchManager> {
     if (!CitySwitchManager.instance) {
       CitySwitchManager.instance = new CitySwitchManager();
+      CitySwitchManager.instance.generalInfo = GeneralInfo.getInstance();
       CitySwitchManager.instance.cityList = await CitySwitchManager.instance.initCityList();
       CitySwitchManager.instance.mountObserver();
     }
@@ -40,6 +43,7 @@ export default class CitySwitchManager extends EventEmitter {
    * Method parses list of city, and creates shortcut access.
    */
   private async initCityList(): Promise<CityInfo[]> {
+    this.generalInfo.showInfo('City Switch Manager:', 'Inicjalizacja listy miast');
     const dropdownTrigger = await waitForElement('.town_groups_dropdown.btn_toggle_town_groups_menu');
     dropdownTrigger.click();
     let townListElement;
@@ -109,6 +113,7 @@ export default class CitySwitchManager extends EventEmitter {
     }
     console.log('CitySwitchManager.cityList.initialized:', cityList)
     await this.goBackToFirstTown();
+    this.generalInfo.hideInfo();
     return cityList;
   }
 

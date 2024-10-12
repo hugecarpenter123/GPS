@@ -6,6 +6,7 @@ import builderHtml from './builder-prod.html';
 import { Building, buildings, buildingsSelectors } from "./buildings";
 import ResourceManager from "../../resources/resource-manager";
 import CitySwitchManager, { CityInfo } from "../city-switch-manager";
+import GeneralInfo from "../../master/ui/general-info";
 
 type QueueItem = {
   id: string,
@@ -33,6 +34,7 @@ export default class CityBuilder {
 
   private static instance: CityBuilder;
   private citySwitchManager!: CitySwitchManager;
+  private generalInfo!: GeneralInfo;
   private allowUnsequentialBuilds: boolean = false;
   private allowCriticalBuilds: boolean = true;
   private static readonly BUILD_RETRY_INTERVAL: number = 180 * 1000;
@@ -53,6 +55,7 @@ export default class CityBuilder {
       CityBuilder.instance.lock = Lock.getInstance();
       CityBuilder.instance.resourceManager = ResourceManager.getInstance();
       CityBuilder.instance.citySwitchManager = await CitySwitchManager.getInstance();
+      CityBuilder.instance.generalInfo = GeneralInfo.getInstance();
       CityBuilder.instance.addStyle();
       CityBuilder.instance.renderUI();
       CityBuilder.instance.loadQueueFromStorage();
@@ -492,12 +495,14 @@ export default class CityBuilder {
     try {
       console.log('handleBuildSchedule, wait for lock', cityQueue.city.name);
       await this.lock.acquire();
+      this.generalInfo.showInfo('Builder:', `Obsługa kolejki w mieście: ${cityQueue.city.name}`);
       console.log('handleBuildSchedule, take lock', cityQueue.city.name);
       await this.performBuildSchedule(cityQueue);
     } catch (e) {
       console.warn('CityBuilder.doQueueOperation().catch', e);
     } finally {
       console.log('handleBuildSchedule, release lock', cityQueue.city.name);
+      this.generalInfo.hideInfo();
       this.lock.release();
     }
   }
@@ -607,23 +612,29 @@ export default class CityBuilder {
   }
 
   private loadQueueFromStorage() {
-    const queue = localStorage.getItem('cityBuilderQueue');
-    if (queue) {
-      this.mainQueue = JSON.parse(queue)
-        .map((cityQueue: CityQueue) => {
+    this.mainQueue = this.citySwitchManager.getCityList().map((cityInfo) => ({
+      city: cityInfo,
+      queue: [],
+      schedule: null
+    }));
+
+    const storageQueue = localStorage.getItem('cityBuilderQueue');
+    if (storageQueue) {
+      JSON.parse(storageQueue)
+        .forEach((cityQueue: CityQueue) => {
           const city = this.citySwitchManager.getCityByName(cityQueue.city.name);
           if (!city) {
-            return null;
+            return;
           }
           // actual queue
           const queueItems = cityQueue.queue.map(item => {
             const building = Object.values(buildings).find(building => building.name === item.building.name)!;
             return { ...item, building };
           });
-          return { city, queue: queueItems, schedule: null };
+          this.mainQueue.find(queue => queue.city === city)!.queue = queueItems;
         })
-        .filter((queue: CityQueue | null) => queue !== null);
     }
+
     const currentCity = this.citySwitchManager.getCurrentCity();
     const currentCityQueue = this.mainQueue.find(queue => queue.city === currentCity);
     if (currentCityQueue) {

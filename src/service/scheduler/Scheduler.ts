@@ -1,11 +1,12 @@
 import { TConfig } from "../../../gps.config";
 import ConfigManager from "../../utility/config-manager";
-import { addDelay, textToMs } from "../../utility/plain-utility";
+import { addDelay, formatDateToSimpleString, textToMs } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
-import { performComplexClick, setInputValue, triggerHover, waitForElement } from "../../utility/ui-utility";
+import { performComplexClick, setInputValue, triggerHover, waitForElement, waitForElementInterval } from "../../utility/ui-utility";
 import ArmyMovement from "../army/army-movement";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
 import MasterManager from "../master/master-manager";
+import GeneralInfo from "../master/ui/general-info";
 import buttonPanelExtension from './button-panel-extension.html';
 import schedulerListHtml from './scheduler-list-prod.html';
 import schedulerListCss from './scheduler-list.css';
@@ -18,19 +19,21 @@ enum OperationType {
 }
 
 type TimeoutStructure = {
-  timeout30s: NodeJS.Timeout | null;
-  timeout10s: NodeJS.Timeout | null;
+  timeoutPreparation: NodeJS.Timeout | null;
+  timeoutPreAction: NodeJS.Timeout | null;
   timeoutAction: NodeJS.Timeout | null;
 }
 
 type ScheduleItem = {
+  id: string;
   operationType: OperationType;
+  attackTypeSelector?: string;
   movementId: string | null;
   undoMovementAction: (() => void) | null;
   targetDate: Date;
   actionDate: Date;
   sourceCity: CityInfo;
-  targetCityIdSelector: string;
+  targetCitySelector: string;
   data: any;
   /**
    * Przechowuje timeouty do anulowania operacji, które są wykonują etapy przygotowawcze do operacji oraz samą operację
@@ -41,19 +44,20 @@ type ScheduleItem = {
    */
   cancelSchedule: () => void;
   /**
-   * Po wykonaniu operacji, przywraca działanie managerów, zwalnia locka a po 10 minutach usuwa item z schedulera
+   * Po wykonaniu operacji, przywraca działanie managerów, zwalnia locka a po 10/0 minutach usuwa item z schedulera
    */
   postActionCleanup: () => void;
 }
 
 export default class Scheduler {
   public static readonly MIN_PRECEDENCE_TIME_MS = 10 * 1000;
-  public static readonly TURN_OFF_MANAGERS_TIME_MS = 30 * 1000;
+  public static readonly TURN_OFF_MANAGERS_TIME_MS = 20 * 1000;
   public static readonly PREPARATION_TIME_MS = 10 * 1000;
 
   private static instance: Scheduler;
   private lock!: Lock;
   private isLockTakenByScheduler: boolean = false;
+  private generalInfo!: GeneralInfo;
   private masterManager!: MasterManager;
   private config!: TConfig;
   private citySwitchManager!: CitySwitchManager;
@@ -70,6 +74,7 @@ export default class Scheduler {
     if (!Scheduler.instance) {
       Scheduler.instance = new Scheduler();
       Scheduler.instance.lock = Lock.getInstance();
+      Scheduler.instance.generalInfo = GeneralInfo.getInstance();
       Scheduler.instance.armyMovement = ArmyMovement.getInstance();
       Scheduler.instance.masterManager = await MasterManager.getInstance();
       Scheduler.instance.citySwitchManager = await CitySwitchManager.getInstance();
@@ -151,7 +156,11 @@ export default class Scheduler {
         }
       })
 
+
       const operationType = node.firstElementChild!.getAttribute('data-type') === 'attack' ? OperationType.ARMY_ATTACK : OperationType.ARMY_SUPPORT;
+      const attackTypeSelector = operationType === OperationType.ARMY_ATTACK ?
+        (`[data-attack='${(document.querySelector('.attack_type.checked') as HTMLElement)?.dataset['attack']}']`) : undefined;
+
       const inputDateValue = inputDateElement.value
       // Wartość z inputu type="date" będzie w formacie "YYYY-MM-DD"
       // Na przykład: "2023-05-25" dla 25 maja 2023
@@ -164,15 +173,6 @@ export default class Scheduler {
       // attack_support_tab_target_9542
       const targetCitySelector = '#town_' + Array.from(node.classList).find(cls => cls.match(/attack_support_tab_target_\d+/))!.match(/\d+/)![0];
 
-      // console.log('parsed info:')
-      // console.log('inputData:', inputData)
-      // console.log('operationType', operationType === OperationType.ARMY_ATTACK ? 'attack' : 'support')
-      // console.log('targetCitySelector', targetCitySelector);
-      // console.log('sourceCity', sourceCity);
-      // console.log('wayDuration ms/timeString:', wayDurationMs, msToTimeString(wayDurationMs))
-      // console.log('targetDate', formatDateToSimpleString(targetDate));
-      // console.log('actionDate (targetDate - wayDuration)', formatDateToSimpleString(actionDate));
-
       if (!this.canAddSchedulerItem(actionDate)) {
         console.warn('unsafe operation, failed to be scheudled');
         this.error = 'Schedule failed. Cannot safely schedule operation.';
@@ -184,113 +184,192 @@ export default class Scheduler {
         return;
       }
 
+      const id = `${sourceCity!.name}${targetCitySelector}${actionDate.getTime()}${operationType}`;
+
+      document.querySelector<HTMLInputElement>('[data-menu_name="Info"]')!.click();
+      await addDelay(100);
+      await waitForElement('.info_jump_to_town').then(el => el.click()).catch(() => {
+        this.error = 'Schedule failed. Failed to switch to the city for grids.'
+        return;
+      });
+
+      document.querySelector<HTMLInputElement>('.btn_save_location')?.click();
+      await addDelay(100);
+      await waitForElement('.save_coordinates input', 4000)
+        .then(el => {
+          console.log('saving id:', id);
+          setInputValue(el as HTMLInputElement, id);
+          el.blur();
+        })
+        .catch(() => { throw new Error('Failed to save coordinates') });
+
+      await addDelay(100);
+      await waitForElement('.save_coordinates .btn_confirm', 3000)
+        .then(el => (el as HTMLButtonElement).click())
+        .catch(() => { throw new Error('Failed to confirm saving coordinates') });
+
+
       const scheduleTimeout: TimeoutStructure = {
-        timeout30s: null,
-        timeout10s: null,
+        timeoutPreparation: null,
+        timeoutPreAction: null,
         timeoutAction: null,
       }
 
       const schedulerItem: ScheduleItem = {
+        id: id,
         operationType: operationType,
+        attackTypeSelector: attackTypeSelector,
         targetDate: targetDate,
         actionDate: actionDate,
         sourceCity: sourceCity!,
-        targetCityIdSelector: targetCitySelector,
+        targetCitySelector: targetCitySelector,
         data: inputData,
         timeoutStructure: scheduleTimeout,
         movementId: null,
         undoMovementAction: null,
-        cancelSchedule: () => {
-          if (scheduleTimeout.timeout30s) clearTimeout(scheduleTimeout.timeout30s)
-          if (scheduleTimeout.timeout10s) clearTimeout(scheduleTimeout.timeout10s)
-          if (scheduleTimeout.timeoutAction) clearTimeout(scheduleTimeout.timeoutAction)
-          if (this.isLockTakenByScheduler) {
-            this.lock.release();
-            this.isLockTakenByScheduler = false;
-          }
-          this.scheduler = this.scheduler.filter(item => item !== schedulerItem)
-          localStorage.setItem('scheduler', JSON.stringify(this.scheduler));
-          this.tryRestoreManagers();
-        },
-        postActionCleanup: () => {
-          setTimeout(() => {
-            this.scheduler = this.scheduler.filter((item) => item !== schedulerItem);
-            localStorage.setItem('scheduler', JSON.stringify(this.scheduler));
-          }, 0);
-          if (this.isLockTakenByScheduler) this.lock.release();
-          this.isLockTakenByScheduler = false;
-          this.tryRestoreManagers();
-        }
+        cancelSchedule: async () => await this.cancelSchedule(schedulerItem),
+        postActionCleanup: async () => await this.postActionCleanup(schedulerItem),
       }
-
-      const halfMinuteBeforeAction = actionDate.getTime() - new Date().getTime() - Scheduler.TURN_OFF_MANAGERS_TIME_MS;
-      scheduleTimeout.timeout30s = setTimeout(() => {
-        // console.log('NOW half minute before action, time is:', formatDateToSimpleString(new Date()))
-        this.masterManager.pauseRunningManagers(['scheduler']);
-
-        const tenSecondsBeforeAction = actionDate.getTime() - new Date().getTime() - 10 * 1000;
-        scheduleTimeout.timeout10s = setTimeout(async () => {
-          try {
-            // console.log('NOW ten seconds before action, time is:', formatDateToSimpleString(new Date()))
-            await this.lock.acquire();
-            this.isLockTakenByScheduler = true;
-            // znajdź wioskę i kliknij odpowiednią operację
-            document.querySelector<HTMLElement>('.ui-dialog-titlebar-close')?.click()
-            performComplexClick((await waitForElement(targetCitySelector)))
-            if (operationType === OperationType.ARMY_ATTACK) {
-              (await waitForElement('#attack')).click();
-            } else {
-              (await waitForElement('#support')).click();
-            }
-
-            // wypełnij inputy
-            for (const data of inputData) {
-              const input = await waitForElement(`input[name="${data.name}"]`) as HTMLInputElement;
-              setInputValue(input, data.value);
-            };
-
-          } catch (error) {
-            console.error('Error during 10 seconds before action:', error);
-            this.error = 'Schedule failed. Check console for more details.'
-            schedulerItem.cancelSchedule();
-            return;
-          }
-
-          scheduleTimeout.timeoutAction = setTimeout(async () => {
-            try {
-              // console.log('NOW ACTION, time is:', formatDateToSimpleString(new Date()))
-              // console.log('now time + way duration:', formatDateToSimpleString(new Date(new Date().getTime() + wayDurationMs)))
-              if (operationType === OperationType.ARMY_ATTACK) {
-                (await waitForElement('#btn_attack_town')).click();
-              } else {
-                (await waitForElement('.attack_support_window a .middle')).click();
-              }
-
-              this.armyMovement.setCallback((id: string) => {
-                schedulerItem.movementId = id;
-                schedulerItem.undoMovementAction = () => this.undoArmyMovement(schedulerItem.sourceCity, id);
-              });
-
-              document.querySelector<HTMLElement>('.ui-dialog-titlebar-close')?.click();
-              this.error = null;
-            } catch (error) {
-              console.error('Error during action:', error);
-              this.error = 'Schedule failed. Check console for more details.'
-            } finally {
-              schedulerItem.postActionCleanup();
-            }
-          }, actionDate.getTime() - new Date().getTime());
-
-        }, tenSecondsBeforeAction)
-
-      }, halfMinuteBeforeAction);
-
+      this.addActionTimeouts(schedulerItem);
       this.scheduler.push(schedulerItem);
       this.addSchedulerItemToUI(schedulerItem);
       localStorage.setItem('scheduler', JSON.stringify(this.scheduler));
       this.info = 'Operation scheduled'
       console.log('Scheduler.extendAttackSupportUI.schedulerItem', schedulerItem);
     });
+  }
+
+  private async postActionCleanup(schedulerItem: ScheduleItem) {
+    setTimeout(() => {
+      this.removeSchedulerItemFromUI(schedulerItem);
+      this.scheduler = this.scheduler.filter((item) => item !== schedulerItem);
+      localStorage.setItem('scheduler', JSON.stringify(this.scheduler));
+    }, 0);
+    if (this.isLockTakenByScheduler) this.lock.release();
+    this.isLockTakenByScheduler = false;
+    this.generalInfo.showInfo('Scheduler:', 'Czyszczenie cache po operacji.');
+    await this.removeSavedCoords(schedulerItem.id);
+    this.generalInfo.hideInfo();
+    this.tryRestoreManagers();
+  }
+
+  private async cancelSchedule(schedulerItem: ScheduleItem) {
+    this.generalInfo.showInfo('Scheduler:', 'Anulowanie operacji.');
+    const { timeoutStructure } = schedulerItem;
+    if (timeoutStructure.timeoutPreparation) clearTimeout(timeoutStructure.timeoutPreparation)
+    if (timeoutStructure.timeoutPreAction) clearTimeout(timeoutStructure.timeoutPreAction)
+    if (timeoutStructure.timeoutAction) clearTimeout(timeoutStructure.timeoutAction)
+    if (this.isLockTakenByScheduler) {
+      this.lock.release();
+      this.isLockTakenByScheduler = false;
+    }
+    this.scheduler = this.scheduler.filter(item => item !== schedulerItem)
+    localStorage.setItem('scheduler', JSON.stringify(this.scheduler));
+    this.removeSchedulerItemFromUI(schedulerItem);
+    await this.removeSavedCoords(schedulerItem.id);
+    this.generalInfo.hideInfo();
+    this.tryRestoreManagers();
+
+  }
+
+  private async removeSavedCoords(id: string) {
+    Array.from(document.querySelectorAll<HTMLInputElement>('.content.js-dropdown-item-list .item.bookmark'))
+      .find(el => el.textContent?.trim() === id)?.querySelector<HTMLElement>('.remove')?.click();
+
+    await waitForElementInterval('.confirmation .btn_confirm', { interval: 500, timeout: 2000 })
+      .then(el => (el as HTMLButtonElement).click());
+  }
+
+  private addActionTimeouts(schedulerItem: ScheduleItem) {
+    const { actionDate, timeoutStructure, targetCitySelector, data: inputData, operationType, attackTypeSelector } = schedulerItem;
+
+    const preparationTime = actionDate.getTime() - new Date().getTime() - Scheduler.TURN_OFF_MANAGERS_TIME_MS;
+    timeoutStructure.timeoutPreparation = setTimeout(() => {
+      this.generalInfo.showInfo('Scheduler:', 'pauzowanie uruchomionych managarów przed operacją.')
+      // console.log('NOW half minute before action, time is:', formatDateToSimpleString(new Date()))
+      this.masterManager.pauseRunningManagers(['scheduler']);
+
+      const tenSecondsBeforeAction = actionDate.getTime() - new Date().getTime() - 10 * 1000;
+      timeoutStructure.timeoutPreAction = setTimeout(async () => {
+        try {
+          // console.log('NOW ten seconds before action, time is:', formatDateToSimpleString(new Date()), 'try take lock')
+          await this.lock.acquire();
+          console.log('lock taken')
+          this.isLockTakenByScheduler = true;
+          this.generalInfo.showInfo('Scheduler:', 'przygotowanie do operacji.')
+
+          await schedulerItem.sourceCity.switchAction();
+
+          // przejdź do współrzędnych
+          document.querySelector<HTMLButtonElement>('.js-coord-button')?.click();
+          const dropdownList = await waitForElement('.content.js-dropdown-item-list', 4000);
+          const dropdownItem = Array.from(dropdownList.querySelectorAll<HTMLElement>(`.item.bookmark.option`))
+            .find(el => el.textContent?.trim() === schedulerItem.id);
+          if (!dropdownItem) throw new Error('Failed to find dropdown item');
+          dropdownItem.click();
+          await addDelay(400);
+
+          // znajdź wioskę i kliknij odpowiednią operację
+          document.querySelector<HTMLElement>('.ui-dialog-titlebar-close')?.click()
+          performComplexClick((await waitForElement(targetCitySelector, 4000).catch(() => { throw new Error('target city not found') })))
+          if (operationType === OperationType.ARMY_ATTACK) {
+            (await waitForElementInterval('#attack', { interval: 500, timeout: 2000 })).click();
+            await waitForElementInterval(attackTypeSelector!, { interval: 500, timeout: 2000 }).then(el => (el as HTMLElement).click());
+          } else {
+            (await waitForElementInterval('#support', { interval: 500, timeout: 2000 })).click();
+          }
+
+          // wypełnij inputy
+          for (const data of inputData) {
+            const input = await waitForElementInterval(`input[name="${data.name}"]`, { interval: 500, timeout: 2000 }) as HTMLInputElement;
+            setInputValue(input, data.value);
+            input.blur();
+          };
+
+        } catch (error) {
+          console.error('Error during 10 seconds before action:', error);
+          this.error = 'Schedule failed. Check console for more details.'
+          this.generalInfo.hideInfo();
+          schedulerItem.cancelSchedule();
+          return;
+        }
+
+        timeoutStructure.timeoutAction = setTimeout(async () => {
+          try {
+            // console.log('NOW ACTION, time is:', formatDateToSimpleString(new Date()))
+            // console.log('now time + way duration:', formatDateToSimpleString(new Date(new Date().getTime() + wayDurationMs)))
+            if (operationType === OperationType.ARMY_ATTACK) {
+              (await waitForElement('#btn_attack_town')).click();
+            } else {
+              (await waitForElement('.attack_support_window a .middle')).click();
+            }
+
+            this.armyMovement.setCallback((id: string) => {
+              schedulerItem.movementId = id;
+              schedulerItem.undoMovementAction = () => this.undoArmyMovement(schedulerItem.sourceCity, id);
+            });
+
+            document.querySelector<HTMLElement>('.ui-dialog-titlebar-close')?.click();
+            this.error = null;
+          } catch (error) {
+            console.error('Error during action:', error);
+            this.error = 'Schedule failed. Check console for more details.'
+          } finally {
+            schedulerItem.postActionCleanup();
+          }
+        }, actionDate.getTime() - new Date().getTime());
+
+      }, tenSecondsBeforeAction)
+
+    }, preparationTime);
+  }
+
+  private goToCoords(coords: [string, string]) {
+    const gridXInput = document.querySelector<HTMLInputElement>('.coord.coord_x.js-coord-x input[type="text"]')!;
+    const gridYInput = document.querySelector<HTMLInputElement>('.coord.coord_y.js-coord-y input[type="text"]')!;
+    setInputValue(gridXInput, coords[0]);
+    setInputValue(gridYInput, coords[1]);
+    document.querySelector<HTMLElement>('.btn_jump_to_coordination')!.click();
   }
 
   /*
@@ -311,100 +390,16 @@ export default class Scheduler {
 
       if (!this.canAddSchedulerItem(schedulerItem.actionDate)) {
         console.warn('unsafe operation, failed to be scheudled during hydration');
-        this.hydrationError = `${schedulerItem.sourceCity.name} ${schedulerItem.operationType === OperationType.ARMY_ATTACK ? 'attack' : 'support'} operation  at '${schedulerItem.targetDate}' on city "${schedulerItem.targetCityIdSelector}" failed to be scheduled during hydration.`;
+        this.hydrationError = `${schedulerItem.sourceCity.name} ${schedulerItem.operationType === OperationType.ARMY_ATTACK ? 'attack' : 'support'} operation  at '${schedulerItem.targetDate}' on city "${schedulerItem.targetCitySelector}" failed to be scheduled during hydration.`;
         return;
       }
 
-      schedulerItem.cancelSchedule = () => {
-        if (schedulerItem.timeoutStructure.timeout30s) clearTimeout(schedulerItem.timeoutStructure.timeout30s)
-        if (schedulerItem.timeoutStructure.timeout10s) clearTimeout(schedulerItem.timeoutStructure.timeout10s)
-        if (schedulerItem.timeoutStructure.timeoutAction) clearTimeout(schedulerItem.timeoutStructure.timeoutAction)
-        if (this.isLockTakenByScheduler) this.lock.release();
-        this.isLockTakenByScheduler = false;
-        this.scheduler = this.scheduler.filter((item) => item !== schedulerItem);
-        localStorage.setItem('scheduler', JSON.stringify(this.scheduler));
-        this.tryRestoreManagers();
-      }
+      schedulerItem.cancelSchedule = async () => await this.cancelSchedule(schedulerItem);
+      schedulerItem.postActionCleanup = async () => await this.postActionCleanup(schedulerItem);
 
-      schedulerItem.postActionCleanup = () => {
-        // TODO: w pzyszłości item powinien byc usuwany 10 minut później, bo będzie można zaplanować jego odwołanie zawczasu
-        setTimeout(() => {
-          this.scheduler = this.scheduler.filter((item) => item !== schedulerItem);
-          localStorage.setItem('scheduler', JSON.stringify(this.scheduler));
-          this.removeSchedulerItemFromUI(schedulerItem);
-          this.handleIfSchedulerListIsEmpty();
-        }, 0);
-        if (this.isLockTakenByScheduler) this.lock.release();
-        this.isLockTakenByScheduler = false;
-        this.tryRestoreManagers();
-      }
-
-      const halfMinuteBeforeAction = schedulerItem.actionDate.getTime() - new Date().getTime() - Scheduler.TURN_OFF_MANAGERS_TIME_MS;
-      schedulerItem.timeoutStructure.timeout30s = setTimeout(() => {
-        // console.log('NOW half minute before action, time is:', formatDateToSimpleString(new Date()))
-        this.masterManager.pauseRunningManagers(['scheduler']);
-
-        const tenSecondsBeforeAction = schedulerItem.actionDate.getTime() - new Date().getTime() - 10 * 1000;
-        schedulerItem.timeoutStructure.timeout10s = setTimeout(async () => {
-          try {
-            // console.log('NOW ten seconds before action, time is:', formatDateToSimpleString(new Date()))
-            await this.lock.acquire();
-            this.isLockTakenByScheduler = true;
-            // znajdź wioskę i kliknij odpowiednią operację
-            document.querySelector<HTMLElement>('.ui-dialog-titlebar-close')?.click()
-            performComplexClick((await waitForElement(schedulerItem.targetCityIdSelector)))
-            if (schedulerItem.operationType === OperationType.ARMY_ATTACK) {
-              (await waitForElement('#attack')).click();
-            } else {
-              (await waitForElement('#support')).click();
-            }
-
-            // wypełnij inputy
-            for (const data of schedulerItem.data) {
-              const input = await waitForElement(`input[name="${data.name}"]`) as HTMLInputElement;
-              setInputValue(input, data.value);
-            };
-
-          } catch (error) {
-            console.error('Error during 10 seconds before action:', error);
-            this.error = 'Schedule failed. Check console for more details.'
-            schedulerItem.cancelSchedule();
-            return;
-          }
-
-          schedulerItem.timeoutStructure.timeoutAction = setTimeout(async () => {
-            try {
-              // console.log('NOW ACTION, time is:', formatDateToSimpleString(new Date()))
-              // console.log('now time + way duration:', formatDateToSimpleString(new Date(new Date().getTime() + wayDurationMs)))
-              if (schedulerItem.operationType === OperationType.ARMY_ATTACK) {
-                (await waitForElement('#btn_attack_town')).click();
-              } else {
-                (await waitForElement('.attack_support_window a .middle')).click();
-              }
-
-              this.armyMovement.setCallback((id: string) => {
-                schedulerItem.movementId = id;
-                schedulerItem.undoMovementAction = () => this.undoArmyMovement(schedulerItem.sourceCity, id);
-              });
-
-              document.querySelector<HTMLElement>('.ui-dialog-titlebar-close')?.click();
-
-              this.error = null;
-            } catch (error) {
-              console.error('Error during action:', error);
-              this.error = 'Schedule failed. Check console for more details.'
-            } finally {
-              schedulerItem.postActionCleanup();
-            }
-          }, schedulerItem.actionDate.getTime() - new Date().getTime());
-
-        }, tenSecondsBeforeAction)
-
-      }, halfMinuteBeforeAction);
-
+      this.addActionTimeouts(schedulerItem);
       this.scheduler.push(schedulerItem);
       this.addSchedulerItemToUI(schedulerItem);
-      console.log('Scheduler.hydrateSchedulerItem.item', schedulerItem);
     }
   }
 
@@ -592,9 +587,14 @@ export default class Scheduler {
 
   private addSchedulerListConfigListeners(): void {
     const toggleButton = document.querySelector<HTMLButtonElement>('#scheduler-toggle-button');
+    const tableContainer = document.querySelector<HTMLDivElement>('#table-container');
     toggleButton?.addEventListener('click', () => {
-      const tableContainer = document.querySelector<HTMLDivElement>('#table-container');
       tableContainer?.classList.toggle('hidden');
+    });
+
+    const closeIcon = document.querySelector<HTMLDivElement>('.close-icon');
+    closeIcon?.addEventListener('click', () => {
+      tableContainer?.classList.add('hidden');
     });
   }
 
@@ -608,7 +608,7 @@ export default class Scheduler {
     operaitonTypeCell.textContent = schedulerItem.operationType === OperationType.ARMY_ATTACK ? 'Attack' : 'Support';
     operaitonTypeCell.classList.add(schedulerItem.operationType === OperationType.ARMY_ATTACK ? 'attack' : 'support');
     row.insertCell().textContent = schedulerItem.sourceCity.name;
-    row.insertCell().textContent = schedulerItem.targetCityIdSelector;
+    row.insertCell().textContent = schedulerItem.targetCitySelector;
     row.insertCell().textContent = schedulerItem.actionDate.toLocaleTimeString();
     row.insertCell().textContent = schedulerItem.targetDate.toLocaleTimeString();
 
@@ -625,14 +625,16 @@ export default class Scheduler {
   }
 
   private removeSchedulerItemFromUI(schedulerItem: ScheduleItem): void {
+    console.log('removeSchedulerItemFromUI', schedulerItem);
     const table = document.querySelector<HTMLTableElement>('#scheduler-lookup-table tbody');
     const row = table!.querySelector(`[data-scheduler-item-id="${this.getSchedulerItemId(schedulerItem)}"]`);
+    console.log('row', row);
     row!.remove();
     this.handleIfSchedulerListIsEmpty();
   }
 
   private getSchedulerItemId(schedulerItem: ScheduleItem): string {
-    return schedulerItem.operationType + schedulerItem.sourceCity.name + schedulerItem.targetCityIdSelector + schedulerItem.targetDate.getTime() + schedulerItem.actionDate.getTime();
+    return schedulerItem.operationType + schedulerItem.sourceCity.name + schedulerItem.targetCitySelector + schedulerItem.targetDate.getTime() + schedulerItem.actionDate.getTime();
   }
 
   private handleIfSchedulerListIsEmpty(): void {

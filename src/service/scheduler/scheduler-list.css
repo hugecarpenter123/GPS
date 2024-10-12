@@ -84,6 +84,23 @@
   background-color: #ddd;
 }
 
+.actions {
+  min-width: 22px;
+}
+
+.close-icon {
+  position: absolute;
+  cursor: pointer;
+  right: 5px;
+  top: 5px;
+  color: #000;
+}
+
+.close-icon:hover {
+  scale: 1.1;
+  transition-duration: 150ms;
+}
+
 .hidden {
   display: none;
 }

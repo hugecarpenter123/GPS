@@ -143,6 +143,13 @@
   gap: 4px;
 }
 
+.isle-container {
+  display: flex;
+  margin-left: 16px !important;
+  gap: 4px;
+  margin-top: 4px !important;
+}
+
 .arrow-down {
   cursor: pointer;
 }

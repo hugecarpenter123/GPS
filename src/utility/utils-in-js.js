@@ -14,6 +14,26 @@ async function performComplexClick(element) {
   mouseUpEvent(element);
 }
 
+function triggerKeydown(element, key) {
+  const event = new KeyboardEvent('keydown', {
+    key: key,
+    bubbles: true,
+    cancelable: true
+  });
+  element.dispatchEvent(event);
+}
+
+function triggerPaste(element, pasteData) {
+  const event = new ClipboardEvent('paste', {
+    bubbles: true,
+    cancelable: true,
+    clipboardData: new DataTransfer()
+  });
+  event.clipboardData.setData('text/plain', pasteData);
+  element.dispatchEvent(event);
+}
+
+
 function mouseUpEvent(element) {
   const mouseUpEvent = new MouseEvent('mouseup', {
     bubbles: true,
@@ -62,4 +82,43 @@ const cancelHover = (element) => {
     bubbles: true,
     cancelable: true,
   }));
+}
+
+function performComplexInput(inputElement, value) {
+  // Focus event
+  inputElement.focus();
+  const focusEvent = new Event('focus', { bubbles: true, cancelable: true });
+  inputElement.dispatchEvent(focusEvent);
+
+  // Simulate typing each character
+  for (let char of value) {
+      // Keydown event
+      const keydownEvent = new KeyboardEvent('keydown', {
+          key: char,
+          bubbles: true,
+          cancelable: true
+      });
+      inputElement.dispatchEvent(keydownEvent);
+
+      // Keypress event
+      const keypressEvent = new KeyboardEvent('keypress', {
+          key: char,
+          bubbles: true,
+          cancelable: true
+      });
+      inputElement.dispatchEvent(keypressEvent);
+
+      // Input event
+      inputElement.value += char; // Update the input's value
+      const inputEvent = new Event('input', { bubbles: true, cancelable: true });
+      inputElement.dispatchEvent(inputEvent);
+
+      // Keyup event
+      const keyupEvent = new KeyboardEvent('keyup', {
+          key: char,
+          bubbles: true,
+          cancelable: true
+      });
+      inputElement.dispatchEvent(keyupEvent);
+  }
 }

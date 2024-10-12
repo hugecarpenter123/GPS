@@ -1,12 +1,13 @@
 import { FarmTimeInterval, TConfig } from "../../../gps.config";
-import ConfigPopup from "../../ui/config-popup";
+import ConfigPopup from "../../config-popup/config-popup";
 import ConfigManager from "../../utility/config-manager";
 import { addDelay } from "../../utility/plain-utility";
 import CityBuilder from "../city/builder/city-builder";
 import CitySwitchManager from "../city/city-switch-manager";
 import FarmManager from "../farm/farm-manager";
 import Scheduler from "../scheduler/Scheduler";
-
+import GeneralInfo from "./ui/general-info";
+import generalInfoTemplate from "./ui/info-template.html";
 type Managers = 'farmManager' | 'switchManager' | 'scheduler' | 'builder';
 
 export default class MasterManager {
@@ -17,6 +18,7 @@ export default class MasterManager {
   private scheduler!: Scheduler;
   private builder!: CityBuilder;
   private configMenuWindow!: ConfigPopup;
+  private generalInfo!: GeneralInfo;
 
   private pausedManagersSnapshot: {
     [key in Managers]: boolean;
@@ -33,6 +35,7 @@ export default class MasterManager {
   public static async getInstance(): Promise<MasterManager> {
     if (!MasterManager.instance) {
       MasterManager.instance = new MasterManager();
+      MasterManager.instance.generalInfo = GeneralInfo.getInstance();
       MasterManager.instance.config = ConfigManager.getInstance().getConfig();
       MasterManager.instance.switchManager = await CitySwitchManager.getInstance();
       MasterManager.instance.farmManager = await FarmManager.getInstance();
@@ -44,6 +47,7 @@ export default class MasterManager {
     }
     return MasterManager.instance;
   }
+
   private initRefreshUtility(timeout?: number) {
     setTimeout(async () => {
       const scheduler = await Scheduler.getInstance();
@@ -142,7 +146,7 @@ export default class MasterManager {
     this.configMenuWindow.addListener('managersChange', async () => {
       await this.runManagersFromConfig();
     })
-    this.configMenuWindow.render();
+    await this.configMenuWindow.render();
     if (this.config.general.forcedRefresh) {
       this.config.general.forcedRefresh = false;
       this.config.farmConfig.farmInterval = FarmTimeInterval.FirstOption;
@@ -158,24 +162,22 @@ export default class MasterManager {
   }
 
   public pauseRunningManagers(except: Managers[]): void {
-    if (!except.includes('farmManager')) {
+    if (!except.includes('farmManager') && this.farmManager.isRunning()) {
       this.farmManager.stop();
+      this.pausedManagersSnapshot.farmManager = true;
     }
-    if (!except.includes('switchManager')) {
+    if (!except.includes('switchManager') && this.switchManager.isRunning()) {
       this.switchManager.stop();
+      this.pausedManagersSnapshot.switchManager = true;
     }
-    if (!except.includes('scheduler')) {
+    if (!except.includes('scheduler') && this.scheduler.isRunning()) {
       this.scheduler.stop();
+      this.pausedManagersSnapshot.scheduler = true;
     }
-    if (!except.includes('builder')) {
+    if (!except.includes('builder') && this.builder.isRunning()) {
       this.builder.stop();
+      this.pausedManagersSnapshot.builder = true;
     }
-    this.pausedManagersSnapshot = {
-      farmManager: !this.farmManager.isRunning(),
-      switchManager: !this.switchManager.isRunning(),
-      scheduler: !this.scheduler.isRunning(),
-      builder: !this.builder.isRunning(),
-    };
     console.log('pauseRunningManagers', this.pausedManagersSnapshot);
   }
 

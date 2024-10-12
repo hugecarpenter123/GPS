@@ -1,3 +1,5 @@
+import { CityInfo } from "./src/service/city/city-switch-manager";
+
 export enum FarmTimeInterval {
   FirstOption = 5 * 60 * 1000,
   SecondOption = 20 * 60 * 1000,
@@ -13,6 +15,7 @@ const config = {
   farmConfig: {
     farmInterval: FarmTimeInterval.FirstOption,
     humanize: false,
+    conflictingCities: {} as Record<string, CityInfo>,
   },
   general: {
     antyTimingMs: 9000,
