@@ -128,43 +128,51 @@ type WaitForElementOptions = {
   timeout?: number;
   fromNode?: HTMLElement | Document;
   interval?: number;
+  retries?: number;
 }
 const WaitForElementOptionsDefaults: WaitForElementOptions = {
   timeout: 8000,
   fromNode: document,
   interval: 333,
+  retries: undefined,
 }
 
 export function waitForElementInterval(
   selector: string,
   options: WaitForElementOptions = WaitForElementOptionsDefaults
 ): Promise<HTMLElement> {
-  const { timeout = 8000, fromNode = document, interval = 333 } = options;
+  const { timeout = 8000, fromNode = document, interval = 333, retries } = options;
 
   return new Promise((resolve, reject) => {
     const element = fromNode.querySelector(selector) as HTMLElement;
     if (element) {
       resolve(element);
     } else {
-      const timeoutId = setTimeout(() => {
+      const timeoutId = retries ? setTimeout(() => {
         clearInterval(observer);
         reject(`${selector} - not found within timeout`);
-      }, timeout);
+      }, timeout)
+        : undefined;
 
+      let retryCount = 0;
       const observer = setInterval(() => {
         const element = fromNode.querySelector(selector) as HTMLElement;
         if (element) {
           clearInterval(observer);
           clearTimeout(timeoutId);
           resolve(element);
+        } else if (retries && retryCount >= retries) {
+          clearInterval(observer);
+          reject(`${selector} - not found within timeout`);
         }
+        retryCount++;
       }, interval);
     }
   });
 }
 
 export function waitForElementsInterval(selector: string, options: WaitForElementOptions = WaitForElementOptionsDefaults): Promise<NodeListOf<HTMLElement>> {
-  const { timeout = 8000, fromNode = document, interval = 333 } = options;
+  const { timeout = 8000, fromNode = document, interval = 333, retries } = options;
 
   return new Promise((resolve, reject) => {
     const elements = fromNode.querySelectorAll(selector) as NodeListOf<HTMLElement>;
@@ -173,18 +181,24 @@ export function waitForElementsInterval(selector: string, options: WaitForElemen
       resolve(elements);
     } else {
 
-      const timeoutId = setTimeout(() => {
+      const timeoutId = retries ? setTimeout(() => {
         clearInterval(observer);
-        reject(`${selector} - not found within timeout`);
-      }, timeout);
+          reject(`${selector} - not found within timeout`);
+        }, timeout)
+        : undefined;
 
+      let retryCount = 0;
       const observer = setInterval(() => {
         const elements = fromNode.querySelectorAll(selector) as NodeListOf<HTMLElement>;
         if (elements.length > 0) {
           clearInterval(observer);
           clearTimeout(timeoutId);
           resolve(elements);
+        } else if (retries && retryCount >= retries) {
+          clearInterval(observer);
+          reject(`${selector} - not found within timeout`);
         }
+        retryCount++;
       }, interval);
     }
   });

@@ -2,7 +2,7 @@ import { TConfig } from "../../../gps.config";
 import ConfigManager from "../../utility/config-manager";
 import { addDelay, formatDateToSimpleString, textToMs } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
-import { performComplexClick, setInputValue, triggerHover, waitForElement, waitForElementInterval } from "../../utility/ui-utility";
+import { performComplexClick, setInputValue, triggerHover, waitForElement, waitForElementInterval, waitForElements, waitForElementsInterval } from "../../utility/ui-utility";
 import ArmyMovement from "../army/army-movement";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
 import MasterManager from "../master/master-manager";
@@ -34,6 +34,7 @@ type ScheduleItem = {
   actionDate: Date;
   sourceCity: CityInfo;
   targetCitySelector: string;
+  targetCityName: string;
   data: any;
   /**
    * Przechowuje timeouty do anulowania operacji, które są wykonują etapy przygotowawcze do operacji oraz samą operację
@@ -42,11 +43,11 @@ type ScheduleItem = {
   /**
    * Anuluje timeouty, usuwa item z schedulera, przywraca działanie managerów i zwalnia locka
    */
-  cancelSchedule: () => void;
+  cancelSchedule: () => Promise<void>;
   /**
    * Po wykonaniu operacji, przywraca działanie managerów, zwalnia locka a po 10/0 minutach usuwa item z schedulera
    */
-  postActionCleanup: () => void;
+  postActionCleanup: () => Promise<void>;
 }
 
 export default class Scheduler {
@@ -139,6 +140,7 @@ export default class Scheduler {
 
     // Element ready, logic below:
     const inputDateElement = document.querySelector<HTMLInputElement>('#schedule-date')!;
+
     // prefill date input with current date
     inputDateElement.value = this.getFormattedInputValueFromDate(new Date());
 
@@ -184,26 +186,34 @@ export default class Scheduler {
         return;
       }
 
-      const id = `${sourceCity!.name}${targetCitySelector}${actionDate.getTime()}${operationType}`;
-
       document.querySelector<HTMLInputElement>('[data-menu_name="Info"]')!.click();
       await addDelay(100);
-      await waitForElement('.info_jump_to_town').then(el => el.click()).catch(() => {
-        this.error = 'Schedule failed. Failed to switch to the city for grids.'
-        return;
+
+      const targetCityName = await waitForElementInterval('#towninfo_towninfo .game_header.bold', { interval: 500, timeout: 2000 }).then(el => (el as HTMLElement).textContent!.trim());
+      const id = `${operationType}_${sourceCity!.name}_${targetCityName}_${actionDate.getTime()}`;
+
+
+      await waitForElementInterval('.info_jump_to_town', { interval: 500, retries: 3 })
+        .then(el => el.click())
+        .catch(() => {
+          this.error = 'Schedule failed. Failed to switch to the city for grids.'
+          return;
       });
+
+      (await waitForElements('.minimized_windows_area .btn_wnd.close', 2000)).forEach(el => el.click());
+      await addDelay(500);
 
       document.querySelector<HTMLInputElement>('.btn_save_location')?.click();
       await addDelay(100);
+
       await waitForElement('.save_coordinates input', 4000)
         .then(el => {
-          console.log('saving id:', id);
           setInputValue(el as HTMLInputElement, id);
           el.blur();
         })
         .catch(() => { throw new Error('Failed to save coordinates') });
-
       await addDelay(100);
+
       await waitForElement('.save_coordinates .btn_confirm', 3000)
         .then(el => (el as HTMLButtonElement).click())
         .catch(() => { throw new Error('Failed to confirm saving coordinates') });
@@ -220,6 +230,7 @@ export default class Scheduler {
         operationType: operationType,
         attackTypeSelector: attackTypeSelector,
         targetDate: targetDate,
+        targetCityName: targetCityName,
         actionDate: actionDate,
         sourceCity: sourceCity!,
         targetCitySelector: targetCitySelector,
@@ -269,7 +280,6 @@ export default class Scheduler {
     await this.removeSavedCoords(schedulerItem.id);
     this.generalInfo.hideInfo();
     this.tryRestoreManagers();
-
   }
 
   private async removeSavedCoords(id: string) {
@@ -278,6 +288,12 @@ export default class Scheduler {
 
     await waitForElementInterval('.confirmation .btn_confirm', { interval: 500, timeout: 2000 })
       .then(el => (el as HTMLButtonElement).click());
+  }
+
+  private readCords(): [string, string] {
+    const gridXInput = document.querySelector<HTMLInputElement>('.coord.coord_x.js-coord-x input[type="text"]')!;
+    const gridYInput = document.querySelector<HTMLInputElement>('.coord.coord_y.js-coord-y input[type="text"]')!;
+    return [gridXInput.value, gridYInput.value];
   }
 
   private addActionTimeouts(schedulerItem: ScheduleItem) {
@@ -294,12 +310,10 @@ export default class Scheduler {
         try {
           // console.log('NOW ten seconds before action, time is:', formatDateToSimpleString(new Date()), 'try take lock')
           await this.lock.acquire();
-          console.log('lock taken')
           this.isLockTakenByScheduler = true;
           this.generalInfo.showInfo('Scheduler:', 'przygotowanie do operacji.')
 
           await schedulerItem.sourceCity.switchAction();
-
           // przejdź do współrzędnych
           document.querySelector<HTMLButtonElement>('.js-coord-button')?.click();
           const dropdownList = await waitForElement('.content.js-dropdown-item-list', 4000);
@@ -311,7 +325,10 @@ export default class Scheduler {
 
           // znajdź wioskę i kliknij odpowiednią operację
           document.querySelector<HTMLElement>('.ui-dialog-titlebar-close')?.click()
-          performComplexClick((await waitForElement(targetCitySelector, 4000).catch(() => { throw new Error('target city not found') })))
+          performComplexClick(
+            await waitForElementInterval(targetCitySelector, { interval: 500, retries: 4 })
+              .catch(() => { throw new Error('target city not found') })
+          )
           if (operationType === OperationType.ARMY_ATTACK) {
             (await waitForElementInterval('#attack', { interval: 500, timeout: 2000 })).click();
             await waitForElementInterval(attackTypeSelector!, { interval: 500, timeout: 2000 }).then(el => (el as HTMLElement).click());
@@ -321,9 +338,11 @@ export default class Scheduler {
 
           // wypełnij inputy
           for (const data of inputData) {
-            const input = await waitForElementInterval(`input[name="${data.name}"]`, { interval: 500, timeout: 2000 }) as HTMLInputElement;
-            setInputValue(input, data.value);
-            input.blur();
+            if (data.value) {
+              const input = await waitForElementInterval(`input[name="${data.name}"]`, { interval: 500, timeout: 2000 }) as HTMLInputElement;
+              setInputValue(input, data.value);
+              input.blur();
+            }
           };
 
         } catch (error) {
@@ -352,6 +371,7 @@ export default class Scheduler {
             document.querySelector<HTMLElement>('.ui-dialog-titlebar-close')?.click();
             this.error = null;
           } catch (error) {
+            schedulerItem.cancelSchedule();
             console.error('Error during action:', error);
             this.error = 'Schedule failed. Check console for more details.'
           } finally {
@@ -608,7 +628,7 @@ export default class Scheduler {
     operaitonTypeCell.textContent = schedulerItem.operationType === OperationType.ARMY_ATTACK ? 'Attack' : 'Support';
     operaitonTypeCell.classList.add(schedulerItem.operationType === OperationType.ARMY_ATTACK ? 'attack' : 'support');
     row.insertCell().textContent = schedulerItem.sourceCity.name;
-    row.insertCell().textContent = schedulerItem.targetCitySelector;
+    row.insertCell().textContent = schedulerItem.targetCityName;
     row.insertCell().textContent = schedulerItem.actionDate.toLocaleTimeString();
     row.insertCell().textContent = schedulerItem.targetDate.toLocaleTimeString();
 
@@ -634,7 +654,7 @@ export default class Scheduler {
   }
 
   private getSchedulerItemId(schedulerItem: ScheduleItem): string {
-    return schedulerItem.operationType + schedulerItem.sourceCity.name + schedulerItem.targetCitySelector + schedulerItem.targetDate.getTime() + schedulerItem.actionDate.getTime();
+    return `${schedulerItem.operationType}_${schedulerItem.sourceCity.name}_${schedulerItem.targetCityName}_${schedulerItem.actionDate.getTime()}`;
   }
 
   private handleIfSchedulerListIsEmpty(): void {
