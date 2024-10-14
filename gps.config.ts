@@ -15,7 +15,7 @@ const config = {
   farmConfig: {
     farmInterval: FarmTimeInterval.FirstOption,
     humanize: false,
-    conflictingCities: {} as Record<string, CityInfo>,
+    farmingCities: [] as CityInfo[],
   },
   general: {
     antyTimingMs: 9000,

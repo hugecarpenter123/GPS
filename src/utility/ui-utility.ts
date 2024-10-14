@@ -156,6 +156,7 @@ export function waitForElementInterval(
 
       let retryCount = 0;
       const observer = setInterval(() => {
+        retryCount++;
         const element = fromNode.querySelector(selector) as HTMLElement;
         if (element) {
           clearInterval(observer);
@@ -165,7 +166,6 @@ export function waitForElementInterval(
           clearInterval(observer);
           reject(`${selector} - not found within timeout`);
         }
-        retryCount++;
       }, interval);
     }
   });
@@ -189,6 +189,7 @@ export function waitForElementsInterval(selector: string, options: WaitForElemen
 
       let retryCount = 0;
       const observer = setInterval(() => {
+        retryCount++;
         const elements = fromNode.querySelectorAll(selector) as NodeListOf<HTMLElement>;
         if (elements.length > 0) {
           clearInterval(observer);
@@ -198,7 +199,6 @@ export function waitForElementsInterval(selector: string, options: WaitForElemen
           clearInterval(observer);
           reject(`${selector} - not found within timeout`);
         }
-        retryCount++;
       }, interval);
     }
   });

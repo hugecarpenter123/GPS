@@ -19,7 +19,7 @@ export default class Lock {
   private setLockCheckInterval() {
     this.lockCheckInterval = setInterval(() => {
       if (this.lockedAt && (Date.now() - this.lockedAt > 1000 * 60 * 5)) {
-        console.warn(`lock is locked for too long by ${this.lockedBy}, releasing...`);
+        console.warn(`Lock: lock is taken for too long by "${this.lockedBy}", releasing...`);
         // TODO: or consider restarting all managers
         this.release();
       }
@@ -27,15 +27,15 @@ export default class Lock {
   }
 
   public async acquire(lockedBy?: string): Promise<void> {
-    console.log('try acquiring')
+    console.log('Lock: try acquiring' + (lockedBy ? ` by "${lockedBy}"` : ''));
     if (!this.isLocked) {
-      console.log('\tlock is free, acquire Lock')
+      console.log('\t-lock is free, acquire Lock')
       this.isLocked = true;
       this.lockedBy = lockedBy ?? null;
       this.lockedAt = Date.now();
       return;
     }
-    console.log('\tlock is locked, add to queue')
+    console.log(`\t-lock is locked, add${lockedBy ? ' "' +lockedBy + '"' : ''} to queue`, this.queue.length)
 
     await new Promise<void>((resolve) => {
       this.queue.push(resolve);
@@ -43,17 +43,19 @@ export default class Lock {
   }
 
   public release(): void {
-    console.log('release lock()')
+    console.log('Lock: release lock' + (this.lockedBy ? ` by "${this.lockedBy}"` : ''))
     // Release the next waiting task in the queue
     if (this.queue.length > 0) {
       const nextResolve = this.queue.shift();
       if (nextResolve) {
-        console.log('\t-but next element in the queue takes it turn')
+        console.log('\t-next element in the queue takes the lock')
         nextResolve();
       }
     } else {
+      this.lockedBy = null;
+      this.lockedAt = null;
       this.isLocked = false;
-      console.log('lock released()')
+      console.log('Lock: lock released.')
     }
   }
 

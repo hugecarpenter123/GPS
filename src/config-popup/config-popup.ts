@@ -17,7 +17,7 @@ export default class ConfigPopup extends EventEmitter {
 
   private farmInterval: FarmTimeInterval;
   private humanize: boolean;
-  private conflictingCities: Record<string, CityInfo> = {};
+  private uniquelySelectedFarmingCitiesPerIsle: Record<string, CityInfo> = {};
 
   constructor() {
     super();
@@ -80,7 +80,9 @@ export default class ConfigPopup extends EventEmitter {
         this.guard = false;
       }
 
-      const conflictingCitiesChanged = Object.keys(this.conflictingCities).some(isleId => this.conflictingCities[isleId] !== this.config.farmConfig.conflictingCities[isleId]);
+      const conflictingCitiesChanged = Object.keys(this.uniquelySelectedFarmingCitiesPerIsle).some(isleId => this.uniquelySelectedFarmingCitiesPerIsle[isleId].name !== this.config.farmConfig.farmingCities.find(city => city.isleId === isleId)?.name);
+      console.log('conflictingCitiesChanged', conflictingCitiesChanged);
+
       // update config related fields and persist them to local storage if changed
       if (this.config.farmConfig.farmInterval !== this.farmInterval ||
         this.config.farmConfig.humanize !== this.humanize ||
@@ -96,7 +98,7 @@ export default class ConfigPopup extends EventEmitter {
         this.config.general.farm = this.farm;
         this.config.general.builder = this.builder;
         this.config.general.guard = this.guard;
-        this.config.farmConfig.conflictingCities = this.conflictingCities;
+        this.config.farmConfig.farmingCities = Object.values(this.uniquelySelectedFarmingCitiesPerIsle);
         this.configManager.persistConfig();
       }
 
@@ -173,25 +175,35 @@ export default class ConfigPopup extends EventEmitter {
 
     const humanizeCheckbox = container.querySelector('#humanize-checkbox') as HTMLInputElement;
     humanizeCheckbox.checked = this.config.farmConfig.humanize;
-    // await this.createConfictingCitiesSelects();
+    await this.createConfictingCitiesSelects(container);
     // END farm section
     return container;
   }
 
-  private async createConfictingCitiesSelects() {
-    const listOfCities = (await CitySwitchManager.getInstance()).getCityList();
+  private async createConfictingCitiesSelects(container: HTMLElement) {
+    const citySwitchManager = await CitySwitchManager.getInstance();
+    const listOfCities = citySwitchManager.getCityList();
+  
     const uniqueIsleGrids = Array.from(new Set(listOfCities.map(city => city.isleId)));
     const arrayOfArraysOfCitiesOnTheSameIsland = uniqueIsleGrids.map(isleId => listOfCities.filter(city => city.isleId === isleId));
     const areAnyConflicts = arrayOfArraysOfCitiesOnTheSameIsland.some(array => array.length > 1);
 
-    const conflictingCitiesContainer = document.querySelector('#conflicting-cities-container');
-    const conflictingCitiesArrow = conflictingCitiesContainer!.querySelector('.arrow-down');
-    const conflictingCitiesContent = conflictingCitiesContainer!.querySelector('.section-content');
+    const conflictingCitiesContainer = container.querySelector('#conflicting-cities-container') as HTMLElement;
+    const conflictingCitiesArrow = conflictingCitiesContainer.querySelector('.arrow-down');
+    const conflictingCitiesContent = conflictingCitiesContainer.querySelector('.section-content') as HTMLElement;
 
     if (!areAnyConflicts) {
-      conflictingCitiesContainer!.classList.add('hidden');
+      conflictingCitiesContainer.classList.add('hidden');
+      /* NOTE:  if there are no conflicts, then all cities are uniquely selected, 
+      but it must be explicitly assigned to the class field because based on this, after submitting it will
+      be added to the config and farm manager will use it to know which villages to farm.
+      */
+      this.uniquelySelectedFarmingCitiesPerIsle = listOfCities.reduce((acc: Record<string, CityInfo>, city) => {
+        acc[city.isleId] = city;
+        return acc;
+      }, {});
     } else {
-      conflictingCitiesContainer!.classList.remove('hidden');
+      conflictingCitiesContainer.classList.remove('hidden');
       /*
        *     <!-- <div class="isle-container">
        *         <div class="isle-header">Isle 1</div>
@@ -201,7 +213,17 @@ export default class ConfigPopup extends EventEmitter {
        *       </select>
        *     </div> --> 
        */
-      arrayOfArraysOfCitiesOnTheSameIsland.forEach((arrayOfCities, index) => {
+      for (const arrayOfCities of arrayOfArraysOfCitiesOnTheSameIsland) {
+        if (arrayOfCities.length === 1) {
+          this.uniquelySelectedFarmingCitiesPerIsle[arrayOfCities[0].isleId] = arrayOfCities[0];
+          continue;
+        }
+
+        const initialCity = arrayOfCities.find(city => city.name === this.config.farmConfig.farmingCities.find(city => city.isleId === arrayOfCities[0].isleId)?.name)
+          ?? arrayOfCities[0];
+        this.uniquelySelectedFarmingCitiesPerIsle[arrayOfCities[0].isleId] = initialCity;
+
+
         const isleContainer = document.createElement('div');
         isleContainer.className = 'isle-container';
 
@@ -222,18 +244,18 @@ export default class ConfigPopup extends EventEmitter {
           isleCitiesSelect.appendChild(option);
         });
 
-        isleCitiesSelect.value = arrayOfCities[0].name;
-        this.conflictingCities[arrayOfCities[0].isleId] = arrayOfCities[0];
+        isleCitiesSelect.value = initialCity.name;
 
         isleCitiesSelect.addEventListener('change', () => {
           const selectedCity = arrayOfCities.find(city => city.name === isleCitiesSelect.value);
           if (selectedCity) {
-            this.conflictingCities[arrayOfCities[0].isleId] = selectedCity;
+            this.uniquelySelectedFarmingCitiesPerIsle[arrayOfCities[0].isleId] = selectedCity;
+            console.log('this.conflictingCities', this.uniquelySelectedFarmingCitiesPerIsle);
           }
         });
 
-        conflictingCitiesContent!.appendChild(isleContainer);
-      });
+        conflictingCitiesContent.appendChild(isleContainer);
+      };
     }
 
     conflictingCitiesArrow!.addEventListener('click', () => {

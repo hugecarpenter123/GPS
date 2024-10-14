@@ -3,7 +3,7 @@ import gpsConfig, { FarmTimeInterval } from "../../../gps.config";
 import ConfigManager from "../../utility/config-manager";
 import { addDelay, getRandomMs, textToMs } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
-import { performComplexClick, waitForElement, waitForElementFromNode, waitForElements, waitForElementsInterval } from "../../utility/ui-utility";
+import { performComplexClick, waitForElement, waitForElementFromNode, waitForElementInterval, waitForElements, waitForElementsInterval } from "../../utility/ui-utility";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
 import GeneralInfo from "../master/ui/general-info";
 
@@ -125,7 +125,7 @@ export default class FarmManager extends EventEmitter {
           await addDelay(100);
           if (counter === 3) throw new Error('Farm villages dialog didn\'t show up');
           counter++;
-        } while (!(await waitForElement('.farm_towns', 1500).catch(() => false)));
+        } while (!(await waitForElementInterval('.farm_towns', { retries: 3, interval: 500 }).catch(() => false)));
         this.config.humanize ? await addDelay(getRandomMs(400, 1200)) : addDelay(100);
 
         const farmOptionIndex = this.getFarmOptionIndex();
@@ -148,7 +148,7 @@ export default class FarmManager extends EventEmitter {
         }
 
         console.log('\t-closing village window');
-        document.querySelector<HTMLElement>('.btn_wnd.close')?.click();
+        await waitForElement('.btn_wnd.close', 2000).then(el => el.click()).catch(() => { })
         console.log('\t-closed village window');
         this.config.humanize ? await addDelay(getRandomMs(400, 1200)) : addDelay(100);
       }
@@ -167,15 +167,14 @@ export default class FarmManager extends EventEmitter {
    * Po przejściu powraca do pierwszego miasta, zwraca locka, a wioski będą farmione przez osobną metodę: 'farmVillages'.
    */
   private async initFarmAllVillages() {
-    // const cityList = this.citySwitch.getCityList();
-
     // Quickfix, init farming only for one city per island
-    const cityList = this.citySwitch.getCityList().reduce((acc: CityInfo[], cityInfo) => {
-      if (!cityInfo.isleId || !acc.some(el => el.isleId === cityInfo.isleId)) {
-        acc.push(cityInfo);
-      }
-      return acc;
-    }, []);
+    // const cityList = this.citySwitch.getCityList().reduce((acc: CityInfo[], cityInfo) => {
+    //   if (!cityInfo.isleId || !acc.some(el => el.isleId === cityInfo.isleId)) {
+    //     acc.push(cityInfo);
+    //   }
+    //   return acc;
+    // }, []);
+    const cityList = this.config.farmingCities.map(city => this.citySwitch.getCityList().find(c => c.name === city.name)!);
 
     try {
       console.log('initFarmAllVillages, wait for lock');

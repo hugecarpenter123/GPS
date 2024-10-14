@@ -1,4 +1,5 @@
 import gpsConfig, { TConfig } from "../../gps.config";
+import CitySwitchManager from "../service/city/city-switch-manager";
 import StorageManager from "./storage-manager";
 
 export default class ConfigManager {
@@ -19,21 +20,21 @@ export default class ConfigManager {
 
   private initConfig(): typeof gpsConfig {
     const config = this.storageManager.readFromLocalStorage('config');
-    if (!config || !this.isConfigStructureEqual(config, gpsConfig)) {
+    if (!config || !this.isConfigStructureEqual(config, gpsConfig, ['farmingCities'])) {
       this.storageManager.writeToLocalStorage('config', gpsConfig);
       return gpsConfig;
     }
     return config;
   }
 
-  private isConfigStructureEqual(config: any, gpsConfig: any): boolean {
+  private isConfigStructureEqual(config: any, gpsConfig: any, exceptKeys: string[] = []): boolean {
     return Object.keys(config).length === Object.keys(gpsConfig).length &&
       Object.keys(config).every(key => {
         if (!(key in gpsConfig)) {
           return false;
         }
-        if (typeof config[key] === 'object' && config[key] !== null) {
-          return this.isConfigStructureEqual(config[key], gpsConfig[key]);
+        if (!exceptKeys.includes(key) && typeof config[key] === 'object' && config[key] !== null) {
+          return this.isConfigStructureEqual(config[key], gpsConfig[key], exceptKeys);
         }
         return typeof config[key] === typeof gpsConfig[key];
       });

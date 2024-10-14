@@ -37,8 +37,8 @@ export default class CityBuilder {
   private generalInfo!: GeneralInfo;
   private allowUnsequentialBuilds: boolean = false;
   private allowCriticalBuilds: boolean = true;
-  private static readonly BUILD_RETRY_INTERVAL: number = 180 * 1000;
-
+  private static readonly BUILD_RETRY_INTERVAL: number = 10 * 60 * 1000;
+  
   private lock!: Lock;
   private resourceManager!: ResourceManager;
 
