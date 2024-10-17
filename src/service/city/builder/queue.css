@@ -110,4 +110,9 @@ hidden {
   transform: translateX(-50%);
   font-size: 12px;
   z-index: 1000;
+  opacity: 0.6;
+}
+
+#toggle-builder:hover {
+  opacity: 1;
 }

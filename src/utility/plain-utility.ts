@@ -69,3 +69,19 @@ export function isMobile(): boolean {
 export const getRandomMs = (min: number, max: number): number => {
   return Math.floor(Math.random() * (max - min + 1) + min);
 }
+
+export function calculateTimeToNextOccurrence(timeString: string): number {
+  console.log('timeString to calculate: ', timeString);
+  const [hours, minutes, seconds] = timeString.split(':').map(Number);
+  const now = new Date();
+  const targetTime = new Date(now);
+
+  targetTime.setHours(hours, minutes, seconds, 0);
+
+  // If the target time is earlier than or equal to the current time, assume it's for the next day
+  if (targetTime <= now) {
+    targetTime.setDate(targetTime.getDate() + 1);
+  }
+
+  return targetTime.getTime() - now.getTime();
+}

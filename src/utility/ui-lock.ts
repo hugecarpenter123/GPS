@@ -1,3 +1,5 @@
+import { formatDateToSimpleString } from "./plain-utility";
+
 export default class Lock {
   private static instance: Lock | null = null;
   private isLocked: boolean = false;
@@ -26,16 +28,18 @@ export default class Lock {
     }, 1000 * 60 * 5);
   }
 
-  public async acquire(lockedBy?: string): Promise<void> {
-    console.log('Lock: try acquiring' + (lockedBy ? ` by "${lockedBy}"` : ''));
+  public async acquire(lockTaker?: string): Promise<void> {
+    console.log(`Lock: try acquiring${lockTaker ? '\n\t-by: ' + lockTaker : ''}\n\t-at ${formatDateToSimpleString(new Date())}`)    
     if (!this.isLocked) {
       console.log('\t-lock is free, acquire Lock')
       this.isLocked = true;
-      this.lockedBy = lockedBy ?? null;
+      this.lockedBy = lockTaker ?? null;
       this.lockedAt = Date.now();
       return;
     }
-    console.log(`\t-lock is locked, add${lockedBy ? ' "' +lockedBy + '"' : ''} to queue`, this.queue.length)
+    // console.log(`\t-lock is locked, add${lockTaker ? ' "' +lockTaker + '"' : ''} to queue`, this.queue.length)
+    console.log(`\t-lock is taken, add to queue, length before adding: ${this.queue.length}`)
+
 
     await new Promise<void>((resolve) => {
       this.queue.push(resolve);
@@ -43,7 +47,7 @@ export default class Lock {
   }
 
   public release(): void {
-    console.log('Lock: release lock' + (this.lockedBy ? ` by "${this.lockedBy}"` : ''))
+    console.log(`Lock: release lock${this.lockedBy ? `\n\t-by: "${this.lockedBy}"` : ''}\n\t-at ${formatDateToSimpleString(new Date())}`)
     // Release the next waiting task in the queue
     if (this.queue.length > 0) {
       const nextResolve = this.queue.shift();
@@ -55,7 +59,7 @@ export default class Lock {
       this.lockedBy = null;
       this.lockedAt = null;
       this.isLocked = false;
-      console.log('Lock: lock released.')
+      console.log(`Lock: lock released at ${formatDateToSimpleString(new Date())}`)
     }
   }
 
