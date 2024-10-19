@@ -147,8 +147,12 @@ export default class MasterManager {
       await this.runManagersFromConfig();
     })
     await this.configMenuWindow.render();
-    if (this.config.general.forcedRefresh) {
+
+    if (this.config.general.forcedRefresh || GM_getValue('forceRestart')) {
+      console.log('forcedRefresh/forceRestart', this.config.general.forcedRefresh, GM_getValue('forceRestart'));
       this.config.general.forcedRefresh = false;
+      GM_setValue('forceRestart', false);
+
       this.config.farmConfig.farmInterval = FarmTimeInterval.FirstOption;
       ConfigManager.getInstance().persistConfig();
 
