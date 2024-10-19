@@ -18,7 +18,7 @@ const config = {
     farmingCities: [] as CityInfo[],
   },
   general: {
-    timeDifferenceBackwards: 12 * 1000,
+    timeDifference: 11 * 1000,
     antyTimingMs: 10000,
     applicationRefreshInterval: 32 * 60 * 1000, // 32 minutes
     forcedRefresh: false,

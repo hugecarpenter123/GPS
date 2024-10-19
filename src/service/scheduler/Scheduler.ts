@@ -299,13 +299,13 @@ export default class Scheduler {
   private addActionTimeouts(schedulerItem: ScheduleItem) {
     const { actionDate, timeoutStructure, targetCitySelector, data: inputData, operationType, attackTypeSelector } = schedulerItem;
 
-    const preparationTime = actionDate.getTime() - new Date().getTime() - Scheduler.TURN_OFF_MANAGERS_TIME_MS;
+    const preparationTime = actionDate.getTime() - new Date().getTime() - Scheduler.TURN_OFF_MANAGERS_TIME_MS + this.config.general.timeDifference;
     timeoutStructure.timeoutPreparation = setTimeout(() => {
       this.generalInfo.showInfo('Scheduler:', 'pauzowanie uruchomionych managarów przed operacją.')
       // console.log('NOW half minute before action, time is:', formatDateToSimpleString(new Date()))
       this.masterManager.pauseRunningManagers(['scheduler']);
 
-      const tenSecondsBeforeAction = actionDate.getTime() - new Date().getTime() - 10 * 1000;
+      const tenSecondsBeforeAction = actionDate.getTime() - (new Date().getTime() - 10 * 1000) + this.config.general.timeDifference;
       timeoutStructure.timeoutPreAction = setTimeout(async () => {
         try {
           // console.log('NOW ten seconds before action, time is:', formatDateToSimpleString(new Date()), 'try take lock')
@@ -377,7 +377,7 @@ export default class Scheduler {
           } finally {
             schedulerItem.postActionCleanup();
           }
-        }, actionDate.getTime() - new Date().getTime());
+        }, actionDate.getTime() - new Date().getTime() + this.config.general.timeDifference);
 
       }, tenSecondsBeforeAction)
 

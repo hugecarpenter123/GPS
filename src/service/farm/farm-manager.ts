@@ -198,7 +198,7 @@ export default class FarmManager extends EventEmitter {
             await addDelay(333);
           }
           const cooldownTimeTextParsed = cooldownText.match(/\d{2}:\d{2}:\d{2}/)?.[0];
-          const timeout = calculateTimeToNextOccurrence(cooldownTimeTextParsed!) + this.config.general.timeDifferenceBackwards + 1000;
+          const timeout = calculateTimeToNextOccurrence(cooldownTimeTextParsed!) + this.config.general.timeDifference + 1000;
           const scheduledDate = new Date(Date.now() + timeout);
 
           console.log('schedule next farming operation for captain on:', scheduledDate);
@@ -275,7 +275,7 @@ export default class FarmManager extends EventEmitter {
 
       // calculating time to next occurrence
       const newCooldownTextParsed = newCooldownText!.match(/\d{2}:\d{2}:\d{2}/)?.[0];
-      const timeout = calculateTimeToNextOccurrence(newCooldownTextParsed!) + this.config.general.timeDifferenceBackwards + 1000;
+      const timeout = calculateTimeToNextOccurrence(newCooldownTextParsed!) + this.config.general.timeDifference + 1000;
       const scheduledDate = new Date(Date.now() + timeout);
       console.log('schedule next farming operation for captain on:', scheduledDate);
       const scheduleTimeout = setTimeout(() => {
