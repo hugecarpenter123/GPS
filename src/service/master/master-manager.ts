@@ -166,6 +166,7 @@ export default class MasterManager {
   }
 
   public pauseRunningManagers(except: Managers[]): void {
+    console.log('pauseRunningManagers', this.pausedManagersSnapshot);
     if (!except.includes('farmManager') && this.farmManager.isRunning()) {
       this.farmManager.stop();
       this.pausedManagersSnapshot.farmManager = true;
@@ -186,6 +187,7 @@ export default class MasterManager {
   }
 
   public resumeRunningManagers(except: Managers[]): void {
+    console.log('resumeRunningManagers', this.pausedManagersSnapshot);
     Object.entries(this.pausedManagersSnapshot).forEach(([key, isPaused]) => {
       switch (key) {
         case 'farmManager':

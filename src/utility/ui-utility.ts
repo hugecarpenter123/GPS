@@ -294,7 +294,7 @@ export function mouseDownEvent(element: HTMLElement) {
   const mouseDownEvent = new MouseEvent('mousedown', {
     bubbles: true,
     cancelable: true,
-    view: window
+    // view: window
   });
   if (element) {
     element.dispatchEvent(mouseDownEvent);
@@ -302,6 +302,7 @@ export function mouseDownEvent(element: HTMLElement) {
 }
 
 export async function performComplexClick(element: HTMLElement) {
+  console.log('performComplexClick() - window:', window);
   mouseDownEvent(element);
   await addDelay(50);
   mouseUpEvent(element);
@@ -311,7 +312,7 @@ export function mouseUpEvent(element: HTMLElement) {
   const mouseUpEvent = new MouseEvent('mouseup', {
     bubbles: true,
     cancelable: true,
-    view: window
+    // view: window
   });
   if (element) {
     element.dispatchEvent(mouseUpEvent);

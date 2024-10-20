@@ -198,7 +198,7 @@ export default class Scheduler {
         .catch(() => {
           this.error = 'Schedule failed. Failed to switch to the city for grids.'
           return;
-      });
+        });
 
       (await waitForElements('.minimized_windows_area .btn_wnd.close', 2000)).forEach(el => el.click());
       await addDelay(500);
@@ -299,21 +299,24 @@ export default class Scheduler {
   private addActionTimeouts(schedulerItem: ScheduleItem) {
     const { actionDate, timeoutStructure, targetCitySelector, data: inputData, operationType, attackTypeSelector } = schedulerItem;
 
-    const preparationTime = actionDate.getTime() - new Date().getTime() - Scheduler.TURN_OFF_MANAGERS_TIME_MS + this.config.general.timeDifference;
+    const turnOffManagersTime = actionDate.getTime() - new Date().getTime() - Scheduler.TURN_OFF_MANAGERS_TIME_MS + this.config.general.timeDifference;
+    // console.log('calculated turn off managers time:', turnOffManagersTime);
     timeoutStructure.timeoutPreparation = setTimeout(() => {
       this.generalInfo.showInfo('Scheduler:', 'pauzowanie uruchomionych managarów przed operacją.')
       // console.log('NOW half minute before action, time is:', formatDateToSimpleString(new Date()))
       this.masterManager.pauseRunningManagers(['scheduler']);
-
-      const tenSecondsBeforeAction = actionDate.getTime() - (new Date().getTime() - 10 * 1000) + this.config.general.timeDifference;
+      const preparationTime = actionDate.getTime() - new Date().getTime() - Scheduler.PREPARATION_TIME_MS + this.config.general.timeDifference;
       timeoutStructure.timeoutPreAction = setTimeout(async () => {
         try {
-          // console.log('NOW ten seconds before action, time is:', formatDateToSimpleString(new Date()), 'try take lock')
+          // console.log('NOW ten seconds before action, time is:', formatDateToSimpleString(new Date()), 'try take lock');
           await this.lock.acquire();
+          // console.log('lock taken');
           this.isLockTakenByScheduler = true;
           this.generalInfo.showInfo('Scheduler:', 'przygotowanie do operacji.')
 
+          // console.log('switch to sourceCity:', schedulerItem.sourceCity);
           await schedulerItem.sourceCity.switchAction();
+
           // przejdź do współrzędnych
           document.querySelector<HTMLButtonElement>('.js-coord-button')?.click();
           const dropdownList = await waitForElement('.content.js-dropdown-item-list', 4000);
@@ -325,10 +328,13 @@ export default class Scheduler {
 
           // znajdź wioskę i kliknij odpowiednią operację
           document.querySelector<HTMLElement>('.ui-dialog-titlebar-close')?.click()
-          performComplexClick(
-            await waitForElementInterval(targetCitySelector, { interval: 500, retries: 4 })
-              .catch(() => { throw new Error('target city not found') })
-          )
+          const targetCityElement = await waitForElementInterval(targetCitySelector, { interval: 500, retries: 4 })
+            .catch(() => { throw new Error('target city not found') })
+
+          // console.log('targetCityElement', targetCityElement);
+
+          await performComplexClick(targetCityElement);
+
           if (operationType === OperationType.ARMY_ATTACK) {
             (await waitForElementInterval('#attack', { interval: 500, timeout: 2000 })).click();
             await waitForElementInterval(attackTypeSelector!, { interval: 500, timeout: 2000 }).then(el => (el as HTMLElement).click());
@@ -379,9 +385,9 @@ export default class Scheduler {
           }
         }, actionDate.getTime() - new Date().getTime() + this.config.general.timeDifference);
 
-      }, tenSecondsBeforeAction)
+      }, preparationTime)
 
-    }, preparationTime);
+    }, turnOffManagersTime);
   }
 
   private goToCoords(coords: [string, string]) {
