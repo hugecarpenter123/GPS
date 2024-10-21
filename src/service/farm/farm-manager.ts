@@ -18,7 +18,7 @@ type CaptainSchedulerItem = {
   timeout: NodeJS.Timeout;
 }
 
-enum FarmingSolution {
+export enum FarmingSolution {
   Captain,
   Manual
 }
@@ -60,7 +60,14 @@ export default class FarmManager extends EventEmitter {
       .catch(() => false);
 
     this.farmSolution = captainPresent ? FarmingSolution.Captain : FarmingSolution.Manual;
-    // this.farmSolution = FarmingSolution.Manual;
+  }
+
+  public getFarmSolution() {
+    return this.farmSolution;
+  }
+
+  public getFarmScheduleTimes() {
+    return this.farmSolution === FarmingSolution.Captain ? [this.captainScheduler?.scheduledDate] : this.schedulerArray.map(item => item.scheduledDate);
   }
 
   // public async farmWithCaptain() {
@@ -224,12 +231,12 @@ export default class FarmManager extends EventEmitter {
       // selecting cities
       console.log('clicked select all');
       await waitForElementInterval('#fto_town_wrapper .checkbox.select_all', { retries: 4, interval: 500 })
-      .then(el => el.click())
-      .then(async () => {
-        while (!document.querySelector<HTMLElement>('#fto_town_wrapper .checkbox.select_all')?.classList.contains('checked')) {
-          await addDelay(500);
-        }
-      });
+        .then(el => el.click())
+        .then(async () => {
+          while (!document.querySelector<HTMLElement>('#fto_town_wrapper .checkbox.select_all')?.classList.contains('checked')) {
+            await addDelay(500);
+          }
+        });
       this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
 
       const allCityLabels = document.querySelectorAll<HTMLElement>(`#fto_town_wrapper .gp_town_link`);

@@ -7,7 +7,6 @@ import CitySwitchManager from "../city/city-switch-manager";
 import FarmManager from "../farm/farm-manager";
 import Scheduler from "../scheduler/Scheduler";
 import GeneralInfo from "./ui/general-info";
-import generalInfoTemplate from "./ui/info-template.html";
 type Managers = 'farmManager' | 'switchManager' | 'scheduler' | 'builder';
 
 export default class MasterManager {
@@ -182,6 +181,41 @@ export default class MasterManager {
     if (!except.includes('builder') && this.builder.isRunning()) {
       this.builder.stop();
       this.pausedManagersSnapshot.builder = true;
+    }
+    console.log('pauseRunningManagers', this.pausedManagersSnapshot);
+  }
+
+  pauseRunningManagersIfNeeded(actionTime: number, except: Managers[]) {
+    console.log('pauseRunningManagers', this.pausedManagersSnapshot);
+    if (!except.includes('farmManager') && this.farmManager.isRunning()) {
+      const farmTimes = this.farmManager.getFarmScheduleTimes();
+      const farmTimesCollides = farmTimes.some(farmingTime =>
+        farmingTime &&
+        farmingTime.getTime() <= actionTime &&
+        Math.abs((farmingTime.getTime() - actionTime)) <= 1000 * 20);
+      if (farmTimesCollides) {
+        this.farmManager.stop();
+        this.pausedManagersSnapshot.farmManager = true;
+      }
+    }
+    if (!except.includes('switchManager') && this.switchManager.isRunning()) {
+      this.switchManager.stop();
+      this.pausedManagersSnapshot.switchManager = true;
+    }
+    if (!except.includes('scheduler') && this.scheduler.isRunning()) {
+      this.scheduler.stop();
+      this.pausedManagersSnapshot.scheduler = true;
+    }
+    if (!except.includes('builder') && this.builder.isRunning()) {
+      const builderTimes = this.builder.getBuilderScheduleTimes();
+      const builderTimesCollides = builderTimes.some(builderTime =>
+        builderTime &&
+        builderTime.getTime() <= actionTime &&
+        Math.abs((builderTime.getTime() - actionTime)) <= 1000 * 20);
+      if (builderTimesCollides) {
+        this.builder.stop();
+        this.pausedManagersSnapshot.builder = true;
+      }
     }
     console.log('pauseRunningManagers', this.pausedManagersSnapshot);
   }

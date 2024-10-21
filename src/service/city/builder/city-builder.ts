@@ -17,7 +17,8 @@ type QueueItem = {
 type CityQueue = {
   city: CityInfo,
   queue: Array<QueueItem>
-  schedule: NodeJS.Timeout | null
+  schedule: NodeJS.Timeout | null,
+  scheduledDate: Date | null
 }
 
 export default class CityBuilder {
@@ -91,6 +92,10 @@ export default class CityBuilder {
     });
   }
 
+  public getBuilderScheduleTimes() {
+    return this.mainQueue.map(queue => queue.scheduledDate);
+  }
+
   /*
   <div id="build-container">
     <div id="build-options">
@@ -154,7 +159,8 @@ export default class CityBuilder {
       currentCityQueue = {
         city: currentCity,
         queue: [],
-        schedule: null
+        schedule: null,
+        scheduledDate: null
       };
       this.mainQueue.push(currentCityQueue);
     }
@@ -195,6 +201,7 @@ export default class CityBuilder {
             clearInterval(cityQueue.schedule);
             clearTimeout(cityQueue.schedule);
             cityQueue.schedule = null;
+            cityQueue.scheduledDate = null;
           }
           this.revalidateQueueItemLevels(queueItem.building, index, cityQueue);
           this.handleBuildSchedule(cityQueue);
@@ -265,6 +272,7 @@ export default class CityBuilder {
         clearInterval(cityQueue.schedule);
         clearTimeout(cityQueue.schedule);
         cityQueue.schedule = null;
+        cityQueue.scheduledDate = null;
       }
       await this.handleBuildSchedule(cityQueue);
     } else {
@@ -320,6 +328,7 @@ export default class CityBuilder {
           this.lock.release();
         }
       }, timeToSpeedUp);
+      cityQueue.scheduledDate = new Date(Date.now() + timeToSpeedUp);
     }
   }
 
@@ -398,6 +407,7 @@ export default class CityBuilder {
         console.log('\t-areResourcesStackable is true, scheduling build');
         cityQueue.schedule = setInterval(async () => {
           try {
+            cityQueue.scheduledDate = new Date(Date.now() + CityBuilder.BUILD_RETRY_INTERVAL);
             console.log('checkIfItemCanBeBuiltAndAddDeleteOrSchedule, wait for lock', cityQueue.city.name);
             await this.lock.acquire();
             console.log('checkIfItemCanBeBuiltAndAddDeleteOrSchedule, take lock', cityQueue.city.name);
@@ -415,6 +425,7 @@ export default class CityBuilder {
             this.lock.release();
           }
         }, CityBuilder.BUILD_RETRY_INTERVAL);
+        cityQueue.scheduledDate = new Date(Date.now() + CityBuilder.BUILD_RETRY_INTERVAL);
       }
       else if (resourcesInfo.areStackable === 'population' && this.allowCriticalBuilds) {
         console.log('\t\t-areResourcesStackable is population, adding farm to queue');
@@ -481,6 +492,7 @@ export default class CityBuilder {
       clearInterval(cityQueue.schedule);
       clearTimeout(cityQueue.schedule);
       cityQueue.schedule = null;
+      cityQueue.scheduledDate = null;
     }
     this.clearUIQueueItem(item);
     await this.performBuildSchedule(cityQueue);
@@ -615,7 +627,8 @@ export default class CityBuilder {
     this.mainQueue = this.citySwitchManager.getCityList().map((cityInfo) => ({
       city: cityInfo,
       queue: [],
-      schedule: null
+      schedule: null,
+      scheduledDate: null
     }));
 
     const storageQueue = localStorage.getItem('cityBuilderQueue');
@@ -671,6 +684,7 @@ export default class CityBuilder {
         clearInterval(cityQueue.schedule);
         clearTimeout(cityQueue.schedule);
         cityQueue.schedule = null;
+        cityQueue.scheduledDate = null;
       }
     });
     document.getElementById(CityBuilder.toggleBuilderButtonId)!.classList.add('hidden');

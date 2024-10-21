@@ -32,10 +32,12 @@ type ScheduleItem = {
   undoMovementAction: (() => void) | null;
   targetDate: Date;
   actionDate: Date;
+  realActionTime: number;
   sourceCity: CityInfo;
   targetCitySelector: string;
   targetCityName: string;
   data: any;
+  includeHero?: boolean;
   /**
    * Przechowuje timeouty do anulowania operacji, które są wykonują etapy przygotowawcze do operacji oraz samą operację
    */
@@ -157,8 +159,14 @@ export default class Scheduler {
           value: inputEl.value
         }
       })
+      // const inputData = Array.from(node.querySelectorAll<HTMLInputElement>('.unit_input')).map(inputEl => {
+      //   return inputEl.value ? {
+      //     name: inputEl.getAttribute('name')!,
+      //     value: inputEl.value
+      //   } : null
+      // }).filter(data => data !== null);
 
-
+      const includeHero = node.querySelector<HTMLElement>('.cbx_include_hero')?.classList.contains('checked');
       const operationType = node.firstElementChild!.getAttribute('data-type') === 'attack' ? OperationType.ARMY_ATTACK : OperationType.ARMY_SUPPORT;
       const attackTypeSelector = operationType === OperationType.ARMY_ATTACK ?
         (`[data-attack='${(document.querySelector('.attack_type.checked') as HTMLElement)?.dataset['attack']}']`) : undefined;
@@ -232,9 +240,11 @@ export default class Scheduler {
         targetDate: targetDate,
         targetCityName: targetCityName,
         actionDate: actionDate,
+        realActionTime: actionDate.getTime() + this.config.general.timeDifference,
         sourceCity: sourceCity!,
         targetCitySelector: targetCitySelector,
         data: inputData,
+        includeHero: includeHero,
         timeoutStructure: scheduleTimeout,
         movementId: null,
         undoMovementAction: null,
@@ -297,15 +307,15 @@ export default class Scheduler {
   }
 
   private addActionTimeouts(schedulerItem: ScheduleItem) {
-    const { actionDate, timeoutStructure, targetCitySelector, data: inputData, operationType, attackTypeSelector } = schedulerItem;
+    const { actionDate, realActionTime, timeoutStructure, targetCitySelector, data: inputData, operationType, attackTypeSelector } = schedulerItem;
 
-    const turnOffManagersTime = actionDate.getTime() - new Date().getTime() - Scheduler.TURN_OFF_MANAGERS_TIME_MS + this.config.general.timeDifference;
+    const turnOffManagersTime = realActionTime - new Date().getTime() - Scheduler.TURN_OFF_MANAGERS_TIME_MS;
     // console.log('calculated turn off managers time:', turnOffManagersTime);
     timeoutStructure.timeoutPreparation = setTimeout(() => {
-      this.generalInfo.showInfo('Scheduler:', 'pauzowanie uruchomionych managarów przed operacją.')
+      this.generalInfo.showInfo('Scheduler:', 'pauzowanie kolidujących managerów przed operacją.')
       // console.log('NOW half minute before action, time is:', formatDateToSimpleString(new Date()))
-      this.masterManager.pauseRunningManagers(['scheduler']);
-      const preparationTime = actionDate.getTime() - new Date().getTime() - Scheduler.PREPARATION_TIME_MS + this.config.general.timeDifference;
+      this.masterManager.pauseRunningManagersIfNeeded(realActionTime, ['scheduler']);
+      const preparationTime = realActionTime - new Date().getTime() - Scheduler.PREPARATION_TIME_MS;
       timeoutStructure.timeoutPreAction = setTimeout(async () => {
         try {
           // console.log('NOW ten seconds before action, time is:', formatDateToSimpleString(new Date()), 'try take lock');
@@ -351,6 +361,10 @@ export default class Scheduler {
             }
           };
 
+          if (schedulerItem.includeHero) {
+            (await waitForElementInterval('.cbx_include_hero')).click();
+          }
+
         } catch (error) {
           console.error('Error during 10 seconds before action:', error);
           this.error = 'Schedule failed. Check console for more details.'
@@ -383,7 +397,7 @@ export default class Scheduler {
           } finally {
             schedulerItem.postActionCleanup();
           }
-        }, actionDate.getTime() - new Date().getTime() + this.config.general.timeDifference);
+        }, realActionTime - new Date().getTime());
 
       }, preparationTime)
 
