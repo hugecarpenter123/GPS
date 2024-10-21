@@ -202,7 +202,7 @@ export function waitForElementsInterval(selector: string, options: WaitForElemen
       }, interval);
     }
   });
-}
+} 
 
 export function waitForElementFromNode(parentNode: HTMLElement | Document, selector: string, timeout: number = 8000): Promise<HTMLElement> {
   return new Promise((resolve, reject) => {

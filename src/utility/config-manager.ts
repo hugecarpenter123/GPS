@@ -14,8 +14,18 @@ export default class ConfigManager {
       ConfigManager.instance = new ConfigManager();
       ConfigManager.instance.storageManager = StorageManager.getInstance();
       ConfigManager.instance.config = ConfigManager.instance.initConfig();
+      ConfigManager.instance.setTimeDifference();
     }
     return ConfigManager.instance;
+  }
+  private setTimeDifference() {
+    let time = document.querySelector('.server_time_area')!.textContent!.split(' ')[0].split(':')
+    let now = new Date();
+    now.setHours(parseInt(time[0]));
+    now.setMinutes(parseInt(time[1]));
+    now.setSeconds(parseInt(time[2]));
+    this.config.general.timeDifference = (new Date().getTime() - now.getTime());
+    console.log(`server time: ${now}\nreal time: ${new Date()}\ndiff in [s]: ${this.config.general.timeDifference / 1000}`);
   }
 
   private initConfig(): typeof gpsConfig {

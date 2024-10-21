@@ -1,6 +1,6 @@
 import MasterManager from "./service/master/master-manager";
 import { onPageLoad } from "./utility/ui-utility";
-
+// https://pl-play.grepolis.com/?logout=true&lps_flow=after_glps_shim
 const main = async () => {
   console.log('VERY POLITE GPS v.0.5.0 MVP walikonie special edition (c) 2024');
   const currentUrl = window.location.href;
