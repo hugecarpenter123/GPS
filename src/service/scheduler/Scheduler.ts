@@ -1,8 +1,9 @@
 import { TConfig } from "../../../gps.config";
 import ConfigManager from "../../utility/config-manager";
-import { addDelay, formatDateToSimpleString, textToMs } from "../../utility/plain-utility";
+import { InfoError } from "../../utility/info-error";
+import { addDelay, getBrowserStateSnapshot, getElementStateSnapshot, textToMs } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
-import { performComplexClick, setInputValue, triggerHover, waitForElement, waitForElementInterval, waitForElements, waitForElementsInterval } from "../../utility/ui-utility";
+import { performComplexClick, setInputValue, triggerHover, waitForElement, waitForElementInterval, waitForElements } from "../../utility/ui-utility";
 import ArmyMovement from "../army/army-movement";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
 import MasterManager from "../master/master-manager";
@@ -319,7 +320,7 @@ export default class Scheduler {
       timeoutStructure.timeoutPreAction = setTimeout(async () => {
         try {
           // console.log('NOW ten seconds before action, time is:', formatDateToSimpleString(new Date()), 'try take lock');
-          await this.lock.acquire();
+          await this.lock.forceAcquire({ manager: 'scheduler' });
           // console.log('lock taken');
           this.isLockTakenByScheduler = true;
           this.generalInfo.showInfo('Scheduler:', 'przygotowanie do operacji.')
@@ -339,11 +340,30 @@ export default class Scheduler {
           // znajdź wioskę i kliknij odpowiednią operację
           document.querySelector<HTMLElement>('.ui-dialog-titlebar-close')?.click()
           const targetCityElement = await waitForElementInterval(targetCitySelector, { interval: 500, retries: 4 })
-            .catch(() => { throw new Error('target city not found') })
-
+          .catch(() => {
+            throw new InfoError('target city not found', {
+              browserState: getBrowserStateSnapshot(),
+            })
+          })
+          
+          const targetCityElementSnapshot = getElementStateSnapshot(targetCityElement);
           // console.log('targetCityElement', targetCityElement);
 
-          await performComplexClick(targetCityElement);
+          let counter = 0;
+          do {
+            await performComplexClick(targetCityElement);
+            counter++;
+            await addDelay(333);
+          }
+          while (!document.querySelector<HTMLElement>('#context_menu') && counter < 4)
+
+          if (counter === 4) {
+            const snapshot = {
+              browserState: getBrowserStateSnapshot(),
+              elementState: targetCityElementSnapshot,
+            }
+            throw new InfoError('target city not found', snapshot);
+          }
 
           if (operationType === OperationType.ARMY_ATTACK) {
             (await waitForElementInterval('#attack', { interval: 500, timeout: 2000 })).click();
@@ -365,8 +385,17 @@ export default class Scheduler {
             (await waitForElementInterval('.cbx_include_hero')).click();
           }
 
+          console.log('action is ready to be performed, snapshot:', {
+            browserState: getBrowserStateSnapshot(),
+            elementState: targetCityElementSnapshot,
+          });
+
         } catch (error) {
-          console.error('Error during 10 seconds before action:', error);
+          if (error instanceof InfoError) {
+            console.warn('Error during 10 seconds before action:', error.message, error.details);
+          } else {
+            console.error('Error during 10 seconds before action:', error);
+          }
           this.error = 'Schedule failed. Check console for more details.'
           this.generalInfo.hideInfo();
           schedulerItem.cancelSchedule();

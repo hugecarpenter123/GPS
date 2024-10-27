@@ -1,0 +1,36 @@
+CityBuilder.setTimeoutForNextSpeedUpAndSchedule().catch Error: No free button found
+    at g.<anonymous> (userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2:46639)
+    at Generator.next (<anonymous>)
+    at a (userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2:34978)
+
+
+    setTimeoutForNextSpeedUpAndSchedule, wait for lock 6.66
+userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2 Lock: acquire ObjectacquiredAt: "24.10.2024, 18:28:55"forced: falserequestedAt: "24.10.2024, 18:28:55"[[Prototype]]: Object
+userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2 setTimeoutForNextSpeedUpAndSchedule, take lock 6.66
+userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2 cityChange: Object
+zacięcie
+
+
+Lock: release: {requestedAt: '24.10.2024, 18:28:55', forced: false, acquiredAt: '24.10.2024, 18:28:55', releasedAt: '24.10.2024, 18:35:59'}
+userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2 	-next element in the queue takes the lock: {method: 'farmWithCaptain', requestedAt: '24.10.2024, 18:34:18', forced: false, manager: 'farmManager', acquiredAt: '24.10.2024, 18:35:59'}
+userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2 farmWithCaptain at  Thu Oct 24 2024 18:35:59 GMT+0200 (czas środkowoeuropejski letni)
+userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2 FarmManager.farmWithCaptain().catch Error: cooldownWrapper not found, cannot proceed
+    at userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2:59915 will reschedule in 2 minutes
+(anonymous) @ userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2
+l @ userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2
+Promise.then
+s @ userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2
+a @ userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2Understand this warningAI
+userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2 captain scheduler: {timeout: 4579, scheduledDate: Thu Oct 24 2024 18:38:01 GMT+0200 (czas środkowoeuropejski letni)}
+userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2 Lock: release:  {method: 'farmWithCaptain', requestedAt: '24.10.2024, 18:34:18', forced: false, manager: 'farmManager', acquiredAt: '24.10.2024, 18:35:59', …}
+
+
+---infinite loop---
+farmWithCaptain at  Fri Oct 25 2024 09:59:59 GMT+0200 (czas środkowoeuropejski letni)
+userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2 clicked select all
+userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2 select farm options
+userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2 collecting resources
+userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2 finding new cooldown
+userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2 timeString to calculate:  10:08:13
+userscript.html?name=GPS-local-dev.user.js&id=618300d8-356c-4844-9464-4a8f3f83a8c7:2 schedule next farming operation for captain on: Invalid Date
+-------------------

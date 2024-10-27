@@ -1,11 +1,12 @@
 import EventEmitter from "events";
 import gpsConfig, { FarmTimeInterval } from "../../../gps.config";
 import ConfigManager from "../../utility/config-manager";
-import { addDelay, calculateTimeToNextOccurrence, formatDateToSimpleString, getRandomMs, textToMs } from "../../utility/plain-utility";
+import { addDelay, calculateTimeToNextOccurrence, formatDateToSimpleString, getBrowserStateSnapshot, getElementStateSnapshot, getRandomMs, textToMs } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
 import { performComplexClick, waitForElement, waitForElementFromNode, waitForElementInterval, waitForElements, waitForElementsInterval } from "../../utility/ui-utility";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
 import GeneralInfo from "../master/ui/general-info";
+import { InfoError } from "../../utility/info-error";
 
 type ScheduleItem = {
   scheduledDate: Date;
@@ -70,122 +71,17 @@ export default class FarmManager extends EventEmitter {
     return this.farmSolution === FarmingSolution.Captain ? [this.captainScheduler?.scheduledDate] : this.schedulerArray.map(item => item.scheduledDate);
   }
 
-  // public async farmWithCaptain() {
-  //   try {
-  //     await this.lock.acquire('FarmManager.farmWithCaptain()');
-  //     this.generalInfo.showInfo('Farm Manager:', 'Farmienie z kapitanem.');
-  //     console.log('farmWithCaptain at ', new Date());
-  //     this.mountMessageDialogsObservers();
-
-  //     // opening farm overview
-  //     document.querySelector<HTMLElement>('[name="farm_town_overview"]')!.click();
-  //     this.config.humanize ? await addDelay(getRandomMs(400, 1200)) : addDelay(100);
-  //     // end of opening farm overview
-
-  //     // checking if there is a cooldown
-  //     let cooldownWrapper = await waitForElementInterval('.ribbon_wrapper', { retries: 4, interval: 400 }).catch(() => {
-  //       throw new Error('cooldownWrapper not found, cannot proceed');
-  //     });
-
-  //     if (!cooldownWrapper.classList.contains('hidden')) {
-  //       console.log('cooldownWrapper found, not hidden');
-  //       let cooldownText;
-  //       while (!(cooldownText = cooldownWrapper.querySelector('.ribbon_locked .unlock_time')?.textContent)) {
-  //         await addDelay(333);
-  //       }
-  //       const cooldownTimeTextParsed = cooldownText.match(/\d{2}:\d{2}:\d{2}/)?.[0];
-  //       const timeout = calculateTimeToNextOccurrence(cooldownTimeTextParsed!) + 5000;
-  //       const scheduledDate = new Date(Date.now() + timeout);
-
-  //       console.log('schedule next farming operation for captain on:', scheduledDate);
-  //       const scheduleTimeout = setTimeout(() => {
-  //         console.log('performing scheduled farming operation for captain, at:', formatDateToSimpleString(new Date()));
-  //         this.farmWithCaptain();
-  //       }, timeout);
-
-  //       this.captainScheduler = {
-  //         scheduledDate,
-  //         timeout: scheduleTimeout
-  //       }
-  //       document.querySelector<HTMLElement>('.ui-dialog-titlebar-close')?.click();
-  //       return;
-  //     }
-  //     // end of checking if there is a cooldown
-
-  //     // selecting cities
-  //     await waitForElement('#fto_town_wrapper .checkbox.select_all', 2000).then(el => el.click());
-  //     console.log('clicked select all');
-  //     this.config.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
-
-  //     this.config.farmingCities.forEach(city => {
-  //       for (const cityLabel of document.querySelectorAll<HTMLElement>(`#fto_town_wrapper .gp_town_link`)) {
-  //         if (cityLabel.textContent === city.name) {
-  //           const checbkox = cityLabel.parentElement!.querySelector<HTMLElement>('.checkbox.town_checkbox')!;
-  //           if (!checbkox.classList.contains('checked')) {
-  //             checbkox.click();
-  //             break;
-  //           }
-  //         }
-  //       }
-  //     })
-  //     console.log('select farming cities');
-  //     // end of selecting cities
-
-  //     //selecting farm option
-  //     console.log('select farm options');
-  //     await addDelay(500);
-  //     const farmOptions = document.querySelectorAll<HTMLElement>('.fto_time_checkbox')!;
-  //     const farmOptionIndex = this.getFarmOptionIndex()!;
-  //     farmOptions[farmOptionIndex].click();
-  //     this.config.humanize ? await addDelay(getRandomMs(400, 1200)) : addDelay(100);
-  //     farmOptions[farmOptionIndex + 4]?.click();
-  //     this.config.humanize ? await addDelay(getRandomMs(400, 1200)) : addDelay(100);
-  //     // end of selecting farm option
-
-  //     // collecting resources
-  //     console.log('collecting resources');
-  //     document.querySelector<HTMLElement>('#fto_claim_button')!.click();
-  //     this.config.humanize ? await addDelay(getRandomMs(400, 1200)) : addDelay(100);
-  //     // end of collecting resources
-
-  //     // finding new cooldown
-  //     console.log('finding new cooldown');
-  //     let newCooldownText;
-  //     while (!(newCooldownText = document.querySelector('.ribbon_wrapper .ribbon_locked .unlock_time')?.textContent?.trim())) {
-  //       await addDelay(333);
-  //     }
-  //     // end of finding new cooldown
-
-  //     // calculating time to next occurrence
-  //     const newCooldownTextParsed = newCooldownText!.match(/\d{2}:\d{2}:\d{2}/)?.[0];
-  //     const timeout = calculateTimeToNextOccurrence(newCooldownTextParsed!) + 5000;
-  //     const scheduledDate = new Date(Date.now() + timeout);
-  //     console.log('schedule next farming operation for captain on:', scheduledDate);
-  //     const scheduleTimeout = setTimeout(() => {
-  //       console.log('performing scheduled farming operation for captain, at:', formatDateToSimpleString(new Date()));
-  //       this.farmWithCaptain();
-  //     }, timeout);
-
-  //     this.captainScheduler = {
-  //       scheduledDate,
-  //       timeout: scheduleTimeout
-  //     }
-  //     document.querySelector<HTMLElement>('.ui-dialog-titlebar-close')?.click();
-  //   } catch (e) {
-  //     console.warn('FarmManager.farmWithCaptain().catch', e);
-  //   } finally {
-  //     console.log('captain scheduler:', this.captainScheduler);
-  //     this.disconnectObservers();
-  //     this.generalInfo.hideInfo();
-  //     this.lock.release();
-  //   }
-  // }
   public async farmWithCaptain(scheduled: boolean = false) {
+    let dialogsSnapshot: Element[] = [];
     try {
-      await this.lock.acquire('FarmManager.farmWithCaptain()');
+      await this.lock.acquire({ method: 'farmWithCaptain', manager: 'farmManager' });
       this.generalInfo.showInfo('Farm Manager:', 'Farmienie z kapitanem.');
       console.log('farmWithCaptain at ', new Date());
       this.mountMessageDialogsObservers();
+
+      // checking opened dialogs to find know which will be opened
+      dialogsSnapshot = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
+      // end of checking opened dialogs
 
       // opening farm overview
       document.querySelector<HTMLElement>('[name="farm_town_overview"]')!.click();
@@ -195,7 +91,10 @@ export default class FarmManager extends EventEmitter {
       if (!scheduled) {
         // checking if there is a cooldown
         let cooldownWrapper = await waitForElementInterval('.ribbon_wrapper', { retries: 4, interval: 400 }).catch(() => {
-          throw new Error('cooldownWrapper not found, cannot proceed');
+          throw new InfoError('cooldownWrapper not found, cannot proceed', {
+            browserState: getBrowserStateSnapshot(),
+            elementState: getElementStateSnapshot(document.querySelector<HTMLElement>('.ribbon_wrapper')!),
+          });
         });
 
         if (!cooldownWrapper.classList.contains('hidden')) {
@@ -218,7 +117,6 @@ export default class FarmManager extends EventEmitter {
             scheduledDate,
             timeout: scheduleTimeout
           }
-          document.querySelector<HTMLElement>('.ui-dialog-titlebar-close')?.click();
           return;
         }
       }
@@ -274,15 +172,21 @@ export default class FarmManager extends EventEmitter {
 
       // finding new cooldown
       console.log('finding new cooldown');
-      let newCooldownText;
-      while (!(newCooldownText = document.querySelector('.ribbon_wrapper .ribbon_locked .unlock_time')?.textContent?.trim())) {
+      let newCooldownParsedTimeText;
+      let counter = 0;
+      while (!(newCooldownParsedTimeText = document.querySelector('.ribbon_wrapper .ribbon_locked .unlock_time')
+        ?.textContent
+        ?.trim()
+        .match(/\d{2}:\d{2}:\d{2}/)?.[0]
+      ) && counter < 5) {
         await addDelay(333);
+        counter++;
       }
+      if (counter === 5) throw new Error('new cooldown not found, cannot schedule properly');
       // end of finding new cooldown
 
       // calculating time to next occurrence
-      const newCooldownTextParsed = newCooldownText!.match(/\d{2}:\d{2}:\d{2}/)?.[0];
-      const timeout = calculateTimeToNextOccurrence(newCooldownTextParsed!) + this.config.general.timeDifference + 1000;
+      const timeout = calculateTimeToNextOccurrence(newCooldownParsedTimeText!) + this.config.general.timeDifference + 1000;
       const scheduledDate = new Date(Date.now() + timeout);
       console.log('schedule next farming operation for captain on:', scheduledDate);
       const scheduleTimeout = setTimeout(() => {
@@ -294,9 +198,14 @@ export default class FarmManager extends EventEmitter {
         scheduledDate,
         timeout: scheduleTimeout
       }
-      document.querySelector<HTMLElement>('.ui-dialog-titlebar-close')?.click();
+
+      console.log('farmManager.farmWithCaptain.succesfullSnapchot', getBrowserStateSnapshot());
     } catch (e) {
-      console.warn('FarmManager.farmWithCaptain().catch', e, 'will reschedule in 2 minutes');
+      if (e instanceof InfoError) {
+        console.warn('FarmManager.farmWithCaptain().catch', e.message, e.details, 'will reschedule in 2 minutes');
+      } else {
+        console.warn('FarmManager.farmWithCaptain().catch', e, 'will reschedule in 2 minutes');
+      }
       this.captainScheduler = {
         timeout: setTimeout(() => {
           this.farmWithCaptain();
@@ -305,6 +214,7 @@ export default class FarmManager extends EventEmitter {
       }
     } finally {
       console.log('captain scheduler:', this.captainScheduler);
+      this.tryCloseCurrentDialog(Array.from(dialogsSnapshot));
       this.disconnectObservers();
       this.generalInfo.hideInfo();
       this.lock.release();
@@ -316,6 +226,27 @@ export default class FarmManager extends EventEmitter {
       console.log('FarmManager started');
       this.RUN = true;
       await this.initFarmAllVillages();
+    }
+  }
+
+  private tryCloseCurrentDialog(dialogsSnapshot: Element[]) {
+    const allDialogs = document.querySelectorAll<HTMLElement>('[role="dialog"]');
+    const currentDialog = Array.from(allDialogs).find(el => !dialogsSnapshot.includes(el));
+    currentDialog?.querySelector<HTMLElement>('.ui-dialog-titlebar-close')?.click();
+  }
+
+  private async ensureAllChecbkoxesUnchecked() {
+    const mainCityChecbkox = await waitForElementInterval('#fto_town_wrapper .checkbox.select_all', { timeout: 2000, interval: 400 });
+    if (mainCityChecbkox.classList.contains('checked')) {
+      mainCityChecbkox.click();
+      await addDelay(100);
+    }
+    const allCityChecbkoxes = await waitForElementsInterval('#fto_town_wrapper .checkbox.town_checkbox', { timeout: 2000, interval: 400 });
+    for (const checkbox of allCityChecbkoxes) {
+      if (checkbox.classList.contains('checked')) {
+        checkbox.click();
+        await addDelay(100);
+      }
     }
   }
 
@@ -443,7 +374,7 @@ export default class FarmManager extends EventEmitter {
 
       try {
         console.log('initFarmAllVillages, wait for lock', new Date());
-        await this.lock.acquire('FarmManager.initFarmAllVillages()');
+        await this.lock.acquire({ method: 'initFarmAllVillages', manager: 'farmManager' });
         this.generalInfo.showInfo('Farm Manager:', 'Inicjalizacja/farmienie wszystkich wiosek.');
         console.log('initFarmAllVillages, take lock', new Date());
         for (const cityInfo of cityList) {

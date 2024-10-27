@@ -1,13 +1,14 @@
 import { FarmTimeInterval, TConfig } from "../../../gps.config";
 import ConfigPopup from "../../config-popup/config-popup";
 import ConfigManager from "../../utility/config-manager";
-import { addDelay } from "../../utility/plain-utility";
+import { addDelay, getCookie, setCookie } from "../../utility/plain-utility";
 import CityBuilder from "../city/builder/city-builder";
 import CitySwitchManager from "../city/city-switch-manager";
 import FarmManager from "../farm/farm-manager";
 import Scheduler from "../scheduler/Scheduler";
 import GeneralInfo from "./ui/general-info";
-type Managers = 'farmManager' | 'switchManager' | 'scheduler' | 'builder';
+
+export type Managers = 'farmManager' | 'switchManager' | 'scheduler' | 'builder';
 
 export default class MasterManager {
   private static instance: MasterManager
@@ -147,10 +148,10 @@ export default class MasterManager {
     })
     await this.configMenuWindow.render();
 
-    if (this.config.general.forcedRefresh || GM_getValue('forceRestart')) {
-      console.log('forcedRefresh/forceRestart', this.config.general.forcedRefresh, GM_getValue('forceRestart'));
+    if (this.config.general.forcedRefresh || getCookie('forceRestart')) {
+      console.log('forcedRefresh/forceRestart', this.config.general.forcedRefresh, getCookie('forceRestart'));
       this.config.general.forcedRefresh = false;
-      GM_setValue('forceRestart', false);
+      setCookie('forceRestart', false);
 
       this.config.farmConfig.farmInterval = FarmTimeInterval.FirstOption;
       ConfigManager.getInstance().persistConfig();

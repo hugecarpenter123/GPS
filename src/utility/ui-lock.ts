@@ -1,14 +1,25 @@
-import { formatDateToSimpleString } from "./plain-utility";
+import { Managers } from "../service/master/master-manager";
+import { formatDateToSimpleString, getCopyOf } from "./plain-utility";
+
+type LockTakerInfo = {
+  method?: string;
+  requestedAt: Date;
+  acquiredAt?: Date;
+  forced: boolean;
+  manager?: Managers;
+  releasedAt?: Date;
+}
 
 export default class Lock {
+  public static readonly LOCK_TIMEOUT: number = 1000 * 60 * 5;
+
   private static instance: Lock | null = null;
-  private isLocked: boolean = false;
-  private lockedBy: string | null = null;
-  private lockedAt: number | null = null;
+  private lockQueueInfo: LockTakerInfo[] = [];
   private lockCheckInterval: NodeJS.Timeout | null = null;
+  private isLocked: LockTakerInfo | false = false;
   private queue: (() => void)[] = [];
 
-  private constructor() {}
+  private constructor() { }
 
   public static getInstance(): Lock {
     if (!this.instance) {
@@ -18,52 +29,108 @@ export default class Lock {
     return this.instance;
   }
 
+  /**
+   * Method sets the interval to check if the lock is taken for too long and if so then
+   * releases the lock assuming that something went wrong.
+   */
   private setLockCheckInterval() {
     this.lockCheckInterval = setInterval(() => {
-      if (this.lockedAt && (Date.now() - this.lockedAt > 1000 * 60 * 5)) {
-        console.warn(`Lock: lock is taken for too long by "${this.lockedBy}", releasing...`);
+      if (this.isLocked && (Date.now() - this.isLocked.requestedAt.getTime() > Lock.LOCK_TIMEOUT)) {
+        console.warn(`Lock: lock is taken for too long by ${this.isLocked.manager} "${this.isLocked.method}", releasing...`);
         // TODO: or consider restarting all managers
         this.release();
       }
-    }, 1000 * 60 * 5);
+    }, Lock.LOCK_TIMEOUT);
   }
 
-  public async acquire(lockTaker?: string): Promise<void> {
-    console.log(`Lock: try acquiring${lockTaker ? '\n\t-by: ' + lockTaker : ''}\n\t-at ${formatDateToSimpleString(new Date())}`)    
+  /**
+   * Method tries to acquire the lock. If lock is free, it takes it.
+   * If lock is taken, it adds the lock taker to the queue.
+   * @param lockTakerInfo - optional lock taker name
+   */
+  public async acquire(lockTakerInfo?: { method?: string, manager?: Managers }): Promise<void> {
+    const lockTaker: LockTakerInfo = {
+      method: lockTakerInfo?.method,
+      requestedAt: new Date(),
+      forced: false,
+      manager: lockTakerInfo?.manager,
+    }
+
     if (!this.isLocked) {
-      console.log('\t-lock is free, acquire Lock')
-      this.isLocked = true;
-      this.lockedBy = lockTaker ?? null;
-      this.lockedAt = Date.now();
+      lockTaker.acquiredAt = new Date();
+      this.isLocked = lockTaker;
+      console.log(`Lock: acquire`, this.mapToLogObj(this.isLocked));
+    } else {
+      console.log(`\t-lock is taken, add`, this.mapToLogObj(lockTaker), 'to queue:', getCopyOf(this.lockQueueInfo))
+      this.lockQueueInfo.push(lockTaker);
+      await new Promise<void>((resolve) => {
+        this.queue.push(resolve);
+      });
+    }
+
+  }
+
+  /**
+   * Method forcefully unshifts the lock taker to the queue and releases currently taken lock. 
+   * Doesn't remove existing queue.
+   * @param lockTakerInfo 
+   */
+  public async forceAcquire(lockTakerInfo: { method?: string, manager?: Managers }): Promise<void> {
+    const lockTaker: LockTakerInfo = {
+      method: lockTakerInfo.method,
+      requestedAt: new Date(),
+      forced: true,
+      manager: lockTakerInfo.manager,
+    };
+
+    if (this.isLocked) {
+      console.log(`Lock: forceAcquire by`, this.mapToLogObj(lockTaker), 'on current lock:', this.mapToLogObj(this.isLocked as LockTakerInfo));
+      await new Promise<void>(resolve => {
+        this.lockQueueInfo.unshift(lockTaker);
+        this.queue.unshift(resolve);
+        this.release();
+      });
+    } else {
+      lockTaker.acquiredAt = new Date();
+      this.isLocked = lockTaker;
+      console.log(`Lock: forceAcquire: `, this.mapToLogObj(lockTaker));
       return;
     }
-    // console.log(`\t-lock is locked, add${lockTaker ? ' "' +lockTaker + '"' : ''} to queue`, this.queue.length)
-    console.log(`\t-lock is taken, add to queue, length before adding: ${this.queue.length}`)
-
-
-    await new Promise<void>((resolve) => {
-      this.queue.push(resolve);
-    });
   }
 
+  /**
+   * Method releases the lock and calls the next waiting task in the queue
+   */
   public release(): void {
-    console.log(`Lock: release lock${this.lockedBy ? `\n\t-by: "${this.lockedBy}"` : ''}\n\t-at ${formatDateToSimpleString(new Date())}`)
     // Release the next waiting task in the queue
     if (this.queue.length > 0) {
       const nextResolve = this.queue.shift();
       if (nextResolve) {
-        console.log('\t-next element in the queue takes the lock')
+        // update state before logging and releasing
+        (this.isLocked as LockTakerInfo).releasedAt = new Date();
+        console.log('Lock: release:', this.mapToLogObj(this.isLocked as LockTakerInfo));
+
+        this.isLocked = this.lockQueueInfo.shift() ?? {} as LockTakerInfo;
+        this.isLocked.acquiredAt = new Date();
+        console.log('\t-next element in the queue takes the lock:', this.mapToLogObj(this.isLocked as LockTakerInfo));
         nextResolve();
       }
     } else {
-      this.lockedBy = null;
-      this.lockedAt = null;
+      (this.isLocked as LockTakerInfo).releasedAt = new Date();
+      console.log(`Lock: release: `, this.mapToLogObj(this.isLocked as LockTakerInfo));
       this.isLocked = false;
-      console.log(`Lock: lock released at ${formatDateToSimpleString(new Date())}`)
     }
   }
 
+  private mapToLogObj(lockTakerInfo: LockTakerInfo): string {
+    const firstStepCopy: any = { ...lockTakerInfo };
+    firstStepCopy.requestedAt = firstStepCopy.requestedAt.toLocaleString();
+    if (firstStepCopy.acquiredAt) firstStepCopy.acquiredAt = firstStepCopy.acquiredAt.toLocaleString();
+    if (firstStepCopy.releasedAt) firstStepCopy.releasedAt = firstStepCopy.releasedAt.toLocaleString();
+    return getCopyOf(firstStepCopy);
+  }
+
   public isTaken(): boolean {
-    return this.isLocked;
+    return !!this.isLocked;
   }
 }

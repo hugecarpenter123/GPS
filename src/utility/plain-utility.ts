@@ -85,3 +85,59 @@ export function calculateTimeToNextOccurrence(timeString: string): number {
 
   return targetTime.getTime() - now.getTime();
 }
+
+export function getCookie(name: string) {
+  const cookies = document.cookie.split('; ');
+  for (let cookie of cookies) {
+    const [key, value] = cookie.split('=');
+    if (key === name) {
+      return JSON.parse(decodeURIComponent(value));
+    }
+  }
+  return null;
+}
+
+export function setCookie(name: string, value: any, options: { expires?: Date, path?: string, domain?: string, secure?: boolean, sameSite?: string } = {}) {
+  const { 
+    expires = new Date(Date.now() + 24 * 60 * 60 * 1000), 
+    path = '/',
+    domain = '.grepolis.com',
+    secure = false,
+    sameSite = 'Lax'
+  } = options;
+  let cookieString = `${name}=${encodeURIComponent(JSON.stringify(value))}; path=${path}; SameSite=${sameSite}`;
+
+  if (expires) {
+    cookieString += `; expires=${expires.toUTCString()}`;
+  }
+  if (domain) {
+    cookieString += `; domain=${domain}`;
+  }
+  if (secure) {
+    cookieString += '; secure';
+  }
+
+  document.cookie = cookieString;
+}
+
+export const getCopyOf = (obj: any): any => {
+  return JSON.parse(JSON.stringify(obj));
+}
+
+export const getBrowserStateSnapshot = (): any => {
+  return {
+    documentVisibility: document.visibilityState,
+    windowFocus: document.hasFocus(),
+    windowSize: { width: window.innerWidth, height: window.innerHeight },
+  }
+}
+
+export const getElementStateSnapshot = (element: HTMLElement): any => {
+  return {
+    elementVisibility: element.offsetParent !== null,
+    elementPosition: element.getBoundingClientRect(),
+    elementZIndex: window.getComputedStyle(element).zIndex,
+    elementInViewport: element.getBoundingClientRect().top >= 0 && element.getBoundingClientRect().bottom <= window.innerHeight,
+    elementClickable: !!element.onclick
+  }
+}

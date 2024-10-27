@@ -90,6 +90,12 @@ export default class ResourceManager {
     return resourcesInfo;
   }
 
+  /**
+   * Switches to the given city and checks if it meets resources requirements.
+   * @param requiredResources 
+   * @param city 
+   * @returns 
+   */
   public async hasEnoughResources(requiredResources: { wood: number, stone: number, iron: number }, city: CityInfo) {
     await city.switchAction();
     const wood = Number(document.querySelector<HTMLLIElement>('[data-type="wood"] .amount.ui-game-selectable')!.textContent);
