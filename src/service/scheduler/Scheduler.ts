@@ -29,6 +29,8 @@ type ScheduleItem = {
   id: string;
   operationType: OperationType;
   attackTypeSelector?: string;
+  attackStrategySelector?: string;
+  powerSelector?: string | null;
   movementId: string | null;
   undoMovementAction: (() => void) | null;
   targetDate: Date;
@@ -167,10 +169,28 @@ export default class Scheduler {
       //   } : null
       // }).filter(data => data !== null);
 
+      // hero related
       const includeHero = node.querySelector<HTMLElement>('.cbx_include_hero')?.classList.contains('checked');
+      // -------------
+
+      // operation type related
       const operationType = node.firstElementChild!.getAttribute('data-type') === 'attack' ? OperationType.ARMY_ATTACK : OperationType.ARMY_SUPPORT;
       const attackTypeSelector = operationType === OperationType.ARMY_ATTACK ?
         (`[data-attack='${(document.querySelector('.attack_type.checked') as HTMLElement)?.dataset['attack']}']`) : undefined;
+
+      const allCheckedStrategies = document.querySelectorAll<HTMLElement>('.attack_strategy.checked');
+      const lastCheckedStrategy = Array.from(allCheckedStrategies).at(-1);
+      const attackStrategySelector = `#${lastCheckedStrategy?.id}`;
+      // -------------
+
+      // power related
+      const powerElement = document.querySelector<HTMLElement>('.spells.power.power_icon45x45');
+      let powerSelector = null;
+      if (!powerElement?.classList.contains('no_power')) { 
+        const powerDataName = powerElement?.classList.item(3);
+        powerSelector = `[data-power_id='${powerDataName}']`;
+      }
+      // -------------
 
       const inputDateValue = inputDateElement.value
       // Wartość z inputu type="date" będzie w formacie "YYYY-MM-DD"
@@ -238,6 +258,8 @@ export default class Scheduler {
         id: id,
         operationType: operationType,
         attackTypeSelector: attackTypeSelector,
+        attackStrategySelector: attackStrategySelector,
+        powerSelector: powerSelector,
         targetDate: targetDate,
         targetCityName: targetCityName,
         actionDate: actionDate,
@@ -308,7 +330,17 @@ export default class Scheduler {
   }
 
   private addActionTimeouts(schedulerItem: ScheduleItem) {
-    const { actionDate, realActionTime, timeoutStructure, targetCitySelector, data: inputData, operationType, attackTypeSelector } = schedulerItem;
+    const { 
+      actionDate, 
+      realActionTime, 
+      timeoutStructure, 
+      targetCitySelector, 
+      data: inputData, 
+      operationType, 
+      attackTypeSelector,
+      attackStrategySelector, 
+      powerSelector 
+    } = schedulerItem;
 
     const turnOffManagersTime = realActionTime - new Date().getTime() - Scheduler.TURN_OFF_MANAGERS_TIME_MS;
     // console.log('calculated turn off managers time:', turnOffManagersTime);
@@ -368,6 +400,15 @@ export default class Scheduler {
           if (operationType === OperationType.ARMY_ATTACK) {
             (await waitForElementInterval('#attack', { interval: 500, timeout: 2000 })).click();
             await waitForElementInterval(attackTypeSelector!, { interval: 500, timeout: 2000 }).then(el => (el as HTMLElement).click());
+            await waitForElementInterval(attackStrategySelector!, { interval: 500, timeout: 2000 }).then(el => (el as HTMLElement).click())
+
+            if (powerSelector) {
+              console.log('powerSelector', powerSelector);
+              await waitForElementInterval('#spells_1', { interval: 500, timeout: 2000 }).then(el => (el as HTMLElement).click());
+              console.log('spells_1', document.querySelector<HTMLElement>('#spells_1'));
+              await waitForElementInterval(powerSelector, { interval: 500, timeout: 2000 }).then(el => (el as HTMLElement).click());
+              console.log('powerSelector', document.querySelector<HTMLElement>(powerSelector));
+            }
           } else {
             (await waitForElementInterval('#support', { interval: 500, timeout: 2000 })).click();
           }
