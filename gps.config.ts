@@ -22,10 +22,10 @@ const config = {
     antyTimingMs: 10000,
     applicationRefreshInterval: 32 * 60 * 1000, // 32 minutes
     forcedRefresh: false,
-    switch: true,
     farm: true,
     builder: true,
     guard: false,
+    recruiter: false,
   }
 }
 export type TConfig = typeof config;

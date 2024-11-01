@@ -5,10 +5,11 @@ import { addDelay, getCookie, setCookie } from "../../utility/plain-utility";
 import CityBuilder from "../city/builder/city-builder";
 import CitySwitchManager from "../city/city-switch-manager";
 import FarmManager from "../farm/farm-manager";
+import Recruiter from "../recruiter/recruiter";
 import Scheduler from "../scheduler/Scheduler";
 import GeneralInfo from "./ui/general-info";
 
-export type Managers = 'farmManager' | 'switchManager' | 'scheduler' | 'builder';
+export type Managers = 'farmManager' | 'scheduler' | 'builder' | 'recruiter';
 
 export default class MasterManager {
   private static instance: MasterManager
@@ -17,6 +18,7 @@ export default class MasterManager {
   private switchManager!: CitySwitchManager;
   private scheduler!: Scheduler;
   private builder!: CityBuilder;
+  private recruiter!: Recruiter;
   private configMenuWindow!: ConfigPopup;
   private generalInfo!: GeneralInfo;
 
@@ -24,9 +26,9 @@ export default class MasterManager {
     [key in Managers]: boolean;
   } = {
       farmManager: false,
-      switchManager: false,
       scheduler: false,
       builder: false,
+      recruiter: false,
     };
   private constructor() {
     // Private constructor to prevent direct instantiation
@@ -41,6 +43,7 @@ export default class MasterManager {
       MasterManager.instance.farmManager = await FarmManager.getInstance();
       MasterManager.instance.scheduler = await Scheduler.getInstance();
       MasterManager.instance.builder = await CityBuilder.getInstance();
+      MasterManager.instance.recruiter = await Recruiter.getInstance();
       MasterManager.instance.initCaptchaPrevention();
       MasterManager.instance.initRefreshUtility();
       MasterManager.instance.initConfigDialog();
@@ -106,17 +109,6 @@ export default class MasterManager {
   }
 
   private async runManagersFromConfig(): Promise<void> {
-    if (this.configMenuWindow.isSwitchChecked()) {
-      if (!this.switchManager.isRunning()) {
-        console.log('switchManager will be started...')
-        this.switchManager.run();
-      }
-    } else {
-      if (this.switchManager.isRunning()) {
-        console.log('switchManager will be stopped...')
-        this.switchManager.stop();
-      }
-    }
     if (this.configMenuWindow.isBuilderChecked()) {
       if (!this.builder.isRunning()) {
         console.log('Builder will be started...')
@@ -137,6 +129,17 @@ export default class MasterManager {
       if (this.farmManager.isRunning()) {
         console.log('FarmManager will be stopped...')
         this.farmManager.stop();
+      }
+    }
+    if (this.configMenuWindow.isRecruiterChecked()) {
+      if (!this.recruiter.isRunning()) {
+        console.log('Recruiter will be started...')
+        this.recruiter.start();
+      }
+    } else {
+      if (this.recruiter.isRunning()) {
+        console.log('Recruiter will be stopped...')
+        this.recruiter.stop();
       }
     }
   }
@@ -171,10 +174,6 @@ export default class MasterManager {
       this.farmManager.stop();
       this.pausedManagersSnapshot.farmManager = true;
     }
-    if (!except.includes('switchManager') && this.switchManager.isRunning()) {
-      this.switchManager.stop();
-      this.pausedManagersSnapshot.switchManager = true;
-    }
     if (!except.includes('scheduler') && this.scheduler.isRunning()) {
       this.scheduler.stop();
       this.pausedManagersSnapshot.scheduler = true;
@@ -182,6 +181,10 @@ export default class MasterManager {
     if (!except.includes('builder') && this.builder.isRunning()) {
       this.builder.stop();
       this.pausedManagersSnapshot.builder = true;
+    }
+    if (!except.includes('recruiter') && this.recruiter.isRunning()) {
+      this.recruiter.stop();
+      this.pausedManagersSnapshot.recruiter = true;
     }
     console.log('pauseRunningManagers', this.pausedManagersSnapshot);
   }
@@ -199,9 +202,10 @@ export default class MasterManager {
         this.pausedManagersSnapshot.farmManager = true;
       }
     }
-    if (!except.includes('switchManager') && this.switchManager.isRunning()) {
-      this.switchManager.stop();
-      this.pausedManagersSnapshot.switchManager = true;
+    // TODO: more robust check in the future since it will have its own schedule
+    if (!except.includes('recruiter') && this.recruiter.isRunning()) {
+      this.recruiter.stop();
+      this.pausedManagersSnapshot.recruiter = true;
     }
     if (!except.includes('scheduler') && this.scheduler.isRunning()) {
       this.scheduler.stop();
@@ -230,9 +234,9 @@ export default class MasterManager {
             this.farmManager.start();
           }
           break;
-        case 'switchManager':
-          if (isPaused && !except.includes('switchManager')) {
-            this.switchManager.run();
+        case 'recruiter':
+          if (isPaused && !except.includes('recruiter')) {
+            this.recruiter.start();
           }
           break;
         case 'scheduler':

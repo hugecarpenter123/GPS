@@ -1,24 +1,28 @@
 import ConfigManager from "../../utility/config-manager";
 import { addDelay } from "../../utility/plain-utility";
+import Lock from "../../utility/ui-lock";
 import { cancelHover, triggerHover, waitForElement } from "../../utility/ui-utility";
-import { CityInfo } from "../city/city-switch-manager";
+import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
 
 export default class ResourceManager {
   private static instance: ResourceManager;
+  private lock!: Lock;
+  private citySwitchManager!: CitySwitchManager;
   private configManager: ConfigManager;
   private minPopulationBuffer: number;
   private storeAlmostFullPercentage: number;
 
   private constructor() {
     this.configManager = ConfigManager.getInstance();
-    // NOTE: error with fetching this conig data ! probabaly storage sinchronization problem
     this.minPopulationBuffer = this.configManager.getConfig()?.resources?.minPopulationBuffer ?? 100;
     this.storeAlmostFullPercentage = this.configManager.getConfig()?.resources?.storeAlmostFullPercentage ?? 0.9;
   }
 
-  public static getInstance(): ResourceManager {
+  public static async getInstance(): Promise<ResourceManager> {
     if (!ResourceManager.instance) {
       ResourceManager.instance = new ResourceManager();
+      ResourceManager.instance.lock = Lock.getInstance();
+      ResourceManager.instance.citySwitchManager = await CitySwitchManager.getInstance();
     }
     return this.instance;
   }
@@ -103,4 +107,21 @@ export default class ResourceManager {
     const iron = Number(document.querySelector<HTMLLIElement>('[data-type="iron"] .amount.ui-game-selectable')!.textContent);
     return wood >= requiredResources.wood && stone >= requiredResources.stone && iron >= requiredResources.iron;
   }
+
+  /*
+  Jak ma działać funkcjonalność przesyłania surowców między miastami i rekrutowanie `pod korek`?
+  W pierwszej kolejności w koszarach musi być przycisk z oknem dialogowym, w którym się podaje takie informacje:
+  -co chcesz rekrutować
+  -ile slotów (number | 'max')
+  -z jakich miast można pobierać surowce (checkboxy)
+  -podgląd obecnej kolejki recruitera
+
+  po przekazaniu tych informacji rekruter:
+  -szacuje ile będzie kosztować (0.9 - 1.0 x) surowców zakolejkowanie jednego slota do fulla danej jednostki
+  -idzie do poglądu handlu z wiosek z których może przesyłać surowce robi pełną turę po miastach do momentu uzbierania potrzebnej ilości
+   i przesyła surowce
+   - jeżeli po przeleceniu wszystkich wiosek nie jest wstanie uzbierać to czeka 10 minut i robi pochód od nowa
+   - jeżeli uzbiera (wysłał): sprawdza czas ostatniego wejścia handlu i planuje rekrutację wtedy
+  */
+
 }

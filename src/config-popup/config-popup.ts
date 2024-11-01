@@ -10,11 +10,10 @@ export default class ConfigPopup extends EventEmitter {
   private configManager: ConfigManager;
   private config: TConfig;
 
-  private switch: boolean;
   private farm: boolean;
   private builder: boolean;
   private guard: boolean;
-
+  private recruiter: boolean;
   private farmInterval: FarmTimeInterval;
   private humanize: boolean;
   private uniquelySelectedFarmingCitiesPerIsle: Record<string, CityInfo> = {};
@@ -24,18 +23,14 @@ export default class ConfigPopup extends EventEmitter {
     this.configManager = ConfigManager.getInstance();
     this.config = this.configManager.getConfig();
 
-    this.switch = this.config.general.switch;
     this.farm = this.config.general.farm;
     this.builder = this.config.general.builder;
     this.guard = this.config.general.guard;
-
+    this.recruiter = this.config.general.recruiter;
     this.farmInterval = this.config.farmConfig.farmInterval;
     this.humanize = this.config.farmConfig.humanize;
   }
 
-  public isSwitchChecked = () => {
-    return this.switch;
-  };
   public isFarmChecked = () => {
     return this.farm;
   };
@@ -48,14 +43,18 @@ export default class ConfigPopup extends EventEmitter {
     return this.guard;
   };
 
+  public isRecruiterChecked = () => {
+    return this.recruiter;
+  };
+
   public getPlunderConfig = () => {
   }
 
   private initEventListeners(): void {
     const container = document.querySelector('#config-popup-container') as HTMLElement;
-    const switchCheckbox = container.querySelector('#city-switch');
     const plunderCheckbox = container.querySelector('#farm');
     const builderCheckbox = container.querySelector('#builder');
+    const recruiterCheckbox = container.querySelector('#recruiter');
     const guardCheckbox = container.querySelector('#guard');
     const timeIntervalSelect = container.querySelector('#time-interval-select');
     const showTrigger = container.querySelector('.show-trigger');
@@ -70,14 +69,14 @@ export default class ConfigPopup extends EventEmitter {
 
     container.querySelectorAll('#button-panel button').forEach((btn) => btn.addEventListener('click', () => {
       if ((btn as HTMLButtonElement).type === 'reset') {
-        (switchCheckbox as HTMLInputElement)!.checked = false;
-        this.switch = false;
         (plunderCheckbox as HTMLInputElement)!.checked = false;
         this.farm = false;
         (builderCheckbox as HTMLInputElement)!.checked = false;
         this.builder = false;
         (guardCheckbox as HTMLInputElement)!.checked = false;
         this.guard = false;
+        (recruiterCheckbox as HTMLInputElement)!.checked = false;
+        this.recruiter = false;
       }
 
       const conflictingCitiesChanged = Object.keys(this.uniquelySelectedFarmingCitiesPerIsle).some(isleId => this.uniquelySelectedFarmingCitiesPerIsle[isleId].name !== this.config.farmConfig.farmingCities.find(city => city.isleId === isleId)?.name);
@@ -86,18 +85,18 @@ export default class ConfigPopup extends EventEmitter {
       // update config related fields and persist them to local storage if changed
       if (this.config.farmConfig.farmInterval !== this.farmInterval ||
         this.config.farmConfig.humanize !== this.humanize ||
-        this.config.general.switch !== this.switch ||
         this.config.general.farm !== this.farm ||
         this.config.general.builder !== this.builder ||
         this.config.general.guard !== this.guard ||
+        this.config.general.recruiter !== this.recruiter ||
         conflictingCitiesChanged) {
         // readability comment --------------------------------------------------------------
         this.config.farmConfig.farmInterval = this.farmInterval;
         this.config.farmConfig.humanize = this.humanize;
-        this.config.general.switch = this.switch;
         this.config.general.farm = this.farm;
         this.config.general.builder = this.builder;
         this.config.general.guard = this.guard;
+        this.config.general.recruiter = this.recruiter;
         this.config.farmConfig.farmingCities = Object.values(this.uniquelySelectedFarmingCitiesPerIsle);
         this.configManager.persistConfig();
       }
@@ -113,9 +112,6 @@ export default class ConfigPopup extends EventEmitter {
       container.classList.contains('minimized') && container.classList.remove('minimized')
     });
 
-    switchCheckbox!.addEventListener('change', () => {
-      this.switch = (switchCheckbox as HTMLInputElement).checked;
-    });
     plunderCheckbox!.addEventListener('change', () => {
       this.farm = (plunderCheckbox as HTMLInputElement).checked;
     });
@@ -124,6 +120,9 @@ export default class ConfigPopup extends EventEmitter {
     });
     guardCheckbox!.addEventListener('change', () => {
       this.guard = (guardCheckbox as HTMLInputElement).checked;
+    });
+    recruiterCheckbox!.addEventListener('change', () => {
+      this.recruiter = (recruiterCheckbox as HTMLInputElement).checked;
     });
     timeIntervalSelect!.addEventListener('change', () => {
       this.farmInterval = Number((timeIntervalSelect as HTMLSelectElement).value)
@@ -155,11 +154,10 @@ export default class ConfigPopup extends EventEmitter {
     container.innerHTML = configPopupHtml;
 
     // get initial data from config and change
-    (container.querySelector('#city-switch') as HTMLInputElement)!.checked = this.switch;
     (container.querySelector('#farm') as HTMLInputElement)!.checked = this.farm;
     (container.querySelector('#builder') as HTMLInputElement)!.checked = this.builder;
     (container.querySelector('#guard') as HTMLInputElement)!.checked = this.guard;
-
+    (container.querySelector('#recruiter') as HTMLInputElement)!.checked = this.recruiter;
     // farm section
     const intervalSelectElement = (container.querySelector('#time-interval-select') as HTMLSelectElement)
     const farmIntervalValuesUnparsed = Object.values(FarmTimeInterval);

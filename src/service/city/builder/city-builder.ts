@@ -56,7 +56,7 @@ export default class CityBuilder {
     if (!CityBuilder.instance) {
       CityBuilder.instance = new CityBuilder();
       CityBuilder.instance.lock = Lock.getInstance();
-      CityBuilder.instance.resourceManager = ResourceManager.getInstance();
+      CityBuilder.instance.resourceManager = await ResourceManager.getInstance();
       CityBuilder.instance.citySwitchManager = await CitySwitchManager.getInstance();
       CityBuilder.instance.generalInfo = GeneralInfo.getInstance();
       CityBuilder.instance.addStyle();
