@@ -1,7 +1,7 @@
 import ConfigManager from "../../utility/config-manager";
 import { addDelay } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
-import { cancelHover, triggerHover, waitForElement } from "../../utility/ui-utility";
+import { cancelHover, triggerHover, waitForElement, waitForElementInterval } from "../../utility/ui-utility";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
 
 export default class ResourceManager {
@@ -34,16 +34,15 @@ export default class ResourceManager {
   }
 
   public async getStoreCapacity() {
-    // let maxSizeElement: HTMLDivElement | null = null;
-    // do {
-    //   triggerHover(document.querySelector<HTMLDivElement>('[data-type="wood"] .amount.ui-game-selectable')!);
-    //   await addDelay(100);
-    // } while (!(maxSizeElement = document.querySelector<HTMLDivElement>('.island_resource_info span:nth-of-type(2)')))
-
-    triggerHover(document.querySelector<HTMLDivElement>('[data-type="wood"] .amount.ui-game-selectable')!);
-    const maxSizeText = await waitForElement('.island_resource_info span:nth-of-type(2)');
-    const storeMaxSize = parseInt(maxSizeText?.textContent?.match(/\d+/)?.[0] || '0');
-    cancelHover(document.querySelector<HTMLDivElement>('[data-type="wood"] .amount.ui-game-selectable')!);
+    const resourceItem = await waitForElement('[data-type="wood"] .amount.ui-game-selectable')
+    let maxSizeElement: HTMLDivElement | null = null;
+    do {
+      triggerHover(resourceItem);
+      await addDelay(333);
+    } while (!(maxSizeElement = document.querySelector<HTMLDivElement>('.island_resource_info span:nth-of-type(2)')))
+    const maxSizeText = maxSizeElement.textContent;
+    const storeMaxSize = parseInt(maxSizeText?.match(/\d+/)?.[0] || '0');
+    cancelHover(resourceItem);
     return storeMaxSize;
   }
 

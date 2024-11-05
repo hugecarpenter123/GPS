@@ -1,0 +1,149 @@
+#recruiter-btn {
+  margin-bottom: 16px;
+}
+
+#recruiter-dialog {
+  z-index: 2000;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 500px;
+  max-height: 500px;
+  overflow-y: auto;
+  background-color: bisque;
+  padding: 16px;
+}
+
+#recruiter-dialog * {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+  font-family: "Roboto", sans-serif;
+}
+
+#recruiter-dialog h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  text-shadow: 1px 1px 1px rgba(73, 73, 73, 0.5);
+}
+#recruiter-dialog #recruiter-close-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+}
+
+#recruiter-dialog .recruiter-dialog-header {
+  /* background-color: brown; */
+}
+
+#recruiter-dialog .recruiter-dialog-header-icon {
+  cursor: pointer;
+}
+
+#recruiter-dialog .recruiter-dialog-header-icon:hover {
+  /* animation: rotate .5s linear infinite;
+  fill: rgba(0, 0, 0, 0.7); */
+  transform: scale(1.1);
+  transition: transform .1s ease;
+}
+
+@keyframes rotate {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+#recruiter-dialog #current-unit-image {
+  width: 48px;
+  height: 48px;
+  background-color: blue;
+}
+
+
+#recruiter-dialog .recruiter-dialog-content {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* background-color: azure; */
+}
+
+#recruiter-dialog #recruiter-type-content {
+  /* background-color: aquamarine; */
+}
+
+#recruiter-dialog .input-wrapper {
+  display: flex;
+  align-items: center;
+  /* background-color: blueviolet; */
+  gap: 4px;
+}
+
+
+/* #recruiter-dialog .recruiter-ammount-section {} */
+#recruiter-dialog .recruiter-ammount-section input[name="recruiter-ammount"] {
+  max-width: 54px;
+}
+
+/* #recruiter-dialog .recruiter-cities-section {} */
+#recruiter-dialog #recruiter-cities {
+  padding: 4px;
+}
+
+#recruiter-dialog #recruiter-cities-list {
+  color: gray;
+  font-size: 0.8rem;
+  margin-bottom: 8px;
+}
+
+#recruiter-dialog #recruiter-queue-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#recruiter-dialog .recruiter-queue-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#recruiter-dialog .recruiter-queue-item-image {
+  width: 36px;
+  height: 36px;
+  /* background-color: brown; */
+}
+
+.recruiter-queue-item-info {
+  font-size: 0.8rem;
+}
+
+#recruiter-dialog .recruiter-queue-item-number {}
+
+#recruiter-dialog .recruiter-buttons-section {
+  margin: 0 auto;
+}
+#recruiter-dialog #recruiter-cancel-btn {
+  border: 1px solid red;
+  color: red;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+#recruiter-dialog #recruiter-add-btn {
+  border: 1px solid green;
+  color: green;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+#recruiter-dialog #recruiter-confirm-btn {
+  /* border: 1px solid green; */
+  /* color: green; */
+  padding: 4px 8px;
+  cursor: pointer;
+  margin-left: 20px;
+}
