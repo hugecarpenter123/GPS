@@ -180,13 +180,13 @@ export default class Scheduler {
 
       const allCheckedStrategies = document.querySelectorAll<HTMLElement>('.attack_strategy.checked');
       const lastCheckedStrategy = Array.from(allCheckedStrategies).at(-1);
-      const attackStrategySelector = `#${lastCheckedStrategy?.id}`;
+      const attackStrategySelector = lastCheckedStrategy ? `#${lastCheckedStrategy?.id}` : undefined;
       // -------------
 
       // power related
       const powerElement = document.querySelector<HTMLElement>('.spells.power.power_icon45x45');
       let powerSelector = null;
-      if (!powerElement?.classList.contains('no_power')) { 
+      if (!powerElement?.classList.contains('no_power')) {
         const powerDataName = powerElement?.classList.item(3);
         powerSelector = `[data-power_id='${powerDataName}']`;
       }
@@ -330,16 +330,16 @@ export default class Scheduler {
   }
 
   private addActionTimeouts(schedulerItem: ScheduleItem) {
-    const { 
-      actionDate, 
-      realActionTime, 
-      timeoutStructure, 
-      targetCitySelector, 
-      data: inputData, 
-      operationType, 
+    const {
+      actionDate,
+      realActionTime,
+      timeoutStructure,
+      targetCitySelector,
+      data: inputData,
+      operationType,
       attackTypeSelector,
-      attackStrategySelector, 
-      powerSelector 
+      attackStrategySelector,
+      powerSelector
     } = schedulerItem;
 
     const turnOffManagersTime = realActionTime - new Date().getTime() - Scheduler.TURN_OFF_MANAGERS_TIME_MS;
@@ -372,12 +372,12 @@ export default class Scheduler {
           // znajdź wioskę i kliknij odpowiednią operację
           document.querySelector<HTMLElement>('.ui-dialog-titlebar-close')?.click()
           const targetCityElement = await waitForElementInterval(targetCitySelector, { interval: 500, retries: 4 })
-          .catch(() => {
-            throw new InfoError('target city not found', {
-              browserState: getBrowserStateSnapshot(),
+            .catch(() => {
+              throw new InfoError('target city not found', {
+                browserState: getBrowserStateSnapshot(),
+              })
             })
-          })
-          
+
           const targetCityElementSnapshot = getElementStateSnapshot(targetCityElement);
           // console.log('targetCityElement', targetCityElement);
 
@@ -398,9 +398,13 @@ export default class Scheduler {
           }
 
           if (operationType === OperationType.ARMY_ATTACK) {
+            console.log('operationType === OperationType.ARMY_ATTACK');
             (await waitForElementInterval('#attack', { interval: 500, timeout: 2000 })).click();
-            await waitForElementInterval(attackTypeSelector!, { interval: 500, timeout: 2000 }).then(el => (el as HTMLElement).click());
-            await waitForElementInterval(attackStrategySelector!, { interval: 500, timeout: 2000 }).then(el => (el as HTMLElement).click())
+            console.log('attack clicked', document.querySelector<HTMLElement>('#attack'));
+            attackTypeSelector && await waitForElementInterval(attackTypeSelector, { interval: 500, timeout: 2000 }).then(el => (el as HTMLElement).click());
+            console.log('attackTypeSelector clicked', document.querySelector<HTMLElement>(attackTypeSelector!));
+            attackStrategySelector && await waitForElementInterval(attackStrategySelector, { interval: 500, timeout: 2000 }).then(el => (el as HTMLElement).click())
+            console.log('attackStrategySelector clicked', document.querySelector<HTMLElement>(attackStrategySelector!));
 
             if (powerSelector) {
               console.log('powerSelector', powerSelector);
@@ -408,12 +412,15 @@ export default class Scheduler {
               console.log('spells_1', document.querySelector<HTMLElement>('#spells_1'));
               await waitForElementInterval(powerSelector, { interval: 500, timeout: 2000 }).then(el => (el as HTMLElement).click());
               console.log('powerSelector', document.querySelector<HTMLElement>(powerSelector));
+            } else {
+              console.log('no powerSelector');
             }
           } else {
             (await waitForElementInterval('#support', { interval: 500, timeout: 2000 })).click();
           }
 
           // wypełnij inputy
+          console.log('fill inputData');
           for (const data of inputData) {
             if (data.value) {
               const input = await waitForElementInterval(`input[name="${data.name}"]`, { interval: 500, timeout: 2000 }) as HTMLInputElement;
@@ -423,10 +430,11 @@ export default class Scheduler {
           };
 
           if (schedulerItem.includeHero) {
+            console.log('should include hero');
             (await waitForElementInterval('.cbx_include_hero')).click();
           }
 
-          console.log('action is ready to be performed, snapshot:', {
+          console.log('action prepared successfully, snapshot:', {
             browserState: getBrowserStateSnapshot(),
             elementState: targetCityElementSnapshot,
           });
@@ -738,8 +746,7 @@ export default class Scheduler {
     console.log('removeSchedulerItemFromUI', schedulerItem);
     const table = document.querySelector<HTMLTableElement>('#scheduler-lookup-table tbody');
     const row = table!.querySelector(`[data-scheduler-item-id="${this.getSchedulerItemId(schedulerItem)}"]`);
-    console.log('row', row);
-    row!.remove();
+    row?.remove();
     this.handleIfSchedulerListIsEmpty();
   }
 
