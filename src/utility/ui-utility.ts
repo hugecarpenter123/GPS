@@ -183,8 +183,8 @@ export function waitForElementsInterval(selector: string, options: WaitForElemen
 
       const timeoutId = retries ? setTimeout(() => {
         clearInterval(observer);
-          reject(`${selector} - not found within timeout`);
-        }, timeout)
+        reject(`${selector} - not found within timeout`);
+      }, timeout)
         : undefined;
 
       let retryCount = 0;
@@ -202,7 +202,7 @@ export function waitForElementsInterval(selector: string, options: WaitForElemen
       }, interval);
     }
   });
-} 
+}
 
 export function waitForElementFromNode(parentNode: HTMLElement | Document, selector: string, timeout: number = 8000): Promise<HTMLElement> {
   return new Promise((resolve, reject) => {
@@ -301,7 +301,8 @@ export function mouseDownEvent(element: HTMLElement) {
   }
 }
 
-export async function performComplexClick(element: HTMLElement) {
+export async function performComplexClick(element: HTMLElement | null | undefined) {
+  if (!element) return;
   console.log('performComplexClick() - window:', window);
   mouseDownEvent(element);
   await addDelay(50);

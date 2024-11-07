@@ -99,11 +99,10 @@ export default class FarmManager extends EventEmitter {
 
         if (!cooldownWrapper.classList.contains('hidden')) {
           console.log('cooldownWrapper found, not hidden');
-          let cooldownText;
-          while (!(cooldownText = cooldownWrapper.querySelector('.ribbon_locked .unlock_time')?.textContent)) {
+          let cooldownTimeTextParsed;
+          while (!(cooldownTimeTextParsed = cooldownWrapper.querySelector('.ribbon_locked .unlock_time')?.textContent?.match(/\d{2}:\d{2}:\d{2}/)?.[0])) {
             await addDelay(333);
           }
-          const cooldownTimeTextParsed = cooldownText.match(/\d{2}:\d{2}:\d{2}/)?.[0];
           const timeout = calculateTimeToNextOccurrence(cooldownTimeTextParsed!) + this.config.general.timeDifference + 1000;
           const scheduledDate = new Date(Date.now() + timeout);
 

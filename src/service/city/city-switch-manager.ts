@@ -7,7 +7,7 @@ export type CityInfo = {
   name: string;
   cityId: string | null;
   isleId: string;
-  switchAction: () => Promise<void>;
+  switchAction: (jumpToTown?: boolean) => Promise<void>;
 }
 
 export default class CitySwitchManager extends EventEmitter {
@@ -167,7 +167,7 @@ export default class CitySwitchManager extends EventEmitter {
   };
 
   private switchActionForCity = (cityInfo: CityInfo) => {
-    return async () => {
+    return async (jumpToTown: boolean = true) => {
       try {
         if (document.querySelector('div.town_name')!.textContent !== cityInfo.name) {
           let townListElement = document.querySelector('.group_towns');
@@ -186,7 +186,9 @@ export default class CitySwitchManager extends EventEmitter {
             await addDelay(100);
           } while (document.querySelector('div.town_name')!.textContent !== cityInfo.name);
         }
-        document.querySelector<HTMLElement>('.btn_jump_to_town.circle_button.jump_to_town')!.click();
+        if (jumpToTown) {
+          document.querySelector<HTMLElement>('.btn_jump_to_town.circle_button.jump_to_town')!.click();
+        }
         await addDelay(100);
       } catch (e) {
         console.warn('switchAction.catch:', e);

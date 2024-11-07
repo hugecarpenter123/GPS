@@ -1,5 +1,6 @@
 import gpsConfig, { TConfig } from "../../gps.config";
 import CitySwitchManager from "../service/city/city-switch-manager";
+import { addDelay } from "./plain-utility";
 import StorageManager from "./storage-manager";
 
 export default class ConfigManager {
@@ -18,8 +19,13 @@ export default class ConfigManager {
     }
     return ConfigManager.instance;
   }
-  private setTimeDifference() {
-    let time = document.querySelector('.server_time_area')!.textContent!.split(' ')[0].split(':')
+  private async setTimeDifference() {
+    let timeText = document.querySelector('.server_time_area')!.textContent!.split(' ')[0];
+    while (!timeText.match(/\d{2}:\d{2}:\d{2}/)) {
+      await addDelay(400);
+      timeText = document.querySelector('.server_time_area')!.textContent!.split(' ')[0];
+    }
+    let time = timeText.split(':');
     let now = new Date();
     now.setHours(parseInt(time[0]));
     now.setMinutes(parseInt(time[1]));

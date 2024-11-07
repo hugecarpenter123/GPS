@@ -29,7 +29,7 @@
       <h2>Amount</h2>
       <div class="input-wrapper">
         <label for="recruiter-ammount">Units/Slots</label>
-        <input type="number" id="recruiter-ammount" name="recruiter-ammount">
+        <input disabled type="number" id="recruiter-ammount" name="recruiter-ammount">
       </div>
       <div class="input-wrapper">
         <label for="recruiter-amount-max">Max</label>
@@ -43,6 +43,23 @@
       <div class="input-wrapper">
         <label for="recruiter-cities">Cities</label>
         <select name="recruiter-cities" id="recruiter-cities" multiple size="0">
+        </select>
+      </div>
+      <div class="input-wrapper" style="margin-top: 8px;">
+        <label for="shipment-time">Max shipment time</label>
+        <select id="shipment-time" name="shipment-time">
+          <option value="300000">5 min</option>
+          <option value="600000">10 min</option>
+          <option value="900000">15 min</option>
+          <option value="1200000">20 min</option>
+          <option value="1500000" selected>25 min</option>
+          <option value="1800000">30 min</option>
+          <option value="2100000">35 min</option>
+          <option value="2400000">40 min</option>
+          <option value="2700000">45 min</option>
+          <option value="3000000">50 min</option>
+          <option value="3300000">55 min</option>
+          <option value="3600000">60 min</option>
         </select>
       </div>
     </div>
