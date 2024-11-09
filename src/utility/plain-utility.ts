@@ -98,8 +98,8 @@ export function getCookie(name: string) {
 }
 
 export function setCookie(name: string, value: any, options: { expires?: Date, path?: string, domain?: string, secure?: boolean, sameSite?: string } = {}) {
-  const { 
-    expires = new Date(Date.now() + 24 * 60 * 60 * 1000), 
+  const {
+    expires = new Date(Date.now() + 24 * 60 * 60 * 1000),
     path = '/',
     domain = '.grepolis.com',
     secure = false,
@@ -140,4 +140,12 @@ export const getElementStateSnapshot = (element: HTMLElement): any => {
     elementInViewport: element.getBoundingClientRect().top >= 0 && element.getBoundingClientRect().bottom <= window.innerHeight,
     elementClickable: !!element.onclick
   }
+}
+
+export function shuffle(array: any[]) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
 }

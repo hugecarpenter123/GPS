@@ -7,6 +7,7 @@ type LockTakerInfo = {
   acquiredAt?: Date;
   forced: boolean;
   manager?: Managers;
+  city?: string;
   releasedAt?: Date;
 }
 
