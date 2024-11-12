@@ -204,8 +204,15 @@ export default class MasterManager {
     }
     // TODO: more robust check in the future since it will have its own schedule
     if (!except.includes('recruiter') && this.recruiter.isRunning()) {
-      this.recruiter.stop();
-      this.pausedManagersSnapshot.recruiter = true;
+      const recruiterTimes = this.recruiter.getRecruitmentScheduleTimes();
+      const recruiterTimesCollides = recruiterTimes.some((recruitingTime: number) =>
+        recruitingTime &&
+        recruitingTime <= actionTime &&
+        Math.abs((recruitingTime - actionTime)) <= 1000 * 30);
+      if (recruiterTimesCollides) {
+        this.recruiter.stop();
+        this.pausedManagersSnapshot.recruiter = true;
+      }
     }
     if (!except.includes('scheduler') && this.scheduler.isRunning()) {
       this.scheduler.stop();
