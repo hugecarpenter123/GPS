@@ -457,6 +457,9 @@ export default class Scheduler {
             // console.log('now time + way duration:', formatDateToSimpleString(new Date(new Date().getTime() + wayDurationMs)))
             if (operationType === OperationType.ARMY_ATTACK) {
               (await waitForElement('#btn_attack_town')).click();
+              await waitForElement('.js-window-main-container.classic_window.dialog .btn_confirm.button_new', 1000)
+                .then(el => el.click())
+                .catch(() => { });
             } else {
               (await waitForElement('.attack_support_window a .middle')).click();
             }

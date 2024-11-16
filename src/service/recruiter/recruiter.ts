@@ -7,6 +7,7 @@ import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
 import GeneralInfo from "../master/ui/general-info";
 import ResourceManager from "../resources/resource-manager";
 import recruiterDialogHTML from "./recruiter-prod.html";
+import recruiterToggleBtnHTML from "./recruiter-toggle-btn-prod.html";
 import recruiterDialogCSS from "./recruiter.css";
 
 type UnitContext = {
@@ -35,14 +36,21 @@ type StackResourcesResult = {
   timeMs?: number;
   resources?: RequiredResourcesInfo;
 }
-
+/**
+ * target: final required resources amount
+ * toStack: remaining resources to be stacked
+ */
 type RequiredResourcesInfo = {
-  woodAmountNeeded: number;
-  targetWoodAmount: number;
-  ironAmountNeeded: number;
-  targetIronAmount: number;
-  stoneAmountNeeded: number;
-  targetStoneAmount: number;
+  target: {
+    wood: number;
+    iron: number;
+    stone: number;
+  },
+  toStack: {
+    wood: number;
+    iron: number;
+    stone: number;
+  }
 }
 
 type RecruitmentQueueItem = {
@@ -54,22 +62,6 @@ type RecruitmentQueueItem = {
   amount: number;
   amountLeft: number;
 }
-
-// type RecruitmentSchedule = {
-//   city: CityInfo
-//   timeoutId: NodeJS.Timeout | null;
-//   nextScheduledTime: number | null;
-//   docks: {
-//     suppliersCities: CityInfo[];
-//     queueItems: RecruitmentQueueItem[];
-//     maxShipmentTime: number;
-//   }
-//   barracks: {
-//     suppliersCities: CityInfo[];
-//     queueItems: RecruitmentQueueItem[];
-//     maxShipmentTime: number;
-//   }
-// }
 
 type RecruitmentSchedule = {
   city: CityInfo
@@ -93,6 +85,7 @@ export default class Recruiter {
 
   private currentUnitContext: UnitContext | null = null;
   private recruitmentSchedule: RecruitmentSchedule[] = [];
+  private eventListenersCleanupCallbacks: (() => void)[] = [];
 
   private constructor() { };
 
@@ -118,10 +111,30 @@ export default class Recruiter {
       .filter(time => time != null)
   }
 
+  private addRecruiterDialog() {
+    const recruiterDialogContainer = document.createElement('div');
+    recruiterDialogContainer.id = 'recruiter-container';
+    recruiterDialogContainer.style.zIndex = '2000';
+    recruiterDialogContainer.innerHTML = recruiterDialogHTML;
+    document.body.appendChild(recruiterDialogContainer);
+  }
+
+  private createRecruiterToggleButton() {
+    const recruiterToggleContainer = document.createElement('div');
+    recruiterToggleContainer.id = 'recruiter-toggle-container';
+    recruiterToggleContainer.innerHTML = recruiterToggleBtnHTML;
+    return recruiterToggleContainer;
+  }
+
+  private removeRecruiterDialog() {
+    document.getElementById('recruiter-container')?.remove();
+  }
+
   public async start() {
     console.log('recruiter start');
     this.RUN = true;
     if (!this.observer) {
+      // this.addRecruiterDialog();
       this.observer = this.mountObserver();
     }
     this.recruitmentSchedule.forEach(schedule => {
@@ -133,6 +146,7 @@ export default class Recruiter {
 
   public async stop() {
     this.RUN = false;
+    // this.removeRecruiterDialog();
     this.recruitmentSchedule.forEach(schedule => {
       schedule.timeoutId && clearTimeout(schedule.timeoutId);
       schedule.timeoutId = null;
@@ -174,9 +188,11 @@ export default class Recruiter {
       if (node instanceof HTMLElement
         && node.getAttribute('role') === 'dialog') {
         if (node.getAttribute('aria-describedby') === this.recruitmentBuildingDialogAttr) {
-          console.log('unit observer unmounted');
+          console.log('Unmounting recruiter utilities');
+          this.removeRecruiterDialog();
           this.unitChangeObserver?.disconnect();
           this.unitChangeObserver = null;
+          this.cleanEventListeners();
         }
       }
     }
@@ -198,25 +214,21 @@ export default class Recruiter {
   }
 
   /**
-   * 1. Metoda dodaje przycisk recruiter w prawym górnym rogu
-   * 2. Po przyciśnięciu pojawia sie okno dialogowe
-   * 3. W oknie są do wypełnienia następujące inputy:
-   *    -ile slotów jednostki produkować (liczba | 'max') lub ilość jednostek
-   *    -lista miast z jakich można pobierać surowce
-   *    -przycisk `submit`
-   * 4. Po wciśnięciu submit inna metoda zajmuje się implementacją działania
-   * 5. Okno dialogowe pokazuje obecną kolejkę przypisaną do miasta wraz z czasami rekrutacji
-   * 6. Przycisk anuluj, który kasuje (na tą chwilę) całość zaplanowanych operacji i elementy w kolejce
-   * 
-   * @param node 
+   * Dodaje przycisk do otwarcia dialogu rekrutera oraz dialog rekrutera, 
+   * podłącza eventy obługujące dialog,
+   * inicjalizuje observer który nasłuchuje zmian w jednostkach,
+   * dodaje nasłuchiwanie zmiany miasta, które aktualizuje listę miast w select oraz kolejkę rekrutacji
    */
   private extendUI(node: HTMLElement, type: 'barracks' | 'docks') {
-    const recruiterDialogContainer = document.createElement('div');
-    recruiterDialogContainer.id = 'recruiter-container';
-    recruiterDialogContainer.style.zIndex = '2000';
-    recruiterDialogContainer.innerHTML = recruiterDialogHTML;
-    node.querySelector('#unit_order')?.appendChild(recruiterDialogContainer);
+    // adds togle button HTML to the recruitment building
+    node.querySelector('#unit_order')?.appendChild(this.createRecruiterToggleButton());
+
+    // adds recruiter dialog HTML to the body
+    this.addRecruiterDialog();
+
+    // adds event listeners to the toggle button
     this.addEntryEventListener(node, type);
+    this.attachOnCityChangeCallback();
     this.mountUnitChangeObserver();
     this.renderRecruitmentQueue(
       this.recruitmentSchedule
@@ -228,11 +240,12 @@ export default class Recruiter {
     const recruiterOpenBtn = document.getElementById('recruiter-btn');
     const recruiterDialog = document.getElementById('recruiter-dialog');
     let areListenersAttached = false;
-    recruiterOpenBtn?.addEventListener('click', async () => {
+
+    const toggleAcction = async () => {
       if (recruiterDialog!.hidden) {
         recruiterDialog!.hidden = false;
         await this.setCurrentUnitContext();
-        this.setCurrentUnitImage();
+        this.setDialogCurrentUnitImage();
       } else {
         recruiterDialog!.hidden = true;
       }
@@ -240,26 +253,57 @@ export default class Recruiter {
         this.addEventListeners(type);
         areListenersAttached = true;
       }
-    });
+    }
+    recruiterOpenBtn?.addEventListener('click', toggleAcction);
+    this.eventListenersCleanupCallbacks.push(() => recruiterOpenBtn?.removeEventListener('click', toggleAcction));
+  }
+
+  /**
+   * Nasłuchuje zmiany miasta, aktualizuje listę miast w select oraz kolejkę rekrutacji 
+   * ze względu na aktualne miasto.
+   */
+  private attachOnCityChangeCallback() {
+    const callback = async (city: CityInfo) => {
+      this.populateCitiesSelect();
+      this.renderRecruitmentQueue(
+        this.recruitmentSchedule
+          .find(item => item.city.name === city.name)?.queue ?? []
+      );
+    }
+    this.citySwitchManager.addListener('cityChange', callback);
+    this.eventListenersCleanupCallbacks.push(() => this.citySwitchManager.removeListener('cityChange', callback));
   }
 
   /**
    * Updates dialog ui based on the unit change
    */
   private mountUnitChangeObserver() {
-    const unitContainer = document.querySelector<HTMLDivElement>('#unit_order #units');
+    const unitContainer = document.querySelector<HTMLDivElement>(`[aria-describedby="${this.recruitmentBuildingDialogAttr}"]`);
     // Funkcja callback, która będzie wywoływana przy każdej zmianie
-    const callback = async (mutationsList: MutationRecord[], observer: MutationObserver) => {
+    const callback = async (mutationsList: MutationRecord[]) => {
       for (const mutation of mutationsList) {
-        if (mutation.type === 'attributes' && mutation.attributeName === 'class' && (mutation.target as HTMLElement).classList.contains('unit_active')) {
+        if ((mutation.target as HTMLElement).classList.contains('unit_active')) {
           console.log('Class attribute matched:', mutation.target);
           if (!document.getElementById('recruiter-dialog')?.hidden) {
             await this.setCurrentUnitContext();
-            this.setCurrentUnitImage();
+            this.setDialogCurrentUnitImage();
           }
         }
       }
     };
+    // const unitContainer = document.querySelector<HTMLDivElement>('#unit_order #units');
+    // // Funkcja callback, która będzie wywoływana przy każdej zmianie
+    // const callback = async (mutationsList: MutationRecord[]) => {
+    //   for (const mutation of mutationsList) {
+    //     if (mutation.type === 'attributes' && mutation.attributeName === 'class' && (mutation.target as HTMLElement).classList.contains('unit_active')) {
+    //       console.log('Class attribute matched:', mutation.target);
+    //       if (!document.getElementById('recruiter-dialog')?.hidden) {
+    //         await this.setCurrentUnitContext();
+    //         this.setCurrentUnitImage();
+    //       }
+    //     }
+    //   }
+    // };
 
     const observer = new MutationObserver(callback);
 
@@ -270,6 +314,7 @@ export default class Recruiter {
     };
 
     observer.observe(unitContainer!, config);
+    this.unitChangeObserver?.disconnect();
     this.unitChangeObserver = observer;
   }
 
@@ -279,12 +324,14 @@ export default class Recruiter {
   private async addEventListeners(type: 'barracks' | 'docks') {
     this.populateCitiesSelect();
 
-    const refreshIcon = document.querySelector<SVGElement>('#recruiter-dialog .recruiter-dialog-header-icon');
     const recruiterDialog = document.getElementById('recruiter-dialog');
-    const recruiterCloseBtn = document.getElementById('recruiter-close-btn');
-    const recruiterConfirmBtn = document.getElementById('recruiter-confirm-btn');
-    const recruiterAddBtn = document.getElementById('recruiter-add-btn');
-    const recruiterCancelBtn = document.getElementById('recruiter-cancel-btn');
+    const recruiterNav = recruiterDialog?.querySelector<HTMLElement>('#recruiter-nav');
+
+    const refreshIcon = recruiterDialog?.querySelector<SVGElement>('.recruiter-dialog-header-icon');
+    const recruiterCloseBtn = recruiterDialog?.querySelector<HTMLButtonElement>('#recruiter-close-btn');
+    const recruiterConfirmBtn = recruiterDialog?.querySelector<HTMLButtonElement>('#recruiter-confirm-btn');
+    const recruiterAddBtn = recruiterDialog?.querySelector<HTMLButtonElement>('#recruiter-add-btn');
+    const recruiterCancelBtn = recruiterDialog?.querySelector<HTMLButtonElement>('#recruiter-cancel-btn');
 
     const amountTypeRadios = recruiterDialog?.querySelectorAll<HTMLInputElement>('[name="recruiter-type"]');
     const amountInput = recruiterDialog?.querySelector<HTMLInputElement>('#recruiter-ammount');
@@ -313,14 +360,17 @@ export default class Recruiter {
     /**
      * Disables/enables amount input based on amount max checkbox value
      */
-    amountMaxCheckbox?.addEventListener('change', () => {
-      console.log('amount max checkbox changed:', amountMaxCheckbox.checked);
-      if (amountMaxCheckbox.checked) {
+    const amountMaxCheckboxChangeClb = () => {
+      console.log('amount max checkbox changed:', amountMaxCheckbox!.checked);
+      if (amountMaxCheckbox!.checked) {
         amountInput!.disabled = true;
       } else {
         amountInput!.disabled = false;
       }
-    });
+    }
+    amountMaxCheckbox?.addEventListener('change', amountMaxCheckboxChangeClb);
+    this.eventListenersCleanupCallbacks.push(() => amountMaxCheckbox?.removeEventListener('change', amountMaxCheckboxChangeClb));
+
     /*
     * Disables/enables amount input initially (no event triggered yet to handle it)
     */
@@ -329,7 +379,7 @@ export default class Recruiter {
     /**
      * action happens here
      */
-    recruiterConfirmBtn?.addEventListener('click', () => {
+    const confirmButtonAcction = () => {
       console.log('confirm');
       /*
       Opis działania:
@@ -345,31 +395,38 @@ export default class Recruiter {
       if (scheduleForCity.queue.length === 1 || (!scheduleForCity.timeoutId && !scheduleForCity.nextScheduledTime)) {
         this.tryRecruitOrStackResources(scheduleForCity);
       }
-    });
+      recruiterDialog!.hidden = true;
+    }
+    recruiterConfirmBtn?.addEventListener('click', confirmButtonAcction);
+    this.eventListenersCleanupCallbacks.push(() => recruiterConfirmBtn?.removeEventListener('click', confirmButtonAcction));
 
     /**
      * Closes recruiter dialog
      */
-    recruiterCloseBtn?.addEventListener('click', () => {
+    const closeButtonAction = () => {
       console.log('close');
       recruiterDialog!.hidden = true;
-    });
+    }
+    recruiterCloseBtn?.addEventListener('click', closeButtonAction);
+    this.eventListenersCleanupCallbacks.push(() => recruiterCloseBtn?.removeEventListener('click', closeButtonAction));
 
     /**
      * Refreshes current unit image, sets new context and updates ui
      */
-    refreshIcon?.addEventListener('click', async () => {
+    const refreshButtonAction = async () => {
       // TODO: should refresh ui
       console.log('refresh');
       await this.setCurrentUnitContext();
-      this.setCurrentUnitImage();
+      this.setDialogCurrentUnitImage();
       this.populateCitiesSelect();
-    });
+    }
+    refreshIcon?.addEventListener('click', refreshButtonAction);
+    this.eventListenersCleanupCallbacks.push(() => refreshIcon?.removeEventListener('click', refreshButtonAction));
 
     /**
      * Parses configuration from recruiter dialog calls executive method based on this.
      */
-    recruiterAddBtn?.addEventListener('click', () => {
+    const addButtonAction = () => {
       const amountType: 'units' | 'slots' = amountTypeRadios![0].checked ? 'units' : 'slots';
       const amountInputValue = amountInput!.value;
       const amountMaxCheckboxValue = amountMaxCheckbox!.checked;
@@ -400,11 +457,13 @@ export default class Recruiter {
 
       if (amountMaxCheckboxValue) {
         console.log('amountMaxCheckboxValue:', amountMaxCheckboxValue);
+        // TODO: lepiej wykalkulować ilość slotów w przyadku gdy itemy w kolejce nie są slots
+        const properMaxSlotsAmount = this.getEmptySlotsCount(type) - schedule.queue.reduce((acc, item) => acc + (item.amountType === 'slots' ? item.amount : 1), 0);
         schedule.queue.push({
           unitContextInfo: this.getCurrentUnitContextCopy(),
           amountType: 'slots',
-          amount: this.getEmptySlotsCount(),
-          amountLeft: this.getEmptySlotsCount(),
+          amount: properMaxSlotsAmount,
+          amountLeft: properMaxSlotsAmount,
           type: type,
           suppliersCities: selectedCities,
           maxShipmentTime: shipmentTime
@@ -439,7 +498,45 @@ export default class Recruiter {
         this.recruitmentSchedule.push(schedule);
       }
       this.renderRecruitmentQueue(schedule.queue);
-    });
+    }
+    recruiterAddBtn?.addEventListener('click', addButtonAction);
+    this.eventListenersCleanupCallbacks.push(() => recruiterAddBtn?.removeEventListener('click', addButtonAction));
+
+    // draggable recruiter dialog listeners
+    {
+      let isDragging = false;
+      let offsetX: number | null = null;
+      let offsetY: number | null = null;
+
+      recruiterNav?.addEventListener('mousedown', onMouseDown);
+      this.eventListenersCleanupCallbacks.push(() => {
+        recruiterNav?.removeEventListener('mousedown', onMouseDown)
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      });
+
+      function onMouseDown(e: MouseEvent) {
+        isDragging = true;
+        offsetX = e.clientX - recruiterDialog!.offsetLeft;
+        offsetY = e.clientY - recruiterDialog!.offsetTop;
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+      }
+
+      function onMouseMove(e: MouseEvent) {
+        if (isDragging) {
+          recruiterDialog!.style.left = `${e.clientX - (offsetX ?? 0)}px`;
+          recruiterDialog!.style.top = `${e.clientY - (offsetY ?? 0)}px`;
+        }
+      }
+
+      function onMouseUp() {
+        isDragging = false;
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      }
+    }
+
   }
 
   private async tryRecruitOrStackResources(schedule: RecruitmentSchedule) {
@@ -498,15 +595,28 @@ export default class Recruiter {
         return;
       }
 
+      // if there is not enough storage capacity for unit, shift queue
+      if (scheduleItem.unitContextInfo.unitInfo.iron > resources.storeMaxSize ||
+        scheduleItem.unitContextInfo.unitInfo.wood > resources.storeMaxSize ||
+        scheduleItem.unitContextInfo.unitInfo.stone > resources.storeMaxSize) {
+        console.log('not enough storage capacity for unit, shifting queue');
+        schedule.queue.shift();
+        return;
+      }
+
       // if there is not enough resources, stack and schedule next recruitment
       if ([woodAmountNeeded, ironAmountNeeded, stoneAmountNeeded].some(v => v > 0)) {
-        const resourcesToStack = {
-          woodAmountNeeded,
-          targetWoodAmount: Math.floor(scheduleItem.unitContextInfo.requiredResourcesPerSlot.wood * 0.9),
-          ironAmountNeeded,
-          targetIronAmount: Math.floor(scheduleItem.unitContextInfo.requiredResourcesPerSlot.iron * 0.9),
-          stoneAmountNeeded,
-          targetStoneAmount: Math.floor(scheduleItem.unitContextInfo.requiredResourcesPerSlot.stone * 0.9)
+        const resourcesToStack: RequiredResourcesInfo = {
+          target: {
+            wood: Math.floor(scheduleItem.unitContextInfo.requiredResourcesPerSlot.wood * 0.9),
+            iron: Math.floor(scheduleItem.unitContextInfo.requiredResourcesPerSlot.iron * 0.9),
+            stone: Math.floor(scheduleItem.unitContextInfo.requiredResourcesPerSlot.stone * 0.9)
+          },
+          toStack: {
+            wood: woodAmountNeeded,
+            iron: ironAmountNeeded,
+            stone: stoneAmountNeeded
+          }
         }
         console.log('not enough resources, stacking:', resourcesToStack);
         await this.closeAllRecruitmentBuildingDialogs();
@@ -535,12 +645,73 @@ export default class Recruiter {
       const ironDiff = (scheduleItem.unitContextInfo.unitInfo.iron) * scheduleItem.amountLeft! - resources.iron.amount;
       const stoneDiff = (scheduleItem.unitContextInfo.unitInfo.stone) * scheduleItem.amountLeft! - resources.stone.amount;
       const populationDiff = scheduleItem.unitContextInfo.unitInfo.population * scheduleItem.amountLeft! - resources.population.amount;
-      // TODO: do rest
-      return;
+
+      // if there is not enough population, shift queue
+      if (populationDiff > 0) {
+        console.log('populationDiff > 0 - shifting queue');
+        schedule.queue.shift();
+        return;
+      }
+
+      // if there is not enough storage capacity for unit, shift queue
+      if (scheduleItem.unitContextInfo.unitInfo.iron > resources.storeMaxSize ||
+        scheduleItem.unitContextInfo.unitInfo.wood > resources.storeMaxSize ||
+        scheduleItem.unitContextInfo.unitInfo.stone > resources.storeMaxSize) {
+        console.log('not enough storage capacity for unit, shifting queue');
+        schedule.queue.shift();
+        return;
+      }
+
+      const woodAmountNeeded = Math.min(woodDiff < 0 ? 0 : Math.floor(woodDiff), resources.storeMaxSize * 0.9);
+      const ironAmountNeeded = Math.min(ironDiff < 0 ? 0 : Math.floor(ironDiff), resources.storeMaxSize * 0.9);
+      const stoneAmountNeeded = Math.min(stoneDiff < 0 ? 0 : Math.floor(stoneDiff), resources.storeMaxSize * 0.9);
+      if ([woodAmountNeeded, ironAmountNeeded, stoneAmountNeeded].some(v => v > 0)) {
+        const resourcesToStack: RequiredResourcesInfo = {
+          target: {
+            wood: Math.floor(scheduleItem.unitContextInfo.unitInfo.wood * 0.9),
+            iron: Math.floor(scheduleItem.unitContextInfo.unitInfo.iron * 0.9),
+            stone: Math.floor(scheduleItem.unitContextInfo.unitInfo.stone * 0.9)
+          },
+          toStack: {
+            wood: woodAmountNeeded,
+            iron: ironAmountNeeded,
+            stone: stoneAmountNeeded
+          }
+        }
+        console.log('not enough resources, stacking:', resourcesToStack);
+        await this.closeAllRecruitmentBuildingDialogs();
+        const stackResult = await this.stackResources(resourcesToStack, city, suppliersCities, scheduleItem.maxShipmentTime);
+        if (stackResult.fullyStacked) {
+          console.log('fully stacked, scheduling recruitment');
+          const timeMs = stackResult.timeMs!;
+          schedule.timeoutId = this.createTimeoutForRecruitment(schedule, timeMs);
+          schedule.nextScheduledTime = new Date().getTime() + timeMs;
+        } else {
+          console.log('not fully stacked, scheduling in 10 minutes');
+          // schedule in 10 minutes
+          schedule.timeoutId = this.createTimeoutForRecruitment(schedule, 600000);
+          schedule.nextScheduledTime = new Date().getTime() + 600000;
+          console.log('recruitment schedule updated:', schedule);
+        }
+      } else {
+        console.log('enough resources, performing recruitment');
+        const recruitmentOccured = await this.performRecruitment(schedule);
+        // rzadki przypadek gdy nie można zarekrutować 1 jednostki (np kolon, a magazyn ma pojemność na styk)
+        if (!recruitmentOccured) {
+          // planowanie rekrutacji w 10 minut ponieważ zaplanowane surowce (max 90% magazynu) nie są wystarczające
+          // trzeba poczekać aż surowce się uzbierają
+          schedule.timeoutId = this.createTimeoutForRecruitment(schedule, 600000);
+          schedule.nextScheduledTime = new Date().getTime() + 600000;
+          console.log('recruitment schedule updated:', schedule);
+        } else {
+          console.log('recruitment performed, scheduling next recruitment');
+          await this.performRecruitOrStackResources(schedule);
+        }
+      }
     }
   }
 
-  private async performRecruitment(schedule: RecruitmentSchedule) {
+  private async performRecruitment(schedule: RecruitmentSchedule): Promise<boolean> {
     // recruitment process
     const item = schedule.queue[0];
     await this.closeAllRecruitmentBuildingDialogs();
@@ -559,6 +730,13 @@ export default class Recruiter {
     console.log('amount left:', item.amountLeft);
     this.renderRecruitmentQueue(schedule.queue);
     this.closeAllRecruitmentBuildingDialogs();
+
+    return recruitedUnitsAmount > 0;
+  }
+
+  private cleanEventListeners() {
+    this.eventListenersCleanupCallbacks.forEach(fn => fn());
+    this.eventListenersCleanupCallbacks = [];
   }
 
   private async closeAllRecruitmentBuildingDialogs() {
@@ -581,7 +759,7 @@ export default class Recruiter {
     console.log('closeAllRecruitmentBuildingDialogs done');
   }
 
-  private async recruitUnits(unitSelector: string, amount: number) {
+  private async recruitUnits(unitSelector: string, amount: number): Promise<number> {
     let counter = 0;
     do {
       counter++
@@ -596,14 +774,17 @@ export default class Recruiter {
     if (amount !== Infinity && amount < maxValue) {
       recruitedUnitAmount = amount;
       unitInput.value = amount.toString();
-      await addDelay(100);
     } else {
       unitInput.value = maxValue.toString();
-      await addDelay(100);
     }
+    await addDelay(100);
+
+    // confirm recruitment in UI
     const emptySlotsBefore = document.querySelectorAll(`[role="dialog"] .various_orders_background .empty_slot`).length;
     document.getElementById('unit_order_confirm')?.click();
     await this.untilEmptySlotsAreEqual(emptySlotsBefore - 1);
+    // END recruitment in UI
+
     return recruitedUnitAmount;
   }
 
@@ -613,11 +794,7 @@ export default class Recruiter {
 
   private async goToRecruitmentBuilding(buildingType: 'barracks' | 'docks') {
     document.querySelector<HTMLElement>('[name="city_overview"]')?.click();
-    if (buildingType === 'barracks') {
-      await waitForElementInterval('.units_land .bottom_link .js-caption').then(el => el.click());
-    } else {
-      await waitForElementInterval('.units_naval .bottom_link .js-caption').then(el => el.click());
-    }
+    await waitForElementInterval(`[data-building="${buildingType}"]`).then(el => el.click());
   }
 
   private createTimeoutForRecruitment(schedule: RecruitmentSchedule, timeMs: number) {
@@ -639,7 +816,7 @@ export default class Recruiter {
     console.log('going to trade mode');
     const shuffledFromCities = shuffle([...fromCities]);
     await this.goToTradeMode(city, shuffledFromCities[0]);
-    const stillNeededResources = { ...resourceInfo };
+    const stillNeededResources = { ...resourceInfo.toStack };
 
     // check if resources are alredy non its way
     let [woodRealState, stoneRealState, ironRealState] =
@@ -654,7 +831,7 @@ export default class Recruiter {
     }
     console.log('woodRealState:', woodRealState, 'stoneRealState:', stoneRealState, 'ironRealState:', ironRealState);
 
-    if (woodRealState![0] >= resourceInfo.targetWoodAmount && stoneRealState![0] >= resourceInfo.targetStoneAmount && ironRealState![0] >= resourceInfo.targetIronAmount) {
+    if (woodRealState![0] >= resourceInfo.target.wood && stoneRealState![0] >= resourceInfo.target.stone && ironRealState![0] >= resourceInfo.target.iron) {
       await this.closeTradeMode();
       return {
         fullyStacked: true,
@@ -704,53 +881,53 @@ export default class Recruiter {
       console.log('woodRealState:', woodRealState, 'stoneRealState:', stoneRealState, 'ironRealState:', ironRealState);
 
       // minimalnie 100 surowców (wymóg gry)
-      if (stillNeededResources.ironAmountNeeded !== 0) {
-        stillNeededResources.ironAmountNeeded = ironRealState![0] + stillNeededResources.ironAmountNeeded >= Math.floor(0.9 * ironRealState![1])
+      if (stillNeededResources.iron !== 0) {
+        stillNeededResources.iron = ironRealState![0] + stillNeededResources.iron >= Math.floor(0.9 * ironRealState![1])
           ? Math.max(100, Math.floor(ironRealState![1] * 0.9) - ironRealState![0])
-          : Math.max(100, stillNeededResources.ironAmountNeeded);
+          : Math.max(100, stillNeededResources.iron);
       }
 
-      if (stillNeededResources.stoneAmountNeeded !== 0) {
-        stillNeededResources.stoneAmountNeeded = stoneRealState![0] + stillNeededResources.stoneAmountNeeded >= Math.floor(0.9 * stoneRealState![1])
+      if (stillNeededResources.stone !== 0) {
+        stillNeededResources.stone = stoneRealState![0] + stillNeededResources.stone >= Math.floor(0.9 * stoneRealState![1])
           ? Math.max(100, Math.floor(stoneRealState![1] * 0.9) - stoneRealState![0])
-          : Math.max(100, stillNeededResources.stoneAmountNeeded);
+          : Math.max(100, stillNeededResources.stone);
       }
 
-      if (stillNeededResources.woodAmountNeeded !== 0) {
-        stillNeededResources.woodAmountNeeded = woodRealState![0] + stillNeededResources.woodAmountNeeded >= Math.floor(0.9 * woodRealState![1])
+      if (stillNeededResources.wood !== 0) {
+        stillNeededResources.wood = woodRealState![0] + stillNeededResources.wood >= Math.floor(0.9 * woodRealState![1])
           ? Math.max(100, Math.floor(woodRealState![1] * 0.9) - woodRealState![0])
-          : Math.max(100, stillNeededResources.woodAmountNeeded);
+          : Math.max(100, stillNeededResources.wood);
       }
 
       console.log('stillNeededResources after checking:', stillNeededResources);
 
 
-      if (stillNeededResources.woodAmountNeeded > 0 && currentTradeCapacity >= 100 && resources.wood.amount >= 100) {
+      if (stillNeededResources.wood > 0 && currentTradeCapacity >= 100 && resources.wood.amount >= 100) {
         const woodInput = await waitForElementInterval('#trade_type_wood input', { interval: 333, retries: 4 });
-        const woodAmountToSend = Math.min(stillNeededResources.woodAmountNeeded, resources.wood.amount, currentTradeCapacity);
-        console.log('setting min wood value out of:', [stillNeededResources.woodAmountNeeded, resources.wood.amount, currentTradeCapacity]);
+        const woodAmountToSend = Math.min(stillNeededResources.wood, resources.wood.amount, currentTradeCapacity);
+        console.log('setting min wood value out of:', [stillNeededResources.wood, resources.wood.amount, currentTradeCapacity]);
         (woodInput as HTMLInputElement).value = woodAmountToSend.toString();
-        stillNeededResources.woodAmountNeeded -= woodAmountToSend;
+        stillNeededResources.wood -= woodAmountToSend;
         currentTradeCapacity -= woodAmountToSend;
         resourcesSent = true;
         console.log('remainning capacity:', currentTradeCapacity);
       }
-      if (stillNeededResources.ironAmountNeeded > 0 && currentTradeCapacity >= 100 && resources.iron.amount >= 100) {
+      if (stillNeededResources.iron > 0 && currentTradeCapacity >= 100 && resources.iron.amount >= 100) {
         const ironInput = await waitForElementInterval('#trade_type_iron input', { interval: 333, retries: 4 })
-        const ironAmountToSend = Math.min(stillNeededResources.ironAmountNeeded, resources.iron.amount, currentTradeCapacity);
-        console.log('setting min iron value out of:', [stillNeededResources.ironAmountNeeded, resources.iron.amount, currentTradeCapacity]);
+        const ironAmountToSend = Math.min(stillNeededResources.iron, resources.iron.amount, currentTradeCapacity);
+        console.log('setting min iron value out of:', [stillNeededResources.iron, resources.iron.amount, currentTradeCapacity]);
         (ironInput as HTMLInputElement).value = ironAmountToSend.toString();
-        stillNeededResources.ironAmountNeeded -= ironAmountToSend;
+        stillNeededResources.iron -= ironAmountToSend;
         currentTradeCapacity -= ironAmountToSend;
         resourcesSent = true;
         console.log('remainning capacity:', currentTradeCapacity);
       }
-      if (stillNeededResources.stoneAmountNeeded > 0 && currentTradeCapacity >= 100 && resources.stone.amount >= 100) {
+      if (stillNeededResources.stone > 0 && currentTradeCapacity >= 100 && resources.stone.amount >= 100) {
         const stoneInput = await waitForElementInterval('#trade_type_stone input', { interval: 333, retries: 4 })
-        const stoneAmountToSend = Math.min(stillNeededResources.stoneAmountNeeded, resources.stone.amount, currentTradeCapacity);
-        console.log('setting min stone value out of:', [stillNeededResources.stoneAmountNeeded, resources.stone.amount, currentTradeCapacity]);
+        const stoneAmountToSend = Math.min(stillNeededResources.stone, resources.stone.amount, currentTradeCapacity);
+        console.log('setting min stone value out of:', [stillNeededResources.stone, resources.stone.amount, currentTradeCapacity]);
         (stoneInput as HTMLInputElement).value = stoneAmountToSend.toString();
-        stillNeededResources.stoneAmountNeeded -= stoneAmountToSend;
+        stillNeededResources.stone -= stoneAmountToSend;
         currentTradeCapacity -= stoneAmountToSend;
         resourcesSent = true;
         console.log('remainning capacity:', currentTradeCapacity);
@@ -765,17 +942,17 @@ export default class Recruiter {
       document.querySelector<HTMLElement>('.btn_trade_button.button_new')?.click();
 
       if (currentShipmentTimeMS > highestTime && resourcesSent) highestTime = currentShipmentTimeMS;
-      if (stillNeededResources.woodAmountNeeded <= 0 && stillNeededResources.ironAmountNeeded <= 0 && stillNeededResources.stoneAmountNeeded <= 0) {
+      if (stillNeededResources.wood <= 0 && stillNeededResources.iron <= 0 && stillNeededResources.stone <= 0) {
         break;
       }
     }
     await this.closeTradeMode();
-    if (stillNeededResources.woodAmountNeeded > 0 || stillNeededResources.ironAmountNeeded > 0 || stillNeededResources.stoneAmountNeeded > 0) {
+    if (stillNeededResources.wood > 0 || stillNeededResources.iron > 0 || stillNeededResources.stone > 0) {
       console.log('not fully stacked, timeMs:', highestTime);
       return {
         fullyStacked: false,
         timeMs: highestTime + 3000,
-        resources: stillNeededResources
+        resources: { toStack: stillNeededResources, target: resourceInfo.target }
       }
     }
     // return time in ms to last shipment
@@ -807,7 +984,10 @@ export default class Recruiter {
     document.querySelector<HTMLElement>('#trading')!.click();
   }
 
-  private setCurrentUnitImage() {
+  /**
+   * Ustawia klasę obrazu jednostki w dialogu rekrutera na podstawie globalnego kontekstu jednostki.
+   */
+  private setDialogCurrentUnitImage() {
     const imageEl = document.querySelector<HTMLDivElement>('#current-unit-image');
     imageEl?.setAttribute('class', this.currentUnitContext!.unitImageClass);
   }
@@ -860,32 +1040,39 @@ export default class Recruiter {
     return currentUnitContext;
   }
 
+  /**
+   * Tworzy listę miast na podstawie aktualnego miasta i zaznacza wybrane miasta z ostatniej operacji w kolejce
+   * przypisanej do danego miasta w momencie wywołania metody.
+   */
   private populateCitiesSelect(type: 'barracks' | 'docks' = 'barracks') {
+    const citiesSelectElement = document.querySelector<HTMLSelectElement>('#recruiter-cities');
+    if (!citiesSelectElement) return;
+
     const cities = this.citySwitchManager.getCityList();
-    const citiesSelect = document.querySelector<HTMLSelectElement>('#recruiter-cities');
     const selectedCities = this.recruitmentSchedule.find(schedule => schedule.city.name === this.citySwitchManager.getCurrentCity()?.name)?.queue.at(-1)?.suppliersCities;
-    citiesSelect!.innerHTML = '';
+    citiesSelectElement.innerHTML = '';
     for (const city of cities) {
       if (city.name === this.citySwitchManager.getCurrentCity()?.name) continue;
       const option = document.createElement('option');
       option.value = city.name;
       option.textContent = city.name;
-      citiesSelect!.appendChild(option);
+      citiesSelectElement.appendChild(option);
       if (selectedCities?.some(sc => sc.name === city.name)) {
         option.selected = true;
       }
     }
   }
 
-  private getEmptySlotsCount() {
-    return Number(document.querySelectorAll('.type_unit_queue .empty_slot').length);
+  private getEmptySlotsCount(buildingType: 'barracks' | 'docks') {
+    // return Number(document.querySelectorAll('.type_unit_queue .empty_slot').length);
+    return Number(document.querySelectorAll(`.type_unit_queue.${buildingType}`)[0].querySelectorAll('.empty_slot').length);
   }
 
   private getCurrentUnitContextCopy() {
     return JSON.parse(JSON.stringify(this.currentUnitContext));
   }
 
-  private renderRecruitmentQueue(queueItems: RecruitmentQueueItem[]) {
+  private renderRecruitmentQueue(queue: RecruitmentQueueItem[]) {
     const recruitmentQueueEl = document.getElementById('recruiter-queue-content');
     if (!recruitmentQueueEl) return;
 
@@ -898,7 +1085,7 @@ export default class Recruiter {
         </div>
       </div>
     */
-    for (const item of queueItems) {
+    for (const [id, item] of queue.entries()) {
       const queueItemEl = document.createElement('div');
       queueItemEl.classList.add('recruiter-queue-item');
 
@@ -911,6 +1098,19 @@ export default class Recruiter {
       infoEl.classList.add('recruiter-queue-item-info');
       infoEl.textContent = `${item.amount}x ${item.amountType === 'slots' ? 'slots' : 'units'}`;
       queueItemEl.appendChild(infoEl);
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.setAttribute('type', 'button');
+      deleteBtn.classList.add('recruiter-queue-item-delete-btn');
+      deleteBtn.textContent = 'x';
+      queueItemEl.appendChild(deleteBtn);
+
+      const onDeleteClick = () => {
+        queue.splice(id, 1);
+        deleteBtn.removeEventListener('click', onDeleteClick)
+        this.renderRecruitmentQueue(queue);
+      }
+      deleteBtn.addEventListener('click', onDeleteClick);
 
       recruitmentQueueEl!.appendChild(queueItemEl);
     }
