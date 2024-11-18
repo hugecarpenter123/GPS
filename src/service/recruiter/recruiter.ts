@@ -972,6 +972,7 @@ export default class Recruiter {
   }
 
   private async goToTradeMode(city: CityInfo, fromCity: CityInfo) {
+    await city.switchAction();
     console.log('goToTradeMode, city:', city, 'fromCity:', fromCity);
     let counter = 0;
     do {

@@ -113,31 +113,7 @@ export default class CitySwitchManager extends EventEmitter {
         name,
         cityId,
         isleId,
-        switchAction: async () => {
-          try {
-            if (document.querySelector('div.town_name')!.textContent !== name) {
-              let townListElement = document.querySelector('.group_towns');
-              if (!townListElement) {
-                do {
-                  await waitForElement('.town_groups_dropdown.btn_toggle_town_groups_menu', 1000).then(el => el.click()).catch(() => null);
-                  await addDelay(333);
-                } while (!(townListElement = await waitForElement('.group_towns', 1500).catch(() => null)));
-              }
-              const targetTown = Array.from(townListElement!.querySelectorAll('span.town_name'))
-                .find(el => el.textContent === name);
-
-              (targetTown as HTMLElement).click();
-
-              do {
-                await addDelay(100);
-              } while (document.querySelector('div.town_name')!.textContent !== name);
-            }
-            document.querySelector<HTMLElement>('.btn_jump_to_town.circle_button.jump_to_town')!.click();
-            await addDelay(100);
-          } catch (e) {
-            console.warn('switchAction.catch:', e);
-          }
-        }
+        switchAction: this.switchActionForCity(name)
       });
     }
     console.log('CitySwitchManager.cityList.initialized:', cityList)
@@ -161,15 +137,15 @@ export default class CitySwitchManager extends EventEmitter {
    */
   private hydrateCityList(storageCityList: CityInfo[]) {
     for (const cityInfo of storageCityList) {
-      cityInfo.switchAction = this.switchActionForCity(cityInfo);
+      cityInfo.switchAction = this.switchActionForCity(cityInfo.name);
     }
     return storageCityList;
   };
 
-  private switchActionForCity = (cityInfo: CityInfo) => {
+  private switchActionForCity = (cityName: string) => {
     return async (jumpToTown: boolean = true) => {
       try {
-        if (document.querySelector('div.town_name')!.textContent !== cityInfo.name) {
+        if (document.querySelector('div.town_name')!.textContent !== cityName) {
           let townListElement = document.querySelector('.group_towns');
           if (!townListElement) {
             do {
@@ -178,13 +154,13 @@ export default class CitySwitchManager extends EventEmitter {
             } while (!(townListElement = await waitForElement('.group_towns', 1500).catch(() => null)));
           }
           const targetTown = Array.from(townListElement!.querySelectorAll('span.town_name'))
-            .find(el => el.textContent === cityInfo.name);
+            .find(el => el.textContent === cityName);
 
           (targetTown as HTMLElement).click();
 
           do {
             await addDelay(100);
-          } while (document.querySelector('div.town_name')!.textContent !== cityInfo.name);
+          } while (document.querySelector('div.town_name')!.textContent !== cityName);
         }
         if (jumpToTown) {
           document.querySelector<HTMLElement>('.btn_jump_to_town.circle_button.jump_to_town')!.click();
