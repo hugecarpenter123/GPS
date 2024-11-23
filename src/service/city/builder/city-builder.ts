@@ -1,6 +1,6 @@
 import { addDelay, getTimeInFuture, textToMs } from "../../../utility/plain-utility";
 import Lock from "../../../utility/ui-lock";
-import { cancelHover, triggerHover, waitForElement, waitForElementFromNode, waitForElements } from "../../../utility/ui-utility";
+import { cancelHover, triggerHover, waitForElement, waitForElementFromNode, waitForElementInterval, waitForElements } from "../../../utility/ui-utility";
 import builderCss from './queue.css';
 import builderHtml from './builder-prod.html';
 import { Building, buildings, buildingsSelectors } from "./buildings";
@@ -296,42 +296,51 @@ export default class CityBuilder {
 
     console.log('performBuildSchedule with queue:', JSON.parse(JSON.stringify(cityQueue.queue)));
     if (await this.isEmptySlot(cityQueue.city)) {
+      console.log('\t-isEmptySlot is true, checking if can build');
       const item = cityQueue.queue[0];
       await this.checkIfItemCanBeBuiltAndAddDeleteOrSchedule(cityQueue, item);
     } else {
+      console.log('\t-isEmptySlot is false, scheduling speed up');
       await this.setTimeoutForNextSpeedUpAndSchedule(cityQueue);
     }
   }
 
   private async setTimeoutForNextSpeedUpAndSchedule(cityQueue: CityQueue) {
+    console.log('setTimeoutForNextSpeedUpAndSchedule execution()');
     const timeToSpeedUp = await this.getTimeToCanSpeedUp(cityQueue.city).catch(() => null);
+    console.log('\t-timeToSpeedUp:', timeToSpeedUp);
     if (timeToSpeedUp === null) {
-      console.log('\t-timeToSpeedUp is null, performing build schedule');
+      console.log('\t-timeToSpeedUp is null, performing build schedule to reevaluate conditions');
       await this.performBuildSchedule(cityQueue);
-      return;
     }
-    if (timeToSpeedUp <= 0) {
+    else if (timeToSpeedUp <= 0) {
       console.log('\t-will speed up first build immediately');
       await this.speedUpFirstBuild(cityQueue.city);
+      console.log('\t-call performBuildSchedule for the waiting item');
       await this.performBuildSchedule(cityQueue);
     } else {
-      console.log('\t-speed up will be scheduled at:', getTimeInFuture(timeToSpeedUp));
+      console.log('\t-time to speed up is:', timeToSpeedUp, 'will be scheduled at:', getTimeInFuture(timeToSpeedUp));
       cityQueue.schedule = setTimeout(async () => {
         try {
           await this.lock.acquire({ method: cityQueue.city.name + ' - setTimeoutForNextSpeedUpAndSchedule (inside timeout)', manager: 'builder' });
+          console.log('setTimeoutForNextSpeedUpAndSchedule() inside timeout');
+          console.log('\t-speed up first build');
           await this.speedUpFirstBuild(cityQueue.city);
+          console.log('\t-performBuildSchedule');
           await this.performBuildSchedule(cityQueue);
         } catch (e) {
           console.warn('CityBuilder.setTimeoutForNextSpeedUpAndSchedule().catch', e);
-          console.log('\t-retrying setTimeoutForNextSpeedUpAndSchedule');
-          this.setTimeoutForNextSpeedUpAndSchedule(cityQueue);
+          console.log('\t-retrying by calling handleBuildSchedule()');
+          cityQueue.schedule = null;
+          cityQueue.scheduledDate = null;
+          this.handleBuildSchedule(cityQueue);
         } finally {
           cityQueue.description = undefined;
           cityQueue.operation = undefined;
           console.log('mainQueue:', JSON.parse(JSON.stringify(this.mainQueue)));
           this.lock.release();
         }
-      }, timeToSpeedUp);
+      }, timeToSpeedUp + (2 * 1000)); // add 2 seconds for any delays
       cityQueue.scheduledDate = new Date(Date.now() + timeToSpeedUp);
       cityQueue.description = 'Waiting for speed up';
       cityQueue.operation = 'speedUp';
@@ -603,7 +612,7 @@ export default class CityBuilder {
    */
   private async speedUpFirstBuild(city: CityInfo) {
     await this.tryGoToBuildMode(city);
-    const freeButton = await waitForElement('[data-order_index="0"] .type_free', 2000).catch(() => null);
+    const freeButton = await waitForElementInterval('[data-order_index="0"] .type_free', { retries: 5, interval: 400 }).catch(() => null);
     if (freeButton) {
       const emptySlotsSnapshot = this.getEmptySlotsCount();
       freeButton.click();
@@ -724,14 +733,22 @@ export default class CityBuilder {
       .catch(() => false);
   }
 
+  /**
+   * Returns time to first item in the queue or 
+   * @param city 
+   * @returns time in ms
+   */
   private async getTimeToCanSpeedUp(city: CityInfo): Promise<number> {
     this.goToCityView();
     await city.switchAction();
     await addDelay(1000);
-    const firstOrder = await waitForElement('[data-order_index="0"] .countdown.js-item-countdown', 3000).catch(() => null);
+    const firstOrder = await waitForElementInterval('[data-order_index="0"] .countdown.js-item-countdown', { retries: 5, interval: 400 }).catch(() => null);
     if (firstOrder) {
-      return textToMs(firstOrder.textContent!) - 5 * 60 * 1000;
+      const timeToFirstOrder = textToMs(firstOrder.textContent!) - 5 * 60 * 1000;
+      console.log('getTimeToCanSpeedUp(): calculated time to speed up first order:', timeToFirstOrder);
+      return timeToFirstOrder;
     }
+    console.warn('getTimeToCanSpeedUp(): no item in the queue, throwing error');
     throw new Error('No item in the queue.')
   }
 
