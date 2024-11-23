@@ -88,8 +88,8 @@ export default class FarmManager extends EventEmitter {
       this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : addDelay(100);
       // end of opening farm overview
 
-      if (!scheduled) {
-        // checking if there is a cooldown
+      // checking if there is a cooldown
+      {
         let cooldownWrapper = await waitForElementInterval('.ribbon_wrapper', { retries: 4, interval: 400 }).catch(() => {
           throw new InfoError('cooldownWrapper not found, cannot proceed', {
             browserState: getBrowserStateSnapshot(),
@@ -165,7 +165,8 @@ export default class FarmManager extends EventEmitter {
 
       // collecting resources
       console.log('collecting resources');
-      document.querySelector<HTMLElement>('#fto_claim_button')!.click();
+      // document.querySelector<HTMLElement>('#fto_claim_button')!.click();
+      await waitForElementInterval('#fto_claim_button', { retries: 4, interval: 400 }).then(el => el.click()).catch(() => { throw new Error('collecting resources failed, no button found') });
       this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : addDelay(100);
       // end of collecting resources
 
@@ -178,10 +179,10 @@ export default class FarmManager extends EventEmitter {
         ?.trim()
         .match(/\d{2}:\d{2}:\d{2}/)?.[0]
       ) && counter < 5) {
-        await addDelay(333);
+        await addDelay(400);
         counter++;
       }
-      if (counter === 5) throw new Error('new cooldown not found, cannot schedule properly');
+      if (counter === 8) throw new Error('new cooldown not found, cannot schedule properly');
       // end of finding new cooldown
 
       // calculating time to next occurrence
