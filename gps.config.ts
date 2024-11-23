@@ -26,6 +26,9 @@ const config = {
     builder: true,
     guard: false,
     recruiter: false,
+  },
+  recruiter: {
+    autoReevaluate: true,
   }
 }
 export type TConfig = typeof config;

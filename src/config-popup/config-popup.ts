@@ -6,6 +6,23 @@ import ConfigManager from "../utility/config-manager";
 import { FarmTimeInterval, TConfig } from "../../gps.config";
 import CitySwitchManager, { CityInfo } from '../service/city/city-switch-manager';
 
+export type TConfigChanges = {
+  recruiter: {
+    autoReevaluate: boolean;
+  };
+  farmConfig: {
+    farmInterval: boolean;
+    humanize: boolean;
+    farmingCities: boolean;
+  };
+  general: {
+    farm: boolean;
+    builder: boolean;
+    guard: boolean;
+    recruiter: boolean;
+  };
+};
+
 export default class ConfigPopup extends EventEmitter {
   private configManager: ConfigManager;
   private config: TConfig;
@@ -14,6 +31,7 @@ export default class ConfigPopup extends EventEmitter {
   private builder: boolean;
   private guard: boolean;
   private recruiter: boolean;
+  private recruiterAutoReevaluate: boolean;
   private farmInterval: FarmTimeInterval;
   private humanize: boolean;
   private uniquelySelectedFarmingCitiesPerIsle: Record<string, CityInfo> = {};
@@ -27,6 +45,7 @@ export default class ConfigPopup extends EventEmitter {
     this.builder = this.config.general.builder;
     this.guard = this.config.general.guard;
     this.recruiter = this.config.general.recruiter;
+    this.recruiterAutoReevaluate = this.config.recruiter.autoReevaluate;
     this.farmInterval = this.config.farmConfig.farmInterval;
     this.humanize = this.config.farmConfig.humanize;
   }
@@ -55,6 +74,7 @@ export default class ConfigPopup extends EventEmitter {
     const plunderCheckbox = container.querySelector('#farm');
     const builderCheckbox = container.querySelector('#builder');
     const recruiterCheckbox = container.querySelector('#recruiter');
+    const recruiterAutoReevaluateCheckbox = container.querySelector('#recruiter-auto-reevaluate');
     const guardCheckbox = container.querySelector('#guard');
     const timeIntervalSelect = container.querySelector('#time-interval-select');
     const showTrigger = container.querySelector('.show-trigger');
@@ -82,14 +102,24 @@ export default class ConfigPopup extends EventEmitter {
       const conflictingCitiesChanged = Object.keys(this.uniquelySelectedFarmingCitiesPerIsle).some(isleId => this.uniquelySelectedFarmingCitiesPerIsle[isleId].name !== this.config.farmConfig.farmingCities.find(city => city.isleId === isleId)?.name);
       console.log('conflictingCitiesChanged', conflictingCitiesChanged);
 
+      const managersConfigChanges: TConfigChanges = {
+        recruiter: {
+          autoReevaluate: this.config.recruiter.autoReevaluate !== this.recruiterAutoReevaluate,
+        },
+        farmConfig: {
+          farmInterval: this.config.farmConfig.farmInterval !== this.farmInterval,
+          humanize: this.config.farmConfig.humanize !== this.humanize,
+          farmingCities: conflictingCitiesChanged
+        },
+        general: {
+          farm: this.config.general.farm !== this.farm,
+          builder: this.config.general.builder !== this.builder,
+          guard: this.config.general.guard !== this.guard,
+          recruiter: this.config.general.recruiter !== this.recruiter,
+        }
+      }
       // update config related fields and persist them to local storage if changed
-      if (this.config.farmConfig.farmInterval !== this.farmInterval ||
-        this.config.farmConfig.humanize !== this.humanize ||
-        this.config.general.farm !== this.farm ||
-        this.config.general.builder !== this.builder ||
-        this.config.general.guard !== this.guard ||
-        this.config.general.recruiter !== this.recruiter ||
-        conflictingCitiesChanged) {
+      if (this.configChanged(managersConfigChanges)) {
         // readability comment --------------------------------------------------------------
         this.config.farmConfig.farmInterval = this.farmInterval;
         this.config.farmConfig.humanize = this.humanize;
@@ -97,15 +127,19 @@ export default class ConfigPopup extends EventEmitter {
         this.config.general.builder = this.builder;
         this.config.general.guard = this.guard;
         this.config.general.recruiter = this.recruiter;
+        this.config.recruiter.autoReevaluate = this.recruiterAutoReevaluate;
         this.config.farmConfig.farmingCities = Object.values(this.uniquelySelectedFarmingCitiesPerIsle);
         this.configManager.persistConfig();
       }
 
       if (this.farmInterval === FarmTimeInterval.FourthOption) {
-        alert('Farmienie ustawione na 4h/8h, odśwież stronę jeżeli to błąd!')
+        if (!confirm('Farmienie ustawione na 4h/8h. Kliknij OK aby kontynuować lub Anuluj aby cofnąć (na 5min/10min).')) {
+          this.farmInterval = FarmTimeInterval.FirstOption;
+          (timeIntervalSelect as HTMLSelectElement).value = FarmTimeInterval.FirstOption.toString();
+        }
       }
       container.classList.add('minimized');
-      this.emit('managersChange');
+      this.emit('managersChange', managersConfigChanges);
     }));
 
     showTrigger!.addEventListener('click', () => {
@@ -144,9 +178,23 @@ export default class ConfigPopup extends EventEmitter {
     humanizeCheckbox!.addEventListener('change', () => {
       this.humanize = (humanizeCheckbox as HTMLInputElement).checked;
     });
-
-
     // END farm section
+
+    // recruiter section
+    (recruiterAutoReevaluateCheckbox as HTMLInputElement).checked = this.recruiterAutoReevaluate;
+    const recruiterSection = container.querySelector('#recruiter')?.parentElement;
+    const recruiterSectionContainer = recruiterSection!.querySelector('.expandable-section');
+    const recruiterSectionArrow = recruiterSection!.querySelector('.arrow-down');
+
+    recruiterSectionArrow!.addEventListener('click', () => {
+      recruiterSectionContainer!.classList.toggle('hidden');
+      recruiterSectionArrow!.classList.toggle('rotate');
+    });
+
+    recruiterAutoReevaluateCheckbox!.addEventListener('change', () => {
+      this.recruiterAutoReevaluate = (recruiterAutoReevaluateCheckbox as HTMLInputElement).checked;
+    });
+    // END recruiter section
   }
 
   private async createInitialElements() {
@@ -181,7 +229,7 @@ export default class ConfigPopup extends EventEmitter {
   private async createConfictingCitiesSelects(container: HTMLElement) {
     const citySwitchManager = await CitySwitchManager.getInstance();
     const listOfCities = citySwitchManager.getCityList();
-  
+
     const uniqueIsleGrids = Array.from(new Set(listOfCities.map(city => city.isleId)));
     const arrayOfArraysOfCitiesOnTheSameIsland = uniqueIsleGrids.map(isleId => listOfCities.filter(city => city.isleId === isleId));
     const areAnyConflicts = arrayOfArraysOfCitiesOnTheSameIsland.some(array => array.length > 1);
@@ -279,6 +327,10 @@ export default class ConfigPopup extends EventEmitter {
     }
   }
 
+  private emitRecruiterConfigChange = () => {
+    this.emit('recruiterAutoReevaluateChange');
+  }
+
   public getManagersFlags = () => {
     return {
       farm: this.farm,
@@ -303,8 +355,20 @@ export default class ConfigPopup extends EventEmitter {
     this.initEventListeners();
   }
 
+  private configChanged(configChanges: { [key: string]: any }): boolean {
+    for (const [key, value] of Object.entries(configChanges)) {
+      if (typeof value === 'object') {
+        if (this.configChanged(value)) return true;
+      } else if (value) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   public minimize() {
     const container = document.querySelector<HTMLElement>('#config-popup-container');
     container?.classList.add('minimized');
   }
+
 }

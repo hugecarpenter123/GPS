@@ -1,7 +1,7 @@
 import { FarmTimeInterval, TConfig } from "../../../gps.config";
-import ConfigPopup from "../../config-popup/config-popup";
+import ConfigPopup, { TConfigChanges } from "../../config-popup/config-popup";
 import ConfigManager from "../../utility/config-manager";
-import { addDelay, getCookie, setCookie } from "../../utility/plain-utility";
+import { addDelay, getCookie, hasAnyValue, setCookie } from "../../utility/plain-utility";
 import CityBuilder from "../city/builder/city-builder";
 import CitySwitchManager from "../city/city-switch-manager";
 import FarmManager from "../farm/farm-manager";
@@ -108,7 +108,7 @@ export default class MasterManager {
     }).observe(document.body, { childList: true });
   }
 
-  private async runManagersFromConfig(): Promise<void> {
+  private async runManagersFromConfig(configChanges?: TConfigChanges): Promise<void> {
     if (this.configMenuWindow.isBuilderChecked()) {
       if (!this.builder.isRunning()) {
         console.log('Builder will be started...')
@@ -142,12 +142,18 @@ export default class MasterManager {
         this.recruiter.stop();
       }
     }
+
+    if (configChanges) {
+      if (hasAnyValue(configChanges.recruiter, true)) {
+        this.recruiter.handleRecruiterConfigChange(configChanges.recruiter);
+      }
+    }
   }
 
   private async initConfigDialog() {
     this.configMenuWindow = new ConfigPopup();
-    this.configMenuWindow.addListener('managersChange', async () => {
-      await this.runManagersFromConfig();
+    this.configMenuWindow.addListener('managersChange', async (configChanges: TConfigChanges) => {
+      await this.runManagersFromConfig(configChanges);
     })
     await this.configMenuWindow.render();
 
@@ -189,7 +195,7 @@ export default class MasterManager {
     console.log('pauseRunningManagers', this.pausedManagersSnapshot);
   }
 
-  pauseRunningManagersIfNeeded(actionTime: number, except: Managers[]) {
+  public pauseRunningManagersIfNeeded(actionTime: number, except: Managers[]): void {
     console.log('pauseRunningManagers', this.pausedManagersSnapshot);
     if (!except.includes('farmManager') && this.farmManager.isRunning()) {
       const farmTimes = this.farmManager.getFarmScheduleTimes();

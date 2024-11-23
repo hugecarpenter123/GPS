@@ -180,3 +180,14 @@ export function waitUntil(condition: () => Promise<boolean> | boolean, config: {
   };
   return doUntil(condition, null, finalConfig);
 }
+
+export const hasAnyValue = (obj: { [key: string]: any }, targetValue: any): boolean => {
+  for (const value of Object.values(obj)) {
+    if (typeof value === 'object' && value !== null) {
+      if (hasAnyValue(value, targetValue)) return true;
+    } else if (value === targetValue) {
+      return true;
+    }
+  }
+  return false;
+}

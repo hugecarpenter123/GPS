@@ -1,8 +1,9 @@
-import { inflate } from "zlib";
+import { TConfigChanges } from "../../config-popup/config-popup";
+import ConfigManager from "../../utility/config-manager";
 import { InfoError } from "../../utility/info-error";
-import { addDelay, doUntil, shuffle, textToMs, waitUntil } from "../../utility/plain-utility";
+import { addDelay, shuffle, textToMs, waitUntil } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
-import { performComplexClick, setInputValue, waitForElementInterval } from "../../utility/ui-utility";
+import { performComplexClick, waitForElementInterval } from "../../utility/ui-utility";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
 import GeneralInfo from "../master/ui/general-info";
 import ResourceManager from "../resources/resource-manager";
@@ -128,6 +129,23 @@ export default class Recruiter {
 
   private removeRecruiterDialog() {
     document.getElementById('recruiter-container')?.remove();
+  }
+
+  public handleRecruiterConfigChange(configChanges: TConfigChanges['recruiter']) {
+    console.log('handleRecruiterConfigChange():', configChanges);
+    if (configChanges.autoReevaluate && (ConfigManager.getInstance().getConfig()).recruiter.autoReevaluate) {
+      console.log('reevaluating provider cities');
+      this.reevaluateProviderCities();
+    }
+  }
+
+  private reevaluateProviderCities() {
+    const recruitingCities = this.recruitmentSchedule.map(schedule => schedule.city);
+    this.recruitmentSchedule.forEach(schedule => {
+      schedule.queue.forEach(item => {
+        item.suppliersCities = item.suppliersCities.filter(city => !recruitingCities.includes(city));
+      });
+    });
   }
 
   public async start() {
@@ -389,8 +407,19 @@ export default class Recruiter {
       3. Po określonym czasie przychodzi, rekrutuje daną jednostkę, sprawdza licznik i inne parametry i rekrutuje od nowa.
       4. gdy skończy rekrutować item, przechodzi do następnego.
       */
+
+
       const scheduleForCity = this.recruitmentSchedule.find(item => item.city.name === this.citySwitchManager.getCurrentCity()?.name);
       if (!scheduleForCity) throw new Error('No scheduler items in the queue');
+
+      // reevaluate provider cities if auto reevaluate is enabled after confirming new schedule
+      // TODO: rethink where to put this line (maybe this place is not bad, but is called always)
+      if (ConfigManager.getInstance().getConfig().recruiter.autoReevaluate) {
+        this.reevaluateProviderCities();
+        console.log('provider cities reevaluated, schedule:', this.recruitmentSchedule);
+      }
+
+      this.persistSchedule();
 
       if (scheduleForCity.queue.length === 1 || (!scheduleForCity.timeoutId && !scheduleForCity.nextScheduledTime)) {
         this.tryRecruitOrStackResources(scheduleForCity);
@@ -451,8 +480,14 @@ export default class Recruiter {
         queue: []
       };
       console.log('schedule:', schedule);
-      const selectedCities = citiesSelectValue.map(cityName => this.citySwitchManager.getCityByName(cityName))
+      let selectedCities = citiesSelectValue.map(cityName => this.citySwitchManager.getCityByName(cityName))
         .filter(city => city !== undefined && city.name !== sourceCity?.name) as CityInfo[];
+
+      if (ConfigManager.getInstance().getConfig().recruiter.autoReevaluate) {
+        const recruitingCities = this.recruitmentSchedule.map(schedule => schedule.city.name);
+        selectedCities = selectedCities.filter(city => !recruitingCities.includes(city.name));
+      }
+
       console.log('selectedCities:', selectedCities);
 
       if (amountMaxCheckboxValue) {
@@ -537,6 +572,21 @@ export default class Recruiter {
       }
     }
 
+  }
+
+  private persistSchedule() {
+    localStorage.setItem('recruitmentSchedule', JSON.stringify(this.recruitmentSchedule));
+  }
+
+  /*
+   * TODO: In order to use persisted schedule one must after initialization confirm that this schedule is valid.
+   * Also cityInfo must be hydrated as its expected to have switchAction method.
+   */
+  private loadSchedule() {
+    const schedule = localStorage.getItem('recruitmentSchedule');
+    if (schedule) {
+      this.recruitmentSchedule = JSON.parse(schedule);
+    }
   }
 
   private async tryRecruitOrStackResources(schedule: RecruitmentSchedule) {
@@ -1050,6 +1100,7 @@ export default class Recruiter {
     const citiesSelectElement = document.querySelector<HTMLSelectElement>('#recruiter-cities');
     if (!citiesSelectElement) return;
 
+    const recruitingCities = this.recruitmentSchedule.map(schedule => schedule.city.name);
     const cities = this.citySwitchManager.getCityList();
     const selectedCities = this.recruitmentSchedule.find(schedule => schedule.city.name === this.citySwitchManager.getCurrentCity()?.name)?.queue.at(-1)?.suppliersCities;
     citiesSelectElement.innerHTML = '';
@@ -1058,6 +1109,9 @@ export default class Recruiter {
       const option = document.createElement('option');
       option.value = city.name;
       option.textContent = city.name;
+      if (recruitingCities.includes(city.name)) {
+        option.disabled = true;
+      }
       citiesSelectElement.appendChild(option);
       if (selectedCities?.some(sc => sc.name === city.name)) {
         option.selected = true;
