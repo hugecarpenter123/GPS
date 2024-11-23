@@ -842,7 +842,7 @@ export default class Recruiter {
 
     let prevWayDurationText = '-1';
     // w tym miejscue jest trade mode
-    for (const supplierCity of fromCities) {
+    for (const supplierCity of shuffledFromCities) {
       console.log('stacking resources from:', supplierCity.name);
       let resourcesSent = false;
       let currentShipmentTimeMS = 0;
@@ -939,8 +939,9 @@ export default class Recruiter {
         capacity is: ${currentTradeCapacity}
         stillNeededResources: ${JSON.stringify(stillNeededResources)}
         `);
-      document.querySelector<HTMLElement>('.btn_trade_button.button_new')?.click();
 
+      // click trade button if resources are to be sent (inputs fields filled)
+      if (resourcesSent) document.querySelector<HTMLElement>('.btn_trade_button.button_new')?.click();
       if (currentShipmentTimeMS > highestTime && resourcesSent) highestTime = currentShipmentTimeMS;
       if (stillNeededResources.wood <= 0 && stillNeededResources.iron <= 0 && stillNeededResources.stone <= 0) {
         break;
