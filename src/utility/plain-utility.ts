@@ -150,7 +150,7 @@ export function shuffle(array: any[]) {
   return array;
 }
 
-export async function doUntil(condition: () => Promise<boolean> | boolean, action: (() => Promise<void> | void) | null, config: { delay?: number, maxIterations?: number, onError?: (error: Error) => void } = {}) {
+export async function doUntil(condition: () => Promise<boolean> | boolean, action: (() => Promise<void> | void) | null, config: { delay?: number, maxIterations?: number, onError?: () => void } = {}) {
   const defaultConfig = { delay: 400, maxIterations: 5 };
   const finalConfig = {
     delay: config.delay !== undefined ? config.delay : defaultConfig.delay,
@@ -166,12 +166,12 @@ export async function doUntil(condition: () => Promise<boolean> | boolean, actio
   }
 
   if (counter >= finalConfig.maxIterations) {
-    if (finalConfig.onError) finalConfig.onError(new Error('Max iterations reached'));
+    if (finalConfig.onError) finalConfig.onError();
     else throw new Error('Max iterations reached');
   }
 }
 
-export function waitUntil(condition: () => Promise<boolean> | boolean, config: { delay?: number, maxIterations?: number, onError?: (error: Error) => void } = {}) {
+export function waitUntil(condition: () => Promise<boolean> | boolean, config: { delay?: number, maxIterations?: number, onError?: () => void } = {}) {
   const defaultConfig = { delay: 400, maxIterations: 5 };
   const finalConfig = {
     delay: config.delay !== undefined ? config.delay : defaultConfig.delay,

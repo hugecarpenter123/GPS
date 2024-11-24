@@ -1,7 +1,7 @@
 import { TConfig } from "../../../gps.config";
 import ConfigManager from "../../utility/config-manager";
 import { InfoError } from "../../utility/info-error";
-import { addDelay, getBrowserStateSnapshot, getElementStateSnapshot, textToMs } from "../../utility/plain-utility";
+import { addDelay, getBrowserStateSnapshot, getElementStateSnapshot, textToMs, waitUntil } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
 import { performComplexClick, setInputValue, triggerHover, waitForElement, waitForElementInterval, waitForElements } from "../../utility/ui-utility";
 import ArmyMovement from "../army/army-movement";
@@ -227,6 +227,14 @@ export default class Scheduler {
         .catch(() => {
           this.error = 'Schedule failed. Failed to switch to the city for grids.'
           return;
+        });
+
+      await waitUntil(() => !document.querySelector<HTMLElement>(targetCitySelector),
+        {
+          onError: () => {
+            this.error = 'Schedule failed. Target city location not saved properly.';
+            throw new Error('Target city not found during scheduling process')
+          }
         });
 
       (await waitForElements('.minimized_windows_area .btn_wnd.close', 2000)).forEach(el => el.click());
