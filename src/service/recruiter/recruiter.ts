@@ -56,7 +56,7 @@ type RequiredResourcesInfo = {
 
 type RecruitmentQueueItem = {
   type: 'barracks' | 'docks';
-  suppliersCities: CityInfo[];
+  supplierCities: CityInfo[];
   maxShipmentTime: number;
   unitContextInfo: UnitContext;
   amountType: 'units' | 'slots';
@@ -117,6 +117,9 @@ export default class Recruiter {
     recruiterDialogContainer.id = 'recruiter-container';
     recruiterDialogContainer.style.zIndex = '2000';
     recruiterDialogContainer.innerHTML = recruiterDialogHTML;
+    if (ConfigManager.getInstance().getConfig().recruiter.autoReevaluate) {
+      recruiterDialogContainer.querySelector<HTMLDivElement>('#recruiter-cities')?.parentElement?.classList.add('hidden');
+    }
     document.body.appendChild(recruiterDialogContainer);
   }
 
@@ -140,16 +143,17 @@ export default class Recruiter {
   }
 
   private reevaluateProviderCities() {
-    const recruitingCities = this.recruitmentSchedule.map(schedule => schedule.city);
+    const recruitingCities = this.recruitmentSchedule.filter(schedule => schedule.queue.length > 0).map(schedule => schedule.city);
     this.recruitmentSchedule.forEach(schedule => {
       schedule.queue.forEach(item => {
-        item.suppliersCities = item.suppliersCities.filter(city => !recruitingCities.includes(city));
+        item.supplierCities = this.citySwitchManager.getCityList().filter(city => !recruitingCities.includes(city));
       });
     });
   }
 
   public async start() {
     console.log('recruiter start');
+    this.recruitmentSchedule = this.loadSchedule();
     this.RUN = true;
     if (!this.observer) {
       // this.addRecruiterDialog();
@@ -248,10 +252,9 @@ export default class Recruiter {
     this.addEntryEventListener(node, type);
     this.attachOnCityChangeCallback();
     this.mountUnitChangeObserver();
-    this.renderRecruitmentQueue(
-      this.recruitmentSchedule
-        .find(item => item.city.name === this.citySwitchManager.getCurrentCity()?.name)?.queue ?? []
-    );
+
+    const citySchedule = this.recruitmentSchedule.find(item => item.city.name === this.citySwitchManager.getCurrentCity()?.name);
+    this.renderRecruitmentQueue(citySchedule);
   }
 
   private addEntryEventListener(node: HTMLElement, type: 'barracks' | 'docks') {
@@ -268,7 +271,7 @@ export default class Recruiter {
         recruiterDialog!.hidden = true;
       }
       if (!areListenersAttached) {
-        this.addEventListeners(type);
+        this.initEventListeners(type);
         areListenersAttached = true;
       }
     }
@@ -283,10 +286,8 @@ export default class Recruiter {
   private attachOnCityChangeCallback() {
     const callback = async (city: CityInfo) => {
       this.populateCitiesSelect();
-      this.renderRecruitmentQueue(
-        this.recruitmentSchedule
-          .find(item => item.city.name === city.name)?.queue ?? []
-      );
+      const citySchedule = this.recruitmentSchedule.find(item => item.city.name === city.name);
+      this.renderRecruitmentQueue(citySchedule);
     }
     this.citySwitchManager.addListener('cityChange', callback);
     this.eventListenersCleanupCallbacks.push(() => this.citySwitchManager.removeListener('cityChange', callback));
@@ -339,7 +340,7 @@ export default class Recruiter {
   /**
    * Inicjalizuje wszystkie eventy związane z dialogiem rekrutera, dzieje się to na pierwsze otwarcie dialogu (recruitera)
    */
-  private async addEventListeners(type: 'barracks' | 'docks') {
+  private async initEventListeners(type: 'barracks' | 'docks') {
     this.populateCitiesSelect();
 
     const recruiterDialog = document.getElementById('recruiter-dialog');
@@ -372,7 +373,8 @@ export default class Recruiter {
         }
         return true;
       });
-      this.renderRecruitmentQueue([]);
+      this.renderRecruitmentQueue(null);
+      this.persistSchedule();
     });
 
     /**
@@ -462,36 +464,27 @@ export default class Recruiter {
       const citiesSelectValue = Array.from((citiesSelect)!.selectedOptions).map(option => option.value);
       const sourceCity = this.citySwitchManager.getCurrentCity();
       const shipmentTime = Number(shipmentTimeSelect!.value);
-      console.log(
-        'amountType:', amountType,
-        'amountInputValue:', amountInputValue,
-        'amountMaxCheckboxValue:', amountMaxCheckboxValue,
-        'citiesSelectValue:', citiesSelectValue,
-        'sourceCity:', sourceCity,
-        'shipmentTime:', shipmentTime
-      )
 
       const scheduleExists = this.recruitmentSchedule.find(schedule => schedule.city.name === sourceCity?.name);
-      console.log('scheduleExists:', scheduleExists);
       const schedule: RecruitmentSchedule = scheduleExists ?? {
         city: sourceCity!,
         nextScheduledTime: null,
         timeoutId: null,
         queue: []
       };
-      console.log('schedule:', schedule);
-      let selectedCities = citiesSelectValue.map(cityName => this.citySwitchManager.getCityByName(cityName))
-        .filter(city => city !== undefined && city.name !== sourceCity?.name) as CityInfo[];
 
+      let selectedCities: CityInfo[];
+      // if auto reevaluation is enabled, selected cities are cities from the select apart from source city
       if (ConfigManager.getInstance().getConfig().recruiter.autoReevaluate) {
+        selectedCities = citiesSelectValue.map(cityName => this.citySwitchManager.getCityByName(cityName))
+          .filter(city => city !== undefined && city.name !== sourceCity?.name) as CityInfo[];
+      } else {
+        // if auto reevaluation is disabled, all cities are selected apart from those already recruiting in other cities (apart from source city)
         const recruitingCities = this.recruitmentSchedule.map(schedule => schedule.city.name);
-        selectedCities = selectedCities.filter(city => !recruitingCities.includes(city.name));
+        selectedCities = this.citySwitchManager.getCityList().filter(city => !recruitingCities.includes(city.name) || city.name !== sourceCity?.name);
       }
 
-      console.log('selectedCities:', selectedCities);
-
       if (amountMaxCheckboxValue) {
-        console.log('amountMaxCheckboxValue:', amountMaxCheckboxValue);
         // TODO: lepiej wykalkulować ilość slotów w przyadku gdy itemy w kolejce nie są slots
         const properMaxSlotsAmount = this.getEmptySlotsCount(type) - schedule.queue.reduce((acc, item) => acc + (item.amountType === 'slots' ? item.amount : 1), 0);
         schedule.queue.push({
@@ -500,30 +493,27 @@ export default class Recruiter {
           amount: properMaxSlotsAmount,
           amountLeft: properMaxSlotsAmount,
           type: type,
-          suppliersCities: selectedCities,
+          supplierCities: selectedCities,
           maxShipmentTime: shipmentTime
         });
-        console.log('slots queue item added, schedule:', schedule);
       } else if (amountType === 'units') {
-        console.log('units queue item added, schedule:', schedule);
         schedule.queue.push({
           unitContextInfo: this.getCurrentUnitContextCopy(),
           amountType: 'units',
           amount: Number(amountInputValue),
           amountLeft: Number(amountInputValue),
           type: type,
-          suppliersCities: selectedCities,
+          supplierCities: selectedCities,
           maxShipmentTime: shipmentTime
         });
       } else if (amountType === 'slots') {
-        console.log('slots queue item added, schedule:', schedule);
         schedule.queue.push({
           unitContextInfo: this.getCurrentUnitContextCopy(),
           amountType: 'slots',
           amount: Number(amountInputValue),
           amountLeft: Number(amountInputValue),
           type: type,
-          suppliersCities: selectedCities,
+          supplierCities: selectedCities,
           maxShipmentTime: shipmentTime
         });
       }
@@ -532,7 +522,9 @@ export default class Recruiter {
         console.log('schedue does not exist, pushing new schedule');
         this.recruitmentSchedule.push(schedule);
       }
-      this.renderRecruitmentQueue(schedule.queue);
+      this.renderRecruitmentQueue(schedule);
+      this.persistSchedule();
+      console.log('scheduleItem added:', schedule);
     }
     recruiterAddBtn?.addEventListener('click', addButtonAction);
     this.eventListenersCleanupCallbacks.push(() => recruiterAddBtn?.removeEventListener('click', addButtonAction));
@@ -575,18 +567,53 @@ export default class Recruiter {
   }
 
   private persistSchedule() {
-    localStorage.setItem('recruitmentSchedule', JSON.stringify(this.recruitmentSchedule));
+    localStorage.setItem('recruitmentSchedule', JSON.stringify(this.recruitmentSchedule.filter(item => item.queue.length)));
   }
 
   /*
    * TODO: In order to use persisted schedule one must after initialization confirm that this schedule is valid.
    * Also cityInfo must be hydrated as its expected to have switchAction method.
    */
-  private loadSchedule() {
-    const schedule = localStorage.getItem('recruitmentSchedule');
-    if (schedule) {
-      this.recruitmentSchedule = JSON.parse(schedule);
+  private loadSchedule(): RecruitmentSchedule[] {
+    const unparsedSchedule = localStorage.getItem('recruitmentSchedule');
+    if (unparsedSchedule) {
+      const schedule: RecruitmentSchedule[] = JSON.parse(unparsedSchedule);
+      const isAnyQueue = schedule.some(item => item.queue.length);
+      if (isAnyQueue && this.simpleScheduleLoadConfirmationDialog(schedule)) {
+        return this.hydrateSchedule(schedule);
+      }
     }
+    return [];
+  }
+
+  private simpleScheduleLoadConfirmationDialog(schedule: RecruitmentSchedule[]) {
+    let message = `Czy chcesz kontynuować poprzednią sesje rekrutacji?`;
+    schedule.forEach(item => {
+      if (item.queue.length) {
+        message += `\n${item.city.name}:\n${item.queue.map(q => {
+          const unitName = q.unitContextInfo.unitSelector.split('.').at(-1);
+          return `\t${unitName} x ${q.amountLeft} ${q.amountType === 'slots' ? 'slotów' : 'jednostek'}`
+        }).join('\n')}`;
+      }
+    })
+    const confirm = window.confirm(message);
+    return confirm;
+  }
+
+  private hydrateSchedule(schedule: RecruitmentSchedule[]) {
+    schedule.forEach(item => {
+      console.log('hydrating schedule item:', item);
+      item.city = this.citySwitchManager.getCityByName(item.city.name)!;
+      console.log('city:', item.city);
+      item.queue.forEach(q => {
+        console.log('hydrating queue item.supplierCities:', q.supplierCities);
+        if (q.supplierCities) {
+          q.supplierCities = q.supplierCities.map(city => this.citySwitchManager.getCityByName(city.name) ?? null).filter(Boolean) as CityInfo[];
+          console.log('supplierCities:', q.supplierCities);
+        }
+      });
+    });
+    return schedule;
   }
 
   private async tryRecruitOrStackResources(schedule: RecruitmentSchedule) {
@@ -621,7 +648,7 @@ export default class Recruiter {
     }
 
     const { city } = schedule;
-    const suppliersCities = scheduleItem.suppliersCities;
+    const suppliersCities = scheduleItem.supplierCities;
     const resources = await this.resourceManager.getResourcesInfo();
 
     if (scheduleItem.amountType === 'slots') {
@@ -776,9 +803,12 @@ export default class Recruiter {
     item.amountLeft -= item.amountType === 'slots' ? 1 : recruitedUnitsAmount;
     if (item.amountLeft <= 0) {
       schedule.queue.shift();
+      if (schedule.queue.length === 0 && ConfigManager.getInstance().getConfig().recruiter.autoReevaluate) {
+        this.reevaluateProviderCities();
+      }
     }
     console.log('amount left:', item.amountLeft);
-    this.renderRecruitmentQueue(schedule.queue);
+    this.renderRecruitmentQueue(schedule);
     this.closeAllRecruitmentBuildingDialogs();
 
     return recruitedUnitsAmount > 0;
@@ -1100,9 +1130,13 @@ export default class Recruiter {
     const citiesSelectElement = document.querySelector<HTMLSelectElement>('#recruiter-cities');
     if (!citiesSelectElement) return;
 
+    // if auto reevaluation is enabled, clear the select (don't show any cities, all are selected by default)
+    if (ConfigManager.getInstance().getConfig().recruiter.autoReevaluate) {
+      return;
+    }
     const recruitingCities = this.recruitmentSchedule.map(schedule => schedule.city.name);
     const cities = this.citySwitchManager.getCityList();
-    const selectedCities = this.recruitmentSchedule.find(schedule => schedule.city.name === this.citySwitchManager.getCurrentCity()?.name)?.queue.at(-1)?.suppliersCities;
+    const selectedCities = this.recruitmentSchedule.find(schedule => schedule.city.name === this.citySwitchManager.getCurrentCity()?.name)?.queue.at(-1)?.supplierCities;
     citiesSelectElement.innerHTML = '';
     for (const city of cities) {
       if (city.name === this.citySwitchManager.getCurrentCity()?.name) continue;
@@ -1128,11 +1162,12 @@ export default class Recruiter {
     return JSON.parse(JSON.stringify(this.currentUnitContext));
   }
 
-  private renderRecruitmentQueue(queue: RecruitmentQueueItem[]) {
+  private renderRecruitmentQueue(citySchedule: RecruitmentSchedule | null | undefined) {
     const recruitmentQueueEl = document.getElementById('recruiter-queue-content');
     if (!recruitmentQueueEl) return;
 
     recruitmentQueueEl.innerHTML = '';
+    const queue = citySchedule?.queue ?? [];
     /*
       <div id="recruiter-queue-content">
         <div class="recruiter-queue-item">
@@ -1162,9 +1197,37 @@ export default class Recruiter {
       queueItemEl.appendChild(deleteBtn);
 
       const onDeleteClick = () => {
-        queue.splice(id, 1);
+        if (id === 0) {
+          if (queue.length > 1) {
+            if (citySchedule?.timeoutId) {
+              if (!this.simpleConfirmationDialog('Czy na pewno chcesz usunąć pierwszy element z kolejki? Spowoduje to rekrutację następnego elementu.')) {
+                return;
+              }
+              queue.splice(id, 1);
+              clearTimeout(citySchedule.timeoutId);
+              citySchedule.timeoutId = null;
+              citySchedule.nextScheduledTime = null;
+              this.tryRecruitOrStackResources(citySchedule);
+            } else {
+              queue.splice(id, 1);
+            }
+          } else {
+            queue.splice(id, 1);
+            if (citySchedule?.timeoutId) {
+              clearTimeout(citySchedule.timeoutId);
+              citySchedule.timeoutId = null;
+              citySchedule.nextScheduledTime = null;
+            }
+          }
+        } else {
+          queue.splice(id, 1);
+        }
+        if (queue.length === 0 && ConfigManager.getInstance().getConfig().recruiter.autoReevaluate) {
+          this.reevaluateProviderCities();
+        }
+        this.persistSchedule();
         deleteBtn.removeEventListener('click', onDeleteClick)
-        this.renderRecruitmentQueue(queue);
+        this.renderRecruitmentQueue(citySchedule);
       }
       deleteBtn.addEventListener('click', onDeleteClick);
 
@@ -1175,5 +1238,9 @@ export default class Recruiter {
     document.querySelectorAll('.minimized_windows_area .box-middle').forEach(el => {
       if (el.textContent?.includes('Port') || el.textContent?.includes('Koszary')) (el.querySelector('.btn_wnd.close') as HTMLElement)?.click();
     });
+  }
+
+  private simpleConfirmationDialog(message: string) {
+    return window.confirm(message);
   }
 }
