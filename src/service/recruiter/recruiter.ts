@@ -74,6 +74,7 @@ type RecruitmentSchedule = {
 export default class Recruiter {
   public static readonly MAX_DELIVERY_TIME_MS = 1000 * 60 * 25;
   private static instance: Recruiter;
+  private initialized: boolean = false;
   private resourceManager!: ResourceManager;
   private lock!: Lock;
   private citySwitchManager!: CitySwitchManager;
@@ -153,7 +154,11 @@ export default class Recruiter {
 
   public async start() {
     console.log('recruiter start');
-    this.recruitmentSchedule = this.loadSchedule();
+    if (!this.initialized) {
+      this.loadSchedule();
+      this.initialized = true;
+    }
+
     this.RUN = true;
     if (!this.observer) {
       // this.addRecruiterDialog();
@@ -574,16 +579,22 @@ export default class Recruiter {
    * TODO: In order to use persisted schedule one must after initialization confirm that this schedule is valid.
    * Also cityInfo must be hydrated as its expected to have switchAction method.
    */
-  private loadSchedule(): RecruitmentSchedule[] {
+  private loadSchedule() {
     const unparsedSchedule = localStorage.getItem('recruitmentSchedule');
     if (unparsedSchedule) {
       const schedule: RecruitmentSchedule[] = JSON.parse(unparsedSchedule);
       const isAnyQueue = schedule.some(item => item.queue.length);
-      if (isAnyQueue && this.simpleScheduleLoadConfirmationDialog(schedule)) {
-        return this.hydrateSchedule(schedule);
+      if (isAnyQueue) {
+        if (this.simpleScheduleLoadConfirmationDialog(schedule)) {
+          this.recruitmentSchedule = this.hydrateSchedule(schedule);
+        } else {
+          this.recruitmentSchedule = [];
+          this.persistSchedule();
+        }
       }
+    } else {
+      this.recruitmentSchedule = [];
     }
-    return [];
   }
 
   private simpleScheduleLoadConfirmationDialog(schedule: RecruitmentSchedule[]) {
@@ -799,7 +810,7 @@ export default class Recruiter {
     );
 
     // decrement recruitet amount
-    console.log('slots');
+    console.log('item.amountLeft before:', item.amountLeft);
     item.amountLeft -= item.amountType === 'slots' ? 1 : recruitedUnitsAmount;
     if (item.amountLeft <= 0) {
       schedule.queue.shift();
@@ -807,9 +818,10 @@ export default class Recruiter {
         this.reevaluateProviderCities();
       }
     }
-    console.log('amount left:', item.amountLeft);
+    console.log('item.amountLeft after:', item.amountLeft);
     this.renderRecruitmentQueue(schedule);
     this.closeAllRecruitmentBuildingDialogs();
+    this.persistSchedule();
 
     return recruitedUnitsAmount > 0;
   }
@@ -845,7 +857,7 @@ export default class Recruiter {
       counter++
       document.querySelector<HTMLElement>(unitSelector)?.click();
       await addDelay(400);
-      if (counter > 5) { throw new InfoError('Unit cant get selectedd...', {}) }
+      if (counter > 5) { throw new InfoError('Unit cant get selected...', {}) }
     } while (!document.querySelector(unitSelector)?.parentElement?.classList.contains('unit_active'))
 
     const unitInput = document.querySelector<HTMLInputElement>('#unit_order_input')!;
@@ -1187,7 +1199,7 @@ export default class Recruiter {
 
       const infoEl = document.createElement('span');
       infoEl.classList.add('recruiter-queue-item-info');
-      infoEl.textContent = `${item.amount}x ${item.amountType === 'slots' ? 'slots' : 'units'}`;
+      infoEl.textContent = `${item.amountLeft}x ${item.amountType === 'slots' ? 'slots' : 'units'}`;
       queueItemEl.appendChild(infoEl);
 
       const deleteBtn = document.createElement('button');

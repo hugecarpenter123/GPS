@@ -45,7 +45,7 @@ export default class MasterManager {
       MasterManager.instance.builder = await CityBuilder.getInstance();
       MasterManager.instance.recruiter = await Recruiter.getInstance();
       MasterManager.instance.initCaptchaPrevention();
-      MasterManager.instance.initRefreshUtility();
+      // MasterManager.instance.initRefreshUtility();
       MasterManager.instance.initConfigDialog();
     }
     return MasterManager.instance;

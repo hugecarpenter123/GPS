@@ -38,4 +38,22 @@ export default class GeneralInfo {
     infoContainer.classList.add('hidden');
   }
 
+  // TODO extend to have many errors at once
+  public showError(title: string, text: string, duration?: number) {
+    const errorContainer = document.getElementById('error-container')!;
+    errorContainer.querySelector('.error-title')!.textContent = title;
+    errorContainer.querySelector('.error-text')!.textContent = text;
+    errorContainer.classList.remove('hidden');
+    if (duration) {
+      setTimeout(() => {
+        this.hideError();
+      }, duration);
+    }
+  }
+
+  public hideError() {
+    const errorContainer = document.getElementById('error-container')!;
+    errorContainer.classList.add('hidden');
+  }
+
 }

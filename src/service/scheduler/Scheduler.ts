@@ -221,39 +221,46 @@ export default class Scheduler {
       const targetCityName = await waitForElementInterval('#towninfo_towninfo .game_header.bold', { interval: 500, timeout: 2000 }).then(el => (el as HTMLElement).textContent!.trim());
       const id = `${operationType}_${sourceCity!.name}_${targetCityName}_${actionDate.getTime()}`;
 
-
       await waitForElementInterval('.info_jump_to_town', { interval: 500, retries: 3 })
         .then(el => el.click())
         .catch(() => {
-          this.error = 'Schedule failed. Failed to switch to the city for grids.'
+          this.error = 'Nie udało się przeskoczyć do wioski, aby zapisać współrzędne.'
           return;
         });
+
+      await addDelay(100);
 
       await waitUntil(() => !document.querySelector<HTMLElement>(targetCitySelector),
         {
           onError: () => {
-            this.error = 'Schedule failed. Target city location not saved properly.';
+            this.error = 'Nie udało się zapisać współrzędnych wioski, zamknij okna innych wiosek i spróbuj ponownie.';
             throw new Error('Target city not found during scheduling process')
           }
         });
 
-      (await waitForElements('.minimized_windows_area .btn_wnd.close', 2000)).forEach(el => el.click());
-      await addDelay(500);
+      await this.closeAllDialogs('minimized');
+      await addDelay(100);
 
       document.querySelector<HTMLInputElement>('.btn_save_location')?.click();
       await addDelay(100);
 
-      await waitForElement('.save_coordinates input', 4000)
+      await waitForElement('.save_coordinates input', 3000)
         .then(el => {
           setInputValue(el as HTMLInputElement, id);
           el.blur();
         })
-        .catch(() => { throw new Error('Failed to save coordinates') });
+        .catch(() => {
+          this.error = 'Error during saving coordinates, try again.'
+          throw new Error('Failed to save coordinates')
+        });
       await addDelay(100);
 
       await waitForElement('.save_coordinates .btn_confirm', 3000)
         .then(el => (el as HTMLButtonElement).click())
-        .catch(() => { throw new Error('Failed to confirm saving coordinates') });
+        .catch(() => {
+          this.error = 'Error during saving coordinates, try again.'
+          throw new Error('Failed to confirm saving coordinates')
+        });
 
 
       const scheduleTimeout: TimeoutStructure = {
@@ -366,21 +373,40 @@ export default class Scheduler {
           this.generalInfo.showInfo('Scheduler:', 'przygotowanie do operacji.')
 
           // console.log('switch to sourceCity:', schedulerItem.sourceCity);
-          await schedulerItem.sourceCity.switchAction();
+          await schedulerItem.sourceCity.switchAction(false);
 
           // przejdź do współrzędnych
           document.querySelector<HTMLButtonElement>('.js-coord-button')?.click();
           const dropdownList = await waitForElement('.content.js-dropdown-item-list', 4000);
           const dropdownItem = Array.from(dropdownList.querySelectorAll<HTMLElement>(`.item.bookmark.option`))
             .find(el => el.textContent?.trim() === schedulerItem.id);
-          if (!dropdownItem) throw new Error('Failed to find dropdown item');
+          if (!dropdownItem) {
+            this.error = 'Failed to find saved coordinates from the list'
+            throw new Error('Failed to find saved coordinates from the list')
+          };
           dropdownItem.click();
           await addDelay(400);
 
-          // znajdź wioskę i kliknij odpowiednią operację
-          document.querySelector<HTMLElement>('.ui-dialog-titlebar-close')?.click()
-          const targetCityElement = await waitForElementInterval(targetCitySelector, { interval: 500, retries: 4 })
+          // pozamykaj okna ----------------
+          for (const el of document.querySelectorAll<HTMLElement>('.minimized_windows_area .btn_wnd.close')) {
+            el.click();
+            await waitForElementInterval('.dialog_buttons [href="#cancel"]', { interval: 333, retries: 1 })
+              .then(() => el.click())
+              .catch(() => { });
+          }
+
+          for (const el of document.querySelectorAll<HTMLElement>('.ui-dialog-titlebar-close')) {
+            el.click();
+            await waitForElementInterval('.dialog_buttons [href="#cancel"]', { interval: 333, retries: 1 })
+              .then(() => el.click())
+              .catch(() => { });
+          }
+          // --------------------------------
+          await addDelay(100);
+
+          const targetCityElement = await waitForElementInterval(targetCitySelector, { interval: 500, retries: 5 })
             .catch(() => {
+              this.error = 'Nie udało się znaleźć wioski na mapie, operacja anulowana, współrzędne zostaną usunięte.'
               throw new InfoError('target city not found', {
                 browserState: getBrowserStateSnapshot(),
               })
@@ -477,7 +503,7 @@ export default class Scheduler {
               schedulerItem.undoMovementAction = () => this.undoArmyMovement(schedulerItem.sourceCity, id);
             });
 
-            document.querySelector<HTMLElement>('.ui-dialog-titlebar-close')?.click();
+            await this.closeAllDialogs('opened');
             this.error = null;
           } catch (error) {
             schedulerItem.cancelSchedule();
@@ -499,6 +525,25 @@ export default class Scheduler {
     setInputValue(gridXInput, coords[0]);
     setInputValue(gridYInput, coords[1]);
     document.querySelector<HTMLElement>('.btn_jump_to_coordination')!.click();
+  }
+
+  private async closeAllDialogs(type: 'opened' | 'minimized' | 'all', force: boolean = false) {
+    if (type === 'opened' || type === 'all') {
+      for (const el of document.querySelectorAll<HTMLElement>('.ui-dialog-titlebar-close')) {
+        el.click();
+        await waitForElementInterval(`.dialog_buttons [href="#${force ? 'confirm' : 'cancel'}"]`, { interval: 400, retries: 1 })
+          .then(() => el.click())
+          .catch(() => { });
+      }
+    }
+    if (type === 'minimized' || type === 'all') {
+      for (const el of document.querySelectorAll<HTMLElement>('.minimized_windows_area .btn_wnd.close')) {
+        el.click();
+        await waitForElementInterval(`.dialog_buttons [href="#${force ? 'confirm' : 'cancel'}"]`, { interval: 400, retries: 1 })
+          .then(() => el.click())
+          .catch(() => { });
+      }
+    }
   }
 
   /*
@@ -538,6 +583,7 @@ export default class Scheduler {
       if (errorElement) {
         errorElement.textContent = error;
       }
+      this.generalInfo.showError('Scheduler:', error, 5000);
     } else {
       if (errorElement) {
         errorElement.textContent = '';
