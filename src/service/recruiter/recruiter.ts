@@ -4,6 +4,7 @@ import { InfoError } from "../../utility/info-error";
 import { addDelay, shuffle, textToMs, waitUntil } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
 import { performComplexClick, waitForElementInterval } from "../../utility/ui-utility";
+import CharmsUtility, { CityCharm } from "../charms/charms-utility";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
 import GeneralInfo from "../master/ui/general-info";
 import ResourceManager from "../resources/resource-manager";
@@ -62,6 +63,10 @@ type RecruitmentQueueItem = {
   amountType: 'units' | 'slots';
   amount: number;
   amountLeft: number;
+  charms?: {
+    required: CityCharm[];
+    optional: CityCharm[];
+  }
 }
 
 type RecruitmentSchedule = {
@@ -113,7 +118,7 @@ export default class Recruiter {
       .filter(time => time != null)
   }
 
-  private addRecruiterDialog() {
+  private addRecruiterDialogHTML() {
     const recruiterDialogContainer = document.createElement('div');
     recruiterDialogContainer.id = 'recruiter-container';
     recruiterDialogContainer.style.zIndex = '2000';
@@ -122,6 +127,47 @@ export default class Recruiter {
       recruiterDialogContainer.querySelector<HTMLDivElement>('#recruiter-cities')?.parentElement?.classList.add('hidden');
     }
     document.body.appendChild(recruiterDialogContainer);
+    this.addCharmsToDialog();
+  }
+
+  private addCharmsToDialog() {
+    const charms = CharmsUtility.getRecruitmentSpecificCharms();
+    const requiredList = document.getElementById('recruiter-charms-required-list');
+    const optionalList = document.getElementById('recruiter-charms-optional-list');
+
+    charms.forEach(charm => {
+      const item = document.createElement('div');
+      item.setAttribute('class', charm.classes);
+      item.classList.add('recruiter-charms-item');
+      item.dataset.powerId = charm.dataPowerId;
+      const onClickClb = () => {
+        item.classList.toggle('selected');
+        if (item.classList.contains('selected')) {
+          const sameCharmOptional = optionalList?.querySelector(`[data-power-id="${charm.dataPowerId}"]`);
+          sameCharmOptional?.classList.remove('selected');
+        }
+      }
+      item.addEventListener('click', onClickClb);
+      this.eventListenersCleanupCallbacks.push(() => item.removeEventListener('click', onClickClb));
+      requiredList?.appendChild(item);
+    })
+
+    charms.forEach(charm => {
+      const item = document.createElement('div');
+      item.setAttribute('class', charm.classes);
+      item.classList.add('recruiter-charms-item');
+      item.dataset.powerId = charm.dataPowerId;
+      const onClickClb = () => {
+        item.classList.toggle('selected');
+        if (item.classList.contains('selected')) {
+          const sameCharmRequired = requiredList?.querySelector(`[data-power-id="${charm.dataPowerId}"]`);
+          sameCharmRequired?.classList.remove('selected');
+        }
+      }
+      item.addEventListener('click', onClickClb);
+      this.eventListenersCleanupCallbacks.push(() => item.removeEventListener('click', onClickClb));
+      optionalList?.appendChild(item);
+    })
   }
 
   private createRecruiterToggleButton() {
@@ -251,7 +297,7 @@ export default class Recruiter {
     node.querySelector('#unit_order')?.appendChild(this.createRecruiterToggleButton());
 
     // adds recruiter dialog HTML to the body
-    this.addRecruiterDialog();
+    this.addRecruiterDialogHTML();
 
     // adds event listeners to the toggle button
     this.addEntryEventListener(node, type);
@@ -262,6 +308,10 @@ export default class Recruiter {
     this.renderRecruitmentQueue(citySchedule);
   }
 
+  /**
+   * Dodaje onclick listenera, dla toggle buttona. Gry zostanie wciśnięty poraz pierwszy, to inicjalizuje
+   * wszystkie inne listenery potrzebne do obłsugi funkcjonalności. W przeciwnym razie, jedynym listenerem jest toggle onClick.
+   */
   private addEntryEventListener(node: HTMLElement, type: 'barracks' | 'docks') {
     const recruiterOpenBtn = document.getElementById('recruiter-btn');
     const recruiterDialog = document.getElementById('recruiter-dialog');
@@ -469,6 +519,7 @@ export default class Recruiter {
       const citiesSelectValue = Array.from((citiesSelect)!.selectedOptions).map(option => option.value);
       const sourceCity = this.citySwitchManager.getCurrentCity();
       const shipmentTime = Number(shipmentTimeSelect!.value);
+      const charms = this.getSelectedCharms();
 
       const scheduleExists = this.recruitmentSchedule.find(schedule => schedule.city.name === sourceCity?.name);
       const schedule: RecruitmentSchedule = scheduleExists ?? {
@@ -499,7 +550,8 @@ export default class Recruiter {
           amountLeft: properMaxSlotsAmount,
           type: type,
           supplierCities: selectedCities,
-          maxShipmentTime: shipmentTime
+          maxShipmentTime: shipmentTime,
+          charms
         });
       } else if (amountType === 'units') {
         schedule.queue.push({
@@ -509,7 +561,8 @@ export default class Recruiter {
           amountLeft: Number(amountInputValue),
           type: type,
           supplierCities: selectedCities,
-          maxShipmentTime: shipmentTime
+          maxShipmentTime: shipmentTime,
+          charms
         });
       } else if (amountType === 'slots') {
         schedule.queue.push({
@@ -519,7 +572,8 @@ export default class Recruiter {
           amountLeft: Number(amountInputValue),
           type: type,
           supplierCities: selectedCities,
-          maxShipmentTime: shipmentTime
+          maxShipmentTime: shipmentTime,
+          charms
         });
       }
 
@@ -569,6 +623,21 @@ export default class Recruiter {
       }
     }
 
+  }
+
+  private getSelectedCharms() {
+    const selectedRequiredCharms =
+      Array.from(document.querySelectorAll<HTMLElement>('#recruiter-charms-required-list .recruiter-charms-item.selected'))
+        .map(el => CharmsUtility.getCharmByPowerId(el.dataset.powerId!)!) ?? []
+
+    const selectedOptionalCharms =
+      Array.from(document.querySelectorAll<HTMLElement>('#recruiter-charms-optional-list .recruiter-charms-item.selected'))
+        .map(el => CharmsUtility.getCharmByPowerId(el.dataset.powerId!)!) ?? []
+
+    return {
+      required: selectedRequiredCharms,
+      optional: selectedOptionalCharms
+    }
   }
 
   private persistSchedule() {
@@ -659,7 +728,15 @@ export default class Recruiter {
     }
 
     const { city } = schedule;
-    const suppliersCities = scheduleItem.supplierCities;
+    const { supplierCities, charms } = scheduleItem;
+    if (charms?.required && !CharmsUtility.areCharmsCastedOrAvailable(charms?.required)) {
+      // TODO: get real timeout based on charms getting castable
+      this.createTimeoutForRecruitment(schedule, 10 * 60 * 1000);
+    } else {
+      // TODO: delete
+      console.log(`charms (${JSON.stringify((charms?.required.concat(charms.optional))?.map(c => c.dataPowerId))}) casted or available, can stack resources`)
+    }
+
     const resources = await this.resourceManager.getResourcesInfo();
 
     if (scheduleItem.amountType === 'slots') {
@@ -708,7 +785,7 @@ export default class Recruiter {
         }
         console.log('not enough resources, stacking:', resourcesToStack);
         await this.closeAllRecruitmentBuildingDialogs();
-        const stackResult = await this.stackResources(resourcesToStack, city, suppliersCities, scheduleItem.maxShipmentTime);
+        const stackResult = await this.stackResources(resourcesToStack, city, supplierCities, scheduleItem.maxShipmentTime);
         if (stackResult.fullyStacked) {
           console.log('fully stacked, scheduling recruitment');
           const timeMs = stackResult.timeMs!;
@@ -768,7 +845,7 @@ export default class Recruiter {
         }
         console.log('not enough resources, stacking:', resourcesToStack);
         await this.closeAllRecruitmentBuildingDialogs();
-        const stackResult = await this.stackResources(resourcesToStack, city, suppliersCities, scheduleItem.maxShipmentTime);
+        const stackResult = await this.stackResources(resourcesToStack, city, supplierCities, scheduleItem.maxShipmentTime);
         if (stackResult.fullyStacked) {
           console.log('fully stacked, scheduling recruitment');
           const timeMs = stackResult.timeMs!;
@@ -802,8 +879,22 @@ export default class Recruiter {
   private async performRecruitment(schedule: RecruitmentSchedule): Promise<boolean> {
     // recruitment process
     const item = schedule.queue[0];
+
+    // handle charms ----------------
+    console.log('performRecruitment, item charms:', item.charms)
+    const requiuredCharmsCasted = CharmsUtility.castCharms(item.charms ?? {});
+    console.log('requiredCharmsCasted:', requiuredCharmsCasted)
+    if (!requiuredCharmsCasted) {
+      GeneralInfo.getInstance().showError('Recruiter', 'Nie udało się rzucić wymaganych zaklęć, ponowna próba za 10 minut', 5000);
+      this.createTimeoutForRecruitment(schedule, 10 * 60 * 1000);
+      await this.closeAllRecruitmentBuildingDialogs();
+      throw new Error('No required charms available before recruitment, rescheduling in 10 mins');
+    }
+    // END handle charms ------------
+
     await this.closeAllRecruitmentBuildingDialogs();
     await this.goToRecruitmentBuilding(item.type);
+
     const recruitedUnitsAmount = await this.recruitUnits(
       item.unitContextInfo.unitSelector,
       item.amountType === 'slots' ? Infinity : item.amountLeft!,

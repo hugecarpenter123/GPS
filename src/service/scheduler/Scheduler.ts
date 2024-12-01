@@ -12,6 +12,15 @@ import buttonPanelExtension from './button-panel-extension.html';
 import schedulerListHtml from './scheduler-list-prod.html';
 import schedulerListCss from './scheduler-list.css';
 
+/*
+ TODO: Pomysły:
+ -dodać możliwość schedulowania w krótkim odstępnie czasowym, 
+ : implementacja :
+    wiedząc że managery są wyłączone przez poprzednią operację nie potrzeba dużo czasu do ustawienia nastepnej operacji
+    -dodać w locku metodę lofkc(force, shiftQueueIfManger) lub lock('priority'), które appenduje na początku (chyba że inny ma priority to za nim)
+    -zmienić ify sprawdzające możliwość dodania itemu
+*/
+
 enum OperationType {
   ARMY_ATTACK,
   ARMY_SUPPORT,

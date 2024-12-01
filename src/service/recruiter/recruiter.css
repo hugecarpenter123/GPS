@@ -127,6 +127,32 @@
   margin-bottom: 8px;
 }
 
+/* charms */
+#recruiter-dialog #recruiter-charms-required-list,
+#recruiter-dialog #recruiter-charms-optional-list {
+  display: flex;
+  gap: 4px;
+}
+
+#recruiter-dialog .recruiter-charms-item {
+  height: 30px;
+  width: 30px;
+  border-radius: 50%;
+  /* background-color: burlywood; */
+  /* cursor: pointer; */
+  /* transition-duration: 0.2s; */
+}
+
+#recruiter-dialog .recruiter-charms-item:hover {
+  /* transform: scale(1.05); */
+}
+
+#recruiter-dialog .recruiter-charms-item.selected {
+  outline: 3px solid rgb(32, 169, 119);
+}
+
+/* end charms */
+
 #recruiter-dialog #recruiter-queue-content {
   display: flex;
   flex-direction: column;

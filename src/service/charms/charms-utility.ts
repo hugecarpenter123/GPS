@@ -3,7 +3,7 @@ import { waitForElement } from "../../utility/ui-utility";
 
 const baseIconClasses = 'power_icon30x30 new_ui_power_icon animated_power_icon animated_power_icon_30x30'
 
-type CityCharm = {
+export type CityCharm = {
   dataPowerId: string;
   classes: string;
 }
@@ -41,10 +41,10 @@ export default class CharmsUtility {
     return workingCharms ?? [];
   }
 
-  public static async castCityCharms(charms: CityCharm[]): Promise<void> {
+  private static async performCastCharms(charms: CityCharm[]): Promise<void> {
     for (const charm of charms) {
-      const castedPower = document.querySelector<HTMLDivElement>(`[data-power_id="${charm.dataPowerId}"]`);
-      castedPower?.click();
+      const powerElement = document.querySelector<HTMLDivElement>(`[data-power_id="${charm.dataPowerId}"]`);
+      powerElement?.click();
       await addDelay(333);
     }
   }
@@ -58,35 +58,46 @@ export default class CharmsUtility {
   }
 
   /**
-   * Casts the charms if not casted. Returns true if all charms can be casted and casts them.
+   * Casts the charms if not casted. Returns true if all charms can be casted (and casts them) or are already casted.
    * Else returns false and does not cast the charms. If required is false then casts all charms no matter if can be casted or not.
-   * @param cityCharms 
+   * @param charms 
    * @param required 
-   * @returns true if all charms can be casted
+   * @returns true if all charms can be casted or are already casted
    */
-  private static async castCharmsIfNotCasted(cityCharms: CityCharm[], required: boolean = true): Promise<boolean> {
+  private static async castCharmsIfNotCasted(charms: CityCharm[], required: boolean = true): Promise<boolean> {
+    console.warn('castCharmsIfNotCasted', { charms, required });
     const castedCharms = this.getCurrentCityWorkingCharms();
-    const charmsToCast = cityCharms.filter(c => !castedCharms.includes(c));
-    const canCastAll = charmsToCast.every(c => this.canCastCharm(c));
+    console.log('castedCharms in the city:', castedCharms);
+    const charmsToCast = charms.filter((c) => !castedCharms.map(c => c.dataPowerId).includes(c.dataPowerId));
+    console.log('remaining charms to cast:', charmsToCast);
+
     if (required) {
+      const canCastAll = charmsToCast.every(c => this.canCastCharm(c));
+      console.log('can cast all:', canCastAll);
       if (canCastAll) {
-        await this.castCityCharms(charmsToCast);
+        await this.performCastCharms(charmsToCast);
+        return true;
       }
+      return false;
     } else {
-      await this.castCityCharms(charmsToCast);
+      const charmsPossibleToCast = charmsToCast.filter(c => this.canCastCharm(c));
+      console.log('cast charms possible to cast:', charmsPossibleToCast);
+      await this.performCastCharms(charmsPossibleToCast);
+      return true;
     }
-    return canCastAll;
   }
 
   /**
-   * Casts the required charms if not casted and then casts the optional charms if not casted but only if required charms were casted
+   * Casts the required charms if not casted and then casts the optional charms if not casted but only if all required ones were casted (or already set)
    * @param cityCharms 
-   * @returns true if all required charms were casted
+   * @returns true if all required charms were casted (or already set)
    */
   public static async castCharms(cityCharms: OptionalCharmsArg): Promise<boolean> {
     let requiredCasted = false;
     if (cityCharms.required && cityCharms.required.length) {
       requiredCasted = await this.castCharmsIfNotCasted(cityCharms.required, true);
+    } else {
+      requiredCasted = true;
     }
     if (requiredCasted && cityCharms.optional && cityCharms.optional.length) {
       await this.castCharmsIfNotCasted(cityCharms.optional, false);
@@ -101,5 +112,14 @@ export default class CharmsUtility {
    */
   private static canCastCharm(charm: CityCharm): boolean {
     return !document.querySelector<HTMLDivElement>(`[data-power_id="${charm.dataPowerId}"]`)?.classList.contains('disabled');
+  }
+
+  public static getCharmByPowerId(powerId: string): CityCharm | undefined {
+    return this.cityCharms.find(c => c.dataPowerId === powerId);
+  }
+
+  public static areCharmsCastedOrAvailable(charms: CityCharm[]) {
+    const workingCharms = this.getCurrentCityWorkingCharms();
+    return charms.every((charm) => workingCharms.includes(charm) || this.canCastCharm(charm))
   }
 }
