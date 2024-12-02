@@ -33,6 +33,11 @@ function triggerPaste(element, pasteData) {
   element.dispatchEvent(event);
 }
 
+function textToMs(text) {
+  const timeArray = text.split(':').map(el => parseInt(el, 10));
+  const timeout = (timeArray[0] * 1000 * 60 * 60) + (timeArray[1] * 1000 * 60) + (timeArray[2] * 1000);
+  return timeout;
+}
 
 function mouseUpEvent(element) {
   const mouseUpEvent = new MouseEvent('mouseup', {
@@ -92,33 +97,33 @@ function performComplexInput(inputElement, value) {
 
   // Simulate typing each character
   for (let char of value) {
-      // Keydown event
-      const keydownEvent = new KeyboardEvent('keydown', {
-          key: char,
-          bubbles: true,
-          cancelable: true
-      });
-      inputElement.dispatchEvent(keydownEvent);
+    // Keydown event
+    const keydownEvent = new KeyboardEvent('keydown', {
+      key: char,
+      bubbles: true,
+      cancelable: true
+    });
+    inputElement.dispatchEvent(keydownEvent);
 
-      // Keypress event
-      const keypressEvent = new KeyboardEvent('keypress', {
-          key: char,
-          bubbles: true,
-          cancelable: true
-      });
-      inputElement.dispatchEvent(keypressEvent);
+    // Keypress event
+    const keypressEvent = new KeyboardEvent('keypress', {
+      key: char,
+      bubbles: true,
+      cancelable: true
+    });
+    inputElement.dispatchEvent(keypressEvent);
 
-      // Input event
-      inputElement.value += char; // Update the input's value
-      const inputEvent = new Event('input', { bubbles: true, cancelable: true });
-      inputElement.dispatchEvent(inputEvent);
+    // Input event
+    inputElement.value += char; // Update the input's value
+    const inputEvent = new Event('input', { bubbles: true, cancelable: true });
+    inputElement.dispatchEvent(inputEvent);
 
-      // Keyup event
-      const keyupEvent = new KeyboardEvent('keyup', {
-          key: char,
-          bubbles: true,
-          cancelable: true
-      });
-      inputElement.dispatchEvent(keyupEvent);
+    // Keyup event
+    const keyupEvent = new KeyboardEvent('keyup', {
+      key: char,
+      bubbles: true,
+      cancelable: true
+    });
+    inputElement.dispatchEvent(keyupEvent);
   }
 }

@@ -8,6 +8,7 @@ import CharmsUtility, { CityCharm } from "../charms/charms-utility";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
 import GeneralInfo from "../master/ui/general-info";
 import ResourceManager from "../resources/resource-manager";
+import TradeManager from "../trade/trade-manager";
 import recruiterDialogHTML from "./recruiter-prod.html";
 import recruiterToggleBtnHTML from "./recruiter-toggle-btn-prod.html";
 import recruiterDialogCSS from "./recruiter.css";
@@ -84,6 +85,8 @@ export default class Recruiter {
   private lock!: Lock;
   private citySwitchManager!: CitySwitchManager;
   private tryCount: number = 0;
+  private config!: ReturnType<typeof ConfigManager.prototype.getConfig>;
+  private tradeManager!: TradeManager;
 
   private RUN: boolean = false;
   private observer: MutationObserver | null = null;
@@ -103,6 +106,8 @@ export default class Recruiter {
       Recruiter.instance.resourceManager = await ResourceManager.getInstance();
       Recruiter.instance.lock = Lock.getInstance();
       Recruiter.instance.citySwitchManager = await CitySwitchManager.getInstance();
+      Recruiter.instance.config = ConfigManager.getInstance().getConfig();
+      Recruiter.instance.tradeManager = await TradeManager.getInstance();
     }
     return Recruiter.instance;
   }
@@ -123,7 +128,7 @@ export default class Recruiter {
     recruiterDialogContainer.id = 'recruiter-container';
     recruiterDialogContainer.style.zIndex = '2000';
     recruiterDialogContainer.innerHTML = recruiterDialogHTML;
-    if (ConfigManager.getInstance().getConfig().recruiter.autoReevaluate) {
+    if (this.config.recruiter.autoReevaluate) {
       recruiterDialogContainer.querySelector<HTMLDivElement>('#recruiter-cities')?.parentElement?.classList.add('hidden');
     }
     document.body.appendChild(recruiterDialogContainer);
@@ -183,7 +188,7 @@ export default class Recruiter {
 
   public handleRecruiterConfigChange(configChanges: TConfigChanges['recruiter']) {
     console.log('handleRecruiterConfigChange():', configChanges);
-    if (configChanges.autoReevaluate && (ConfigManager.getInstance().getConfig()).recruiter.autoReevaluate) {
+    if (configChanges.autoReevaluate && this.config.recruiter.autoReevaluate) {
       console.log('reevaluating provider cities');
       this.reevaluateProviderCities();
     }
@@ -471,7 +476,7 @@ export default class Recruiter {
 
       // reevaluate provider cities if auto reevaluate is enabled after confirming new schedule
       // TODO: rethink where to put this line (maybe this place is not bad, but is called always)
-      if (ConfigManager.getInstance().getConfig().recruiter.autoReevaluate) {
+      if (this.config.recruiter.autoReevaluate) {
         this.reevaluateProviderCities();
         console.log('provider cities reevaluated, schedule:', this.recruitmentSchedule);
       }
@@ -531,7 +536,7 @@ export default class Recruiter {
 
       let selectedCities: CityInfo[];
       // if auto reevaluation is enabled, selected cities are cities from the select apart from source city
-      if (ConfigManager.getInstance().getConfig().recruiter.autoReevaluate) {
+      if (this.config.recruiter.autoReevaluate) {
         selectedCities = citiesSelectValue.map(cityName => this.citySwitchManager.getCityByName(cityName))
           .filter(city => city !== undefined && city.name !== sourceCity?.name) as CityInfo[];
       } else {
@@ -740,59 +745,40 @@ export default class Recruiter {
     const resources = await this.resourceManager.getResourcesInfo();
 
     if (scheduleItem.amountType === 'slots') {
-      console.log('slots');
-      console.log('resourcesInfo before:', resources);
-      const woodDiff = (scheduleItem.unitContextInfo.requiredResourcesPerSlot.wood * 0.9) - resources.wood.amount;
-      const ironDiff = (scheduleItem.unitContextInfo.requiredResourcesPerSlot.iron * 0.9) - resources.iron.amount;
-      const stoneDiff = (scheduleItem.unitContextInfo.requiredResourcesPerSlot.stone * 0.9) - resources.stone.amount;
-      const populationDiff = scheduleItem.unitContextInfo.requiredResourcesPerSlot.population - resources.population.amount;
-      console.log('woodDiff:', woodDiff, 'ironDiff:', ironDiff, 'stoneDiff:', stoneDiff, 'populationDiff:', populationDiff);
+      const targetResources = {
+        wood: Math.floor(scheduleItem.unitContextInfo.requiredResourcesPerSlot.wood * 0.9),
+        iron: Math.floor(scheduleItem.unitContextInfo.requiredResourcesPerSlot.iron * 0.9),
+        stone: Math.floor(scheduleItem.unitContextInfo.requiredResourcesPerSlot.stone * 0.9),
+      };
 
-      const woodAmountNeeded = woodDiff < 0 ? 0 : Math.floor(woodDiff);
-      const ironAmountNeeded = ironDiff < 0 ? 0 : Math.floor(ironDiff);
-      const stoneAmountNeeded = stoneDiff < 0 ? 0 : Math.floor(stoneDiff);
-      const popuationAmountNeeded = populationDiff < 0 ? 0 : populationDiff;
-      console.log('woodAmountNeeded:', woodAmountNeeded, 'ironAmountNeeded:', ironAmountNeeded, 'stoneAmountNeeded:', stoneAmountNeeded, 'popuationAmountNeeded:', popuationAmountNeeded);
+      const hasEnoughResources = await this.resourceManager.hasEnoughResources(targetResources);
+      // const hasEnoughPopulationPerSlot = resources.population.amount - scheduleItem.unitContextInfo.requiredResourcesPerSlot.population >= this.config.resources.minPopulationBuffer;
+      const hasEnoughPopulationPerSlot = resources.population.amount - scheduleItem.unitContextInfo.requiredResourcesPerSlot.population >= 0;
+      const hasEnoughStorageCapacityPerUnit = scheduleItem.unitContextInfo.unitInfo.iron < resources.storeMaxSize ||
+        scheduleItem.unitContextInfo.unitInfo.wood < resources.storeMaxSize ||
+        scheduleItem.unitContextInfo.unitInfo.stone < resources.storeMaxSize
 
-      if (popuationAmountNeeded > 0) {
-        console.log('popuationAmountNeeded > 0 - shifting queue');
+      if (!hasEnoughPopulationPerSlot) {
+        console.log('population exceeded min buffer, shifting queue');
         schedule.queue.shift();
         return;
       }
 
-      // if there is not enough storage capacity for unit, shift queue
-      if (scheduleItem.unitContextInfo.unitInfo.iron > resources.storeMaxSize ||
-        scheduleItem.unitContextInfo.unitInfo.wood > resources.storeMaxSize ||
-        scheduleItem.unitContextInfo.unitInfo.stone > resources.storeMaxSize) {
+      if (!hasEnoughStorageCapacityPerUnit) {
         console.log('not enough storage capacity for unit, shifting queue');
         schedule.queue.shift();
         return;
       }
 
-      // if there is not enough resources, stack and schedule next recruitment
-      if ([woodAmountNeeded, ironAmountNeeded, stoneAmountNeeded].some(v => v > 0)) {
-        const resourcesToStack: RequiredResourcesInfo = {
-          target: {
-            wood: Math.floor(scheduleItem.unitContextInfo.requiredResourcesPerSlot.wood * 0.9),
-            iron: Math.floor(scheduleItem.unitContextInfo.requiredResourcesPerSlot.iron * 0.9),
-            stone: Math.floor(scheduleItem.unitContextInfo.requiredResourcesPerSlot.stone * 0.9)
-          },
-          toStack: {
-            wood: woodAmountNeeded,
-            iron: ironAmountNeeded,
-            stone: stoneAmountNeeded
-          }
-        }
-        console.log('not enough resources, stacking:', resourcesToStack);
-        await this.closeAllRecruitmentBuildingDialogs();
-        const stackResult = await this.stackResources(resourcesToStack, city, supplierCities, scheduleItem.maxShipmentTime);
+      if (!hasEnoughResources) {
+        const stackResult = await this.tradeManager.stackResources(targetResources, city, supplierCities, scheduleItem.maxShipmentTime);
         if (stackResult.fullyStacked) {
           console.log('fully stacked, scheduling recruitment');
           const timeMs = stackResult.timeMs!;
           schedule.timeoutId = this.createTimeoutForRecruitment(schedule, timeMs);
           schedule.nextScheduledTime = new Date().getTime() + timeMs;
         } else {
-          console.log('not fully stacked, scheduling in 10 minutes');
+          console.log('not fully stacked, rescheduling stacking in 10 minutes');
           // schedule in 10 minutes
           schedule.timeoutId = this.createTimeoutForRecruitment(schedule, 600000);
           schedule.nextScheduledTime = new Date().getTime() + 600000;
@@ -805,47 +791,32 @@ export default class Recruiter {
         await this.performRecruitOrStackResources(schedule);
       }
     } else {
-      console.log('units');
-      const woodDiff = (scheduleItem.unitContextInfo.unitInfo.wood) * scheduleItem.amountLeft! - resources.wood.amount;
-      const ironDiff = (scheduleItem.unitContextInfo.unitInfo.iron) * scheduleItem.amountLeft! - resources.iron.amount;
-      const stoneDiff = (scheduleItem.unitContextInfo.unitInfo.stone) * scheduleItem.amountLeft! - resources.stone.amount;
-      const populationDiff = scheduleItem.unitContextInfo.unitInfo.population * scheduleItem.amountLeft! - resources.population.amount;
+      const targetResources = {
+        wood: Math.floor(Math.min(resources.storeMaxSize, scheduleItem.unitContextInfo.unitInfo.wood * scheduleItem.amountLeft!, resources.storeMaxSize * 0.9)),
+        iron: Math.floor(Math.min(resources.storeMaxSize, scheduleItem.unitContextInfo.unitInfo.iron * scheduleItem.amountLeft!, resources.storeMaxSize * 0.9)),
+        stone: Math.floor(Math.min(resources.storeMaxSize, scheduleItem.unitContextInfo.unitInfo.stone * scheduleItem.amountLeft!, resources.storeMaxSize * 0.9)),
+      };
 
-      // if there is not enough population, shift queue
-      if (populationDiff > 0) {
-        console.log('populationDiff > 0 - shifting queue');
+      const hasEnoughResources = await this.resourceManager.hasEnoughResources(targetResources);
+      // const hasEnoughPopulation = resources.population.amount - scheduleItem.unitContextInfo.unitInfo.population >= this.config.resources.minPopulationBuffer;
+      const hasEnoughPopulation = resources.population.amount - scheduleItem.unitContextInfo.unitInfo.population * scheduleItem.amountLeft! >= 0;
+      const hasEnoughStorageCapacityPerUnit = scheduleItem.unitContextInfo.unitInfo.iron < resources.storeMaxSize ||
+        scheduleItem.unitContextInfo.unitInfo.wood < resources.storeMaxSize ||
+        scheduleItem.unitContextInfo.unitInfo.stone < resources.storeMaxSize
+
+      if (!hasEnoughPopulation) {
+        console.log('population exceeded min buffer, shifting queue');
         schedule.queue.shift();
         return;
       }
-
-      // if there is not enough storage capacity for unit, shift queue
-      if (scheduleItem.unitContextInfo.unitInfo.iron > resources.storeMaxSize ||
-        scheduleItem.unitContextInfo.unitInfo.wood > resources.storeMaxSize ||
-        scheduleItem.unitContextInfo.unitInfo.stone > resources.storeMaxSize) {
+      if (!hasEnoughStorageCapacityPerUnit) {
         console.log('not enough storage capacity for unit, shifting queue');
         schedule.queue.shift();
         return;
       }
-
-      const woodAmountNeeded = Math.min(woodDiff < 0 ? 0 : Math.floor(woodDiff), resources.storeMaxSize * 0.9);
-      const ironAmountNeeded = Math.min(ironDiff < 0 ? 0 : Math.floor(ironDiff), resources.storeMaxSize * 0.9);
-      const stoneAmountNeeded = Math.min(stoneDiff < 0 ? 0 : Math.floor(stoneDiff), resources.storeMaxSize * 0.9);
-      if ([woodAmountNeeded, ironAmountNeeded, stoneAmountNeeded].some(v => v > 0)) {
-        const resourcesToStack: RequiredResourcesInfo = {
-          target: {
-            wood: Math.floor(scheduleItem.unitContextInfo.unitInfo.wood * 0.9),
-            iron: Math.floor(scheduleItem.unitContextInfo.unitInfo.iron * 0.9),
-            stone: Math.floor(scheduleItem.unitContextInfo.unitInfo.stone * 0.9)
-          },
-          toStack: {
-            wood: woodAmountNeeded,
-            iron: ironAmountNeeded,
-            stone: stoneAmountNeeded
-          }
-        }
-        console.log('not enough resources, stacking:', resourcesToStack);
+      if (!hasEnoughResources) {
         await this.closeAllRecruitmentBuildingDialogs();
-        const stackResult = await this.stackResources(resourcesToStack, city, supplierCities, scheduleItem.maxShipmentTime);
+        const stackResult = await this.tradeManager.stackResources(targetResources, city, supplierCities, scheduleItem.maxShipmentTime);
         if (stackResult.fullyStacked) {
           console.log('fully stacked, scheduling recruitment');
           const timeMs = stackResult.timeMs!;
@@ -905,7 +876,7 @@ export default class Recruiter {
     item.amountLeft -= item.amountType === 'slots' ? 1 : recruitedUnitsAmount;
     if (item.amountLeft <= 0) {
       schedule.queue.shift();
-      if (schedule.queue.length === 0 && ConfigManager.getInstance().getConfig().recruiter.autoReevaluate) {
+      if (schedule.queue.length === 0 && this.config.recruiter.autoReevaluate) {
         this.reevaluateProviderCities();
       }
     }
@@ -988,188 +959,6 @@ export default class Recruiter {
   }
 
   /**
-   * Goes through the cities and stacks resources, returns time in ms to last shipment or -1 if not enough resources, which means
-   * that stacking should be rescheduled
-   * @requires Lock
-   */
-  private async stackResources(resourceInfo: RequiredResourcesInfo, city: CityInfo, fromCities: CityInfo[], maxShipmentTime: number): Promise<StackResourcesResult> {
-    console.log('stackResources', resourceInfo);
-    // stack resources from cities
-    let highestTime = -1;
-    console.log('going to trade mode');
-    const shuffledFromCities = shuffle([...fromCities]);
-    await this.goToTradeMode(city, shuffledFromCities[0]);
-    const stillNeededResources = { ...resourceInfo.toStack };
-
-    // check if resources are alredy non its way
-    let [woodRealState, stoneRealState, ironRealState] =
-      Array.from(document.querySelectorAll('.amounts'))
-        ?.map(el => el.textContent?.match(/\d+ +\/ +\d+/)?.[0]?.split('/')?.map(v => Number(v))) ?? [];
-
-    while (woodRealState?.length !== 2 || stoneRealState?.length !== 2 || ironRealState?.length !== 2) {
-      await addDelay(400);
-      [woodRealState, stoneRealState, ironRealState] =
-        Array.from(document.querySelectorAll('.amounts'))
-          ?.map(el => el.textContent?.match(/\d+ +\/ +\d+/)?.[0]?.split('/')?.map(v => Number(v))) ?? [];
-    }
-    console.log('woodRealState:', woodRealState, 'stoneRealState:', stoneRealState, 'ironRealState:', ironRealState);
-
-    if (woodRealState![0] >= resourceInfo.target.wood && stoneRealState![0] >= resourceInfo.target.stone && ironRealState![0] >= resourceInfo.target.iron) {
-      await this.closeTradeMode();
-      return {
-        fullyStacked: true,
-        timeMs: 1000 * 60 * 5,
-      }
-    }
-    // END check if resources are alredy non its way
-
-    let prevWayDurationText = '-1';
-    // w tym miejscue jest trade mode
-    for (const supplierCity of shuffledFromCities) {
-      console.log('stacking resources from:', supplierCity.name);
-      let resourcesSent = false;
-      let currentShipmentTimeMS = 0;
-      let currentTradeCapacity = 0;
-      // przejdź do miasta z którego się przesyła surowce
-      console.log('switching to without jumping:', supplierCity.name);
-      await supplierCity.switchAction(false);
-      // upewnia się że miasto zostało przełączone przez porównanie czasu dostawy
-      let currentWayDurationText: string | undefined | null = null;
-      let counter = 0;
-      do {
-        counter++;
-        await addDelay(500);
-        currentWayDurationText = document.querySelector<HTMLElement>('#duration_container .way_duration')?.textContent;
-      } while ((!currentWayDurationText || currentWayDurationText === prevWayDurationText) && counter < 6);
-      if (counter >= 6) console.warn('stackResources.while.counter:', counter);
-      prevWayDurationText = currentWayDurationText!;
-      console.log('currentWayDurationText:', currentWayDurationText);
-      await addDelay(333);
-
-      currentShipmentTimeMS = textToMs(currentWayDurationText!.slice(1));
-      console.log('currentShipmentTimeMS:', currentShipmentTimeMS);
-      console.log('maxShipmentTime:', maxShipmentTime);
-      if (currentShipmentTimeMS > maxShipmentTime) continue;
-
-      // zczytaj surki z obecnego miasta
-      const resources = await this.resourceManager.getResourcesInfo();
-      console.log('resources:', resources);
-      // dowiedz się jaki jest max trade capaacity
-      currentTradeCapacity = await waitForElementInterval('#big_progressbar .curr').then(el => Number(el.textContent));
-      console.log('currentTradeCapacity:', currentTradeCapacity);
-      // zczytaj wartości z progress barów na temat tego co jest w mieście i co do niego już idzie i nadpisz wartości
-      const [woodRealState, stoneRealState, ironRealState] =
-        Array.from(document.querySelectorAll('.amounts'))
-          ?.map(el => el.textContent?.match(/\d+ +\/ +\d+/)?.[0]?.split('/')?.map(v => Number(v))) ?? [];
-      console.log('woodRealState:', woodRealState, 'stoneRealState:', stoneRealState, 'ironRealState:', ironRealState);
-
-      // minimalnie 100 surowców (wymóg gry)
-      if (stillNeededResources.iron !== 0) {
-        stillNeededResources.iron = ironRealState![0] + stillNeededResources.iron >= Math.floor(0.9 * ironRealState![1])
-          ? Math.max(100, Math.floor(ironRealState![1] * 0.9) - ironRealState![0])
-          : Math.max(100, stillNeededResources.iron);
-      }
-
-      if (stillNeededResources.stone !== 0) {
-        stillNeededResources.stone = stoneRealState![0] + stillNeededResources.stone >= Math.floor(0.9 * stoneRealState![1])
-          ? Math.max(100, Math.floor(stoneRealState![1] * 0.9) - stoneRealState![0])
-          : Math.max(100, stillNeededResources.stone);
-      }
-
-      if (stillNeededResources.wood !== 0) {
-        stillNeededResources.wood = woodRealState![0] + stillNeededResources.wood >= Math.floor(0.9 * woodRealState![1])
-          ? Math.max(100, Math.floor(woodRealState![1] * 0.9) - woodRealState![0])
-          : Math.max(100, stillNeededResources.wood);
-      }
-
-      console.log('stillNeededResources after checking:', stillNeededResources);
-
-
-      if (stillNeededResources.wood > 0 && currentTradeCapacity >= 100 && resources.wood.amount >= 100) {
-        const woodInput = await waitForElementInterval('#trade_type_wood input', { interval: 333, retries: 4 });
-        const woodAmountToSend = Math.min(stillNeededResources.wood, resources.wood.amount, currentTradeCapacity);
-        console.log('setting min wood value out of:', [stillNeededResources.wood, resources.wood.amount, currentTradeCapacity]);
-        (woodInput as HTMLInputElement).value = woodAmountToSend.toString();
-        stillNeededResources.wood -= woodAmountToSend;
-        currentTradeCapacity -= woodAmountToSend;
-        resourcesSent = true;
-        console.log('remainning capacity:', currentTradeCapacity);
-      }
-      if (stillNeededResources.iron > 0 && currentTradeCapacity >= 100 && resources.iron.amount >= 100) {
-        const ironInput = await waitForElementInterval('#trade_type_iron input', { interval: 333, retries: 4 })
-        const ironAmountToSend = Math.min(stillNeededResources.iron, resources.iron.amount, currentTradeCapacity);
-        console.log('setting min iron value out of:', [stillNeededResources.iron, resources.iron.amount, currentTradeCapacity]);
-        (ironInput as HTMLInputElement).value = ironAmountToSend.toString();
-        stillNeededResources.iron -= ironAmountToSend;
-        currentTradeCapacity -= ironAmountToSend;
-        resourcesSent = true;
-        console.log('remainning capacity:', currentTradeCapacity);
-      }
-      if (stillNeededResources.stone > 0 && currentTradeCapacity >= 100 && resources.stone.amount >= 100) {
-        const stoneInput = await waitForElementInterval('#trade_type_stone input', { interval: 333, retries: 4 })
-        const stoneAmountToSend = Math.min(stillNeededResources.stone, resources.stone.amount, currentTradeCapacity);
-        console.log('setting min stone value out of:', [stillNeededResources.stone, resources.stone.amount, currentTradeCapacity]);
-        (stoneInput as HTMLInputElement).value = stoneAmountToSend.toString();
-        stillNeededResources.stone -= stoneAmountToSend;
-        currentTradeCapacity -= stoneAmountToSend;
-        resourcesSent = true;
-        console.log('remainning capacity:', currentTradeCapacity);
-      }
-      console.log(`-------------\nclicking trade button, while inputs values are: 
-        woodInput:${document.querySelector<HTMLInputElement>('#trade_type_wood input')?.value} 
-        stoneInput:${document.querySelector<HTMLInputElement>('#trade_type_stone input')?.value} 
-        ironInput:${document.querySelector<HTMLInputElement>('#trade_type_iron input')?.value}
-        capacity is: ${currentTradeCapacity}
-        stillNeededResources: ${JSON.stringify(stillNeededResources)}
-        `);
-
-      // click trade button if resources are to be sent (inputs fields filled)
-      if (resourcesSent) document.querySelector<HTMLElement>('.btn_trade_button.button_new')?.click();
-      if (currentShipmentTimeMS > highestTime && resourcesSent) highestTime = currentShipmentTimeMS;
-      if (stillNeededResources.wood <= 0 && stillNeededResources.iron <= 0 && stillNeededResources.stone <= 0) {
-        break;
-      }
-    }
-    await this.closeTradeMode();
-    if (stillNeededResources.wood > 0 || stillNeededResources.iron > 0 || stillNeededResources.stone > 0) {
-      console.log('not fully stacked, timeMs:', highestTime);
-      return {
-        fullyStacked: false,
-        timeMs: highestTime + 3000,
-        resources: { toStack: stillNeededResources, target: resourceInfo.target }
-      }
-    }
-    // return time in ms to last shipment
-    console.log('fully stacked, timeMs:', highestTime);
-    return {
-      fullyStacked: true,
-      timeMs: highestTime + 3000,
-    }
-  }
-
-  private async closeTradeMode() {
-    await waitUntil(() => {
-      const closeBtn = document.querySelector('.ui-dialog-titlebar-close');
-      return !closeBtn || !(closeBtn.parentElement?.nextSibling as HTMLElement)?.querySelector('#trade');
-    }, { delay: 400, maxIterations: 3, onError: () => {/* do nothing */ } });
-    (document.querySelector('.ui-dialog-titlebar-close') as HTMLElement)?.click();
-  }
-
-  private async goToTradeMode(city: CityInfo, fromCity: CityInfo) {
-    await city.switchAction();
-    console.log('goToTradeMode, city:', city, 'fromCity:', fromCity);
-    let counter = 0;
-    do {
-      counter++;
-      await fromCity.switchAction(false);
-      await performComplexClick(document.querySelector<HTMLElement>(`#town_${city.cityId}`)).catch(() => { console.log(`no town ${city.cityId} found`) });
-      await addDelay(500);
-    } while (!document.querySelector<HTMLElement>('#trading') && counter < 5)
-    if (counter >= 5) throw new InfoError('Couldn\'t click trading option', {})
-    document.querySelector<HTMLElement>('#trading')!.click();
-  }
-
-  /**
    * Ustawia klasę obrazu jednostki w dialogu rekrutera na podstawie globalnego kontekstu jednostki.
    */
   private setDialogCurrentUnitImage() {
@@ -1234,7 +1023,7 @@ export default class Recruiter {
     if (!citiesSelectElement) return;
 
     // if auto reevaluation is enabled, clear the select (don't show any cities, all are selected by default)
-    if (ConfigManager.getInstance().getConfig().recruiter.autoReevaluate) {
+    if (this.config.recruiter.autoReevaluate) {
       return;
     }
     const recruitingCities = this.recruitmentSchedule.map(schedule => schedule.city.name);
@@ -1325,7 +1114,7 @@ export default class Recruiter {
         } else {
           queue.splice(id, 1);
         }
-        if (queue.length === 0 && ConfigManager.getInstance().getConfig().recruiter.autoReevaluate) {
+        if (queue.length === 0 && this.config.recruiter.autoReevaluate) {
           this.reevaluateProviderCities();
         }
         this.persistSchedule();

@@ -99,8 +99,10 @@ export default class ResourceManager {
    * @param city 
    * @returns 
    */
-  public async hasEnoughResources(requiredResources: { wood: number, stone: number, iron: number }, city: CityInfo) {
-    await city.switchAction();
+  public async hasEnoughResources(requiredResources: { wood: number, stone: number, iron: number }, city?: CityInfo) {
+    if (city) {
+      await city.switchAction();
+    }
     const wood = Number(document.querySelector<HTMLLIElement>('[data-type="wood"] .amount.ui-game-selectable')!.textContent);
     const stone = Number(document.querySelector<HTMLLIElement>('[data-type="stone"] .amount.ui-game-selectable')!.textContent);
     const iron = Number(document.querySelector<HTMLLIElement>('[data-type="iron"] .amount.ui-game-selectable')!.textContent);
