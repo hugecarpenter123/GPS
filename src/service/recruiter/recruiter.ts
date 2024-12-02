@@ -791,10 +791,23 @@ export default class Recruiter {
         await this.performRecruitOrStackResources(schedule);
       }
     } else {
+      const needsMoreResourcesThanOneSlot = scheduleItem.unitContextInfo.unitInfo.population * scheduleItem.amountLeft! > scheduleItem.unitContextInfo.requiredResourcesPerSlot.population;
       const targetResources = {
-        wood: Math.floor(Math.min(resources.storeMaxSize, scheduleItem.unitContextInfo.unitInfo.wood * scheduleItem.amountLeft!, resources.storeMaxSize * 0.9)),
-        iron: Math.floor(Math.min(resources.storeMaxSize, scheduleItem.unitContextInfo.unitInfo.iron * scheduleItem.amountLeft!, resources.storeMaxSize * 0.9)),
-        stone: Math.floor(Math.min(resources.storeMaxSize, scheduleItem.unitContextInfo.unitInfo.stone * scheduleItem.amountLeft!, resources.storeMaxSize * 0.9)),
+        wood: Math.floor(
+          needsMoreResourcesThanOneSlot
+            ? scheduleItem.unitContextInfo.requiredResourcesPerSlot.wood * 0.9
+            : scheduleItem.unitContextInfo.unitInfo.wood * scheduleItem.amountLeft!,
+        ),
+        iron: Math.floor(
+          needsMoreResourcesThanOneSlot
+            ? scheduleItem.unitContextInfo.requiredResourcesPerSlot.iron * 0.9
+            : scheduleItem.unitContextInfo.unitInfo.iron * scheduleItem.amountLeft!,
+        ),
+        stone: Math.floor(
+          needsMoreResourcesThanOneSlot
+            ? scheduleItem.unitContextInfo.requiredResourcesPerSlot.stone * 0.9
+            : scheduleItem.unitContextInfo.unitInfo.stone * scheduleItem.amountLeft!,
+        ),
       };
 
       const hasEnoughResources = await this.resourceManager.hasEnoughResources(targetResources);
