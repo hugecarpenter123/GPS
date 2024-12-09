@@ -460,17 +460,6 @@ export default class Recruiter {
      * action happens here
      */
     const confirmButtonAcction = () => {
-      console.log('confirm');
-      /*
-      Opis działania:
-      1. sprawdza czy planer nie jest zajęty jakimś itemem
-      2. Jak nie to: woła metodę, która robi kółeczko po wioskach i zbiera surowce, otrzymuje info po jakim czasie
-         ma przyjść by zacząć rekrutację.
-      3. Po określonym czasie przychodzi, rekrutuje daną jednostkę, sprawdza licznik i inne parametry i rekrutuje od nowa.
-      4. gdy skończy rekrutować item, przechodzi do następnego.
-      */
-
-
       const scheduleForCity = this.recruitmentSchedule.find(item => item.city.name === this.citySwitchManager.getCurrentCity()?.name);
       if (!scheduleForCity) throw new Error('No scheduler items in the queue');
 
@@ -546,8 +535,17 @@ export default class Recruiter {
       }
 
       if (amountMaxCheckboxValue) {
-        // TODO: lepiej wykalkulować ilość slotów w przyadku gdy itemy w kolejce nie są slots
-        const properMaxSlotsAmount = this.getEmptySlotsCount(type) - schedule.queue.reduce((acc, item) => acc + (item.amountType === 'slots' ? item.amount : 1), 0);
+        const properMaxSlotsAmount = this.getEmptySlotsCount(type) - schedule.queue.reduce((acc, item) => {
+          if (item.type === type) {
+            if (item.amountType === 'slots') {
+              return acc + item.amount;
+            }
+            // jezeli units, to załóż że tylko 95% zasobu potrzebnego na jednostkę będzie dostępne w magazynie 
+            // (potencjalnie jeden slot więcej może dojść - co jest bezpiecznie)
+            return acc + Math.floor((item.unitContextInfo.requiredResourcesPerSlot.population * 0.95) / (item.unitContextInfo.unitInfo.population * item.amount));
+          }
+          return acc;
+        }, 0);
         schedule.queue.push({
           unitContextInfo: this.getCurrentUnitContextCopy(),
           amountType: 'slots',
@@ -786,7 +784,10 @@ export default class Recruiter {
         }
       } else {
         console.log('enough resources, performing recruitment');
-        await this.performRecruitment(schedule);
+        const recruitmentResult = await this.performRecruitment(schedule);
+        if (recruitmentResult === 'rescheduled') {
+          return;
+        }
         console.log('recruitment performed, scheduling next recruitment');
         await this.performRecruitOrStackResources(schedule);
       }
@@ -844,9 +845,12 @@ export default class Recruiter {
         }
       } else {
         console.log('enough resources, performing recruitment');
-        const recruitmentOccured = await this.performRecruitment(schedule);
+        const recruitmentResult = await this.performRecruitment(schedule);
+        if (recruitmentResult === 'rescheduled') {
+          return;
+        }
         // rzadki przypadek gdy nie można zarekrutować 1 jednostki (np kolon, a magazyn ma pojemność na styk)
-        if (!recruitmentOccured) {
+        if (recruitmentResult === false) {
           // planowanie rekrutacji w 10 minut ponieważ zaplanowane surowce (max 90% magazynu) nie są wystarczające
           // trzeba poczekać aż surowce się uzbierają
           schedule.timeoutId = this.createTimeoutForRecruitment(schedule, 600000);
@@ -860,7 +864,16 @@ export default class Recruiter {
     }
   }
 
-  private async performRecruitment(schedule: RecruitmentSchedule): Promise<boolean> {
+  private async getTimeToFreeSlot(buildingType: 'barracks' | 'docks') {
+    const timeToFinishElement = await waitForElementInterval(`#unit_order.${buildingType}_building .first_order .type_unit_queue .curr`, { retries: 2, interval: 333 }).catch(() => null);
+    const timeToFinish = timeToFinishElement?.textContent?.match(/(\d+:\d+:\d+)/)?.[0] ? textToMs(timeToFinishElement.textContent!) : undefined;
+    if (!timeToFinish) {
+      throw new Error('No time to finish element found');
+    }
+    return timeToFinish;
+  }
+
+  private async performRecruitment(schedule: RecruitmentSchedule): Promise<boolean | 'rescheduled'> {
     // recruitment process
     const item = schedule.queue[0];
 
@@ -878,6 +891,36 @@ export default class Recruiter {
 
     await this.closeAllRecruitmentBuildingDialogs();
     await this.goToRecruitmentBuilding(item.type);
+
+    // free slots check
+    // const freeSlots = this.getEmptySlotsCount(item.type);
+    // if (!freeSlots) {
+    //   const timeToFreeSlot = await this.getTimeToFreeSlot(item.type);
+    //   const minutes20 = 20 * 60 * 1000;
+    //   if (timeToFreeSlot < minutes20) {
+    //     // reschedule recruitment
+    //     this.createTimeoutForRecruitment(schedule, timeToFreeSlot);
+    //     schedule.nextScheduledTime = new Date().getTime() + timeToFreeSlot;
+    //     console.log('recruitment schedule updated:', schedule);
+    //     return 'rescheduled';
+    //   } else {
+    //     // find element with different type and move it to the front
+    //     const index = schedule.queue.findIndex(item => item.type != item.type);
+    //     if (index !== -1) {
+    //       const before = schedule.queue.slice(0, index);
+    //       const after = schedule.queue.slice(index + 1);
+    //       schedule.queue = [schedule.queue[index], ...before, ...after];
+    //       this.tryRecruitOrStackResources(schedule);
+    //       return 'rescheduled';
+    //     } else {
+    //       this.createTimeoutForRecruitment(schedule, timeToFreeSlot);
+    //       schedule.nextScheduledTime = new Date().getTime() + timeToFreeSlot;
+    //       console.log('recruitment schedule updated:', schedule);
+    //       return 'rescheduled';
+    //     }
+    //   }
+    // }
+    // end free slots check
 
     const recruitedUnitsAmount = await this.recruitUnits(
       item.unitContextInfo.unitSelector,
@@ -962,6 +1005,7 @@ export default class Recruiter {
   private async goToRecruitmentBuilding(buildingType: 'barracks' | 'docks') {
     document.querySelector<HTMLElement>('[name="city_overview"]')?.click();
     await waitForElementInterval(`[data-building="${buildingType}"]`).then(el => el.click());
+    await waitUntil(() => !!document.querySelector<HTMLElement>(`#unit_order.${buildingType}_building`));
   }
 
   private createTimeoutForRecruitment(schedule: RecruitmentSchedule, timeMs: number) {

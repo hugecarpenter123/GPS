@@ -191,3 +191,27 @@ export const hasAnyValue = (obj: { [key: string]: any }, targetValue: any): bool
   }
   return false;
 }
+
+export const transportationTime = (x1: number, y1: number, x2: number, y2: number): number => {
+  const distance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+  const timeMsPerPixel = 830;
+  const transportTime = distance * timeMsPerPixel;
+  return transportTime;
+}
+
+export const parseStylePositionToGrids = (stylePosition: string): [number, number] => {
+  // "left: 68941px; top: 66576px;"
+  const x = Number(stylePosition.match(/left: (\d+)/)?.[1]);
+  const y = Number(stylePosition.match(/top: (\d+)/)?.[1]);
+  if (!x || !y) throw new Error('Couldn\'t parse grids');
+  return [x, y]
+}
+
+// const calculateTimePerPixel = (style1, style2, realTimeText) => {
+//   const transportationTimeMs = textToMs(realTimeText);
+//   const g1 = parseStylePositionToGrids(style1);
+//   const g2 = parseStylePositionToGrids(style2);
+//   const distance = Math.sqrt(Math.pow(g1[0] - g2[0], 2) + Math.pow(g1[1] - g2[1], 2));
+//   const timePerPixel = transportationTimeMs / distance;
+//   return timePerPixel;
+// }

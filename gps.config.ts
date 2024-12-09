@@ -9,7 +9,7 @@ export enum FarmTimeInterval {
 
 const config = {
   resources: {
-    minPopulationBuffer: 100,
+    minPopulationBuffer: 170, // buffer na kolona
     storeAlmostFullPercentage: 0.9,
   },
   farmConfig: {

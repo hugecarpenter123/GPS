@@ -1,4 +1,4 @@
-import { addDelay } from "../../utility/plain-utility";
+import { addDelay, waitUntil } from "../../utility/plain-utility";
 import { waitForElement } from "../../utility/ui-utility";
 
 const baseIconClasses = 'power_icon30x30 new_ui_power_icon animated_power_icon animated_power_icon_30x30'
@@ -34,18 +34,25 @@ export default class CharmsUtility {
 
   public static getCurrentCityWorkingCharms(): CityCharm[] {
     const castedPowersArea = document.querySelector('.casted_powers_area')
-    const workingCharms = Array.from(castedPowersArea?.querySelectorAll('.casted_power.power_icon16x16') ?? []).map(el => {
-      const charm = el.classList[2];
-      return this.cityCharms.find(c => c.dataPowerId === charm) as CityCharm
-    })
-    return workingCharms ?? [];
+    const workingCharms = Array.from(castedPowersArea?.querySelectorAll('.casted_power.power_icon16x16') ?? [])
+      .map(el => {
+        const charm = el.classList[2];
+        return this.cityCharms.find(c => c.dataPowerId === charm) as CityCharm
+      })
+      .filter(c => c !== undefined);
+    return workingCharms;
   }
 
   private static async performCastCharms(charms: CityCharm[]): Promise<void> {
     for (const charm of charms) {
       const powerElement = document.querySelector<HTMLDivElement>(`[data-power_id="${charm.dataPowerId}"]`);
-      powerElement?.click();
-      await addDelay(333);
+      if (powerElement) {
+        powerElement.click();
+        await waitUntil(() => !document.querySelector<HTMLDivElement>(`[data-power_id="${charm.dataPowerId}"]`)?.classList.contains('active_animation'),
+          { delay: 333, maxIterations: 4, onError: () => console.warn('CharmUtility: charm not activated after clicking!:', charm) });
+      } else {
+        console.warn('CharmUtility: charm not found:', charm);
+      }
     }
   }
 
@@ -68,7 +75,8 @@ export default class CharmsUtility {
     console.warn('castCharmsIfNotCasted', { charms, required });
     const castedCharms = this.getCurrentCityWorkingCharms();
     console.log('castedCharms in the city:', castedCharms);
-    const charmsToCast = charms.filter((c) => !castedCharms.map(c => c.dataPowerId).includes(c.dataPowerId));
+    const castedCharmsIds = castedCharms.map(c => c.dataPowerId);
+    const charmsToCast = charms.filter((c) => !castedCharmsIds.includes(c.dataPowerId));
     console.log('remaining charms to cast:', charmsToCast);
 
     if (required) {
