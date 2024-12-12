@@ -77,7 +77,6 @@ export default class FarmManager extends EventEmitter {
       await this.lock.acquire({ method: 'farmWithCaptain', manager: 'farmManager' });
       this.generalInfo.showInfo('Farm Manager:', 'Farmienie z kapitanem.');
       console.log('farmWithCaptain at ', new Date());
-      this.mountMessageDialogsObservers();
 
       // checking opened dialogs to find know which will be opened
       dialogsSnapshot = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
@@ -170,6 +169,12 @@ export default class FarmManager extends EventEmitter {
       this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : addDelay(100);
       // end of collecting resources
 
+      // potentially confirm click confirm button
+      await waitForElementInterval('.btn_confirm.button_new', { retries: 3, interval: 400 })
+        .then(el => el.click())
+        .catch(() => null);
+      // end of confirm button click
+
       // finding new cooldown
       console.log('finding new cooldown');
       let newCooldownParsedTimeText;
@@ -215,7 +220,6 @@ export default class FarmManager extends EventEmitter {
     } finally {
       console.log('captain scheduler:', this.captainScheduler);
       this.tryCloseCurrentDialog(Array.from(dialogsSnapshot));
-      this.disconnectObservers();
       this.generalInfo.hideInfo();
       this.lock.release();
     }
@@ -444,6 +448,7 @@ export default class FarmManager extends EventEmitter {
       this.messageDialogObserver.observe(document.body, { childList: true })
     }
 
+    // NOTE: potentially misuse, beter to move this logic into awaiting block instead of observer
     if (!this.humanMessageDialogObserver && city) {
       const observer = new MutationObserver(async (mutations) => {
         for (const mutation of mutations) {

@@ -217,3 +217,17 @@
   cursor: pointer;
   margin-left: 20px;
 }
+
+#recruiter-run-all-btn {
+  border: 1px solid blue;
+  color: blue;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+#recruiter-dialog #recruiter-restart-btn {
+  border: 1px solid orange;
+  color: orange;
+  padding: 4px 8px;
+  cursor: pointer;
+}

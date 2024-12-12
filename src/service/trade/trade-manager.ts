@@ -106,6 +106,7 @@ export default class TradeManager {
     } while (!document.querySelector<HTMLElement>('#trading') && counter < 5)
     if (counter >= 5) throw new InfoError('Couldn\'t click trading option', {})
     document.querySelector<HTMLElement>('#trading')!.click();
+    await waitUntil(() => !document.querySelector<HTMLElement>('#trade'), { delay: 333, maxIterations: 5 });
   }
 
   private async closeTradeMode() {
@@ -156,7 +157,16 @@ export default class TradeManager {
       Array.from(document.querySelectorAll('.amounts'))
         ?.map(el => el.textContent?.match(/\d+ +\/ +\d+/)?.[0]?.split('/')?.map(v => Number(v))) ?? [];
 
+    let counter = 0;
     while (woodRealState?.length !== 2 || stoneRealState?.length !== 2 || ironRealState?.length !== 2) {
+      // check if window has data in it 
+      // counter++;
+      // if (counter > 4) {
+      //   shuffledFromCities.splice(0, 1);
+      //   await this.goToTradeMode(city, shuffledFromCities[0]);
+      //   counter = 0;
+      // }
+      //  END check
       await addDelay(400);
       [woodRealState, stoneRealState, ironRealState] =
         Array.from(document.querySelectorAll('.amounts'))
@@ -197,13 +207,22 @@ export default class TradeManager {
       let counter = 0;
       do {
         counter++;
-        await addDelay(500);
+        await addDelay(100);
         currentWayDurationText = document.querySelector<HTMLElement>('#duration_container .way_duration')?.textContent;
+
+        // oznacza że miasto nie może tradować
+        // if (!currentWayDurationText) {
+        //   console.warn('stackResources.while.counter - text not found, skipping:', counter);
+        //   break;
+        // }
       } while ((!currentWayDurationText || currentWayDurationText === prevWayDurationText) && counter < 6);
-      if (counter >= 6) console.warn('stackResources.while.counter:', counter);
+
+      // // oznacza że miasto nie może tradować
+      // if (!currentWayDurationText) continue;
+
+      if (counter >= 15) console.warn('stackResources.while.counter:', counter);
       prevWayDurationText = currentWayDurationText!;
       console.log('currentWayDurationText:', currentWayDurationText);
-      await addDelay(333);
 
       currentShipmentTimeMS = textToMs(currentWayDurationText!.slice(1));
       // console.log('currentShipmentTimeMS:', currentShipmentTimeMS);
@@ -214,13 +233,13 @@ export default class TradeManager {
       const resources = await this.resourceManager.getResourcesInfo();
       // console.log('resources:', resources);
       // dowiedz się jaki jest max trade capaacity
-      currentTradeCapacity = await waitForElementInterval('#big_progressbar .curr').then(el => Number(el.textContent));
+      currentTradeCapacity = await waitForElementInterval('#big_progressbar .curr', { interval: 200, retries: 10 }).then(el => Number(el.textContent));
       // console.log('currentTradeCapacity:', currentTradeCapacity);
+
       // zczytaj wartości z progress barów na temat tego co jest w mieście i co do niego już idzie i nadpisz wartości
       const [woodRealState, stoneRealState, ironRealState] =
         Array.from(document.querySelectorAll('.amounts'))
           ?.map(el => el.textContent?.match(/\d+ +\/ +\d+/)?.[0]?.split('/')?.map(v => Number(v))) ?? [];
-      // console.log('woodRealState:', woodRealState, 'stoneRealState:', stoneRealState, 'ironRealState:', ironRealState);
 
       // minimalnie 100 surowców (wymóg gry)
       if (stillNeededResources.iron !== 0) {

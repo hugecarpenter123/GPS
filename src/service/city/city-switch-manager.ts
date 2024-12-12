@@ -1,6 +1,6 @@
 import EventEmitter from "events";
-import { performComplexClick, waitForElement, waitForElements } from "../../utility/ui-utility";
-import { addDelay } from "../../utility/plain-utility";
+import { performComplexClick, waitForElement, waitForElementInterval, waitForElements } from "../../utility/ui-utility";
+import { addDelay, waitUntil } from "../../utility/plain-utility";
 import GeneralInfo from "../master/ui/general-info";
 
 export type CityInfo = {
@@ -124,9 +124,10 @@ export default class CitySwitchManager extends EventEmitter {
   }
 
   private async openTownList() {
-    if (!(await waitForElement('.group_towns', 1000).catch(() => null))) {
-      const dropdownTrigger = await waitForElement('.town_groups_dropdown.btn_toggle_town_groups_menu');
-      dropdownTrigger.click();
+    // if (!(await waitForElement('.group_towns', 1000).catch(() => null))) {
+    if (!document.querySelector('.group_towns')) {
+      document.querySelector<HTMLElement>('.town_groups_dropdown.btn_toggle_town_groups_menu')?.click();
+      await waitUntil(() => !document.querySelector('#town_groups_list'), { delay: 200, maxIterations: 10 });
     }
   }
 
@@ -149,9 +150,9 @@ export default class CitySwitchManager extends EventEmitter {
           let townListElement = document.querySelector('.group_towns');
           if (!townListElement) {
             do {
-              await waitForElement('.town_groups_dropdown.btn_toggle_town_groups_menu', 1000).then(el => el.click()).catch(() => null);
-              await addDelay(333);
-            } while (!(townListElement = await waitForElement('.group_towns', 1500).catch(() => null)));
+              // await waitForElement('.town_groups_dropdown.btn_toggle_town_groups_menu', 1000).then(el => el.click()).catch(() => null);
+              document.querySelector<HTMLElement>('.town_groups_dropdown.btn_toggle_town_groups_menu')?.click();
+            } while (!(townListElement = await waitForElementInterval('.group_towns', { interval: 250, timeout: 1500 }).catch(() => null)));
           }
           const targetTown = Array.from(townListElement!.querySelectorAll('span.town_name'))
             .find(el => el.textContent === cityName);

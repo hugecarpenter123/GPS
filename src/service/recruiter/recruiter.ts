@@ -195,10 +195,10 @@ export default class Recruiter {
   }
 
   private reevaluateProviderCities() {
-    const recruitingCities = this.recruitmentSchedule.filter(schedule => schedule.queue.length > 0).map(schedule => schedule.city);
+    const recruitingCityNames = this.recruitmentSchedule.filter(schedule => schedule.queue.length > 0).map(schedule => schedule.city);
     this.recruitmentSchedule.forEach(schedule => {
       schedule.queue.forEach(item => {
-        item.supplierCities = this.citySwitchManager.getCityList().filter(city => !recruitingCities.includes(city));
+        item.supplierCities = this.citySwitchManager.getCityList().filter(city => !recruitingCityNames.includes(city) && city.name !== schedule.city.name);
       });
     });
   }
@@ -411,6 +411,8 @@ export default class Recruiter {
     const recruiterConfirmBtn = recruiterDialog?.querySelector<HTMLButtonElement>('#recruiter-confirm-btn');
     const recruiterAddBtn = recruiterDialog?.querySelector<HTMLButtonElement>('#recruiter-add-btn');
     const recruiterCancelBtn = recruiterDialog?.querySelector<HTMLButtonElement>('#recruiter-cancel-btn');
+    const recruiterRunAllBtn = recruiterDialog?.querySelector<HTMLButtonElement>('#recruiter-run-all-btn');
+    const recruiterRestartBtn = recruiterDialog?.querySelector<HTMLButtonElement>('#recruiter-restart-btn');
 
     const amountTypeRadios = recruiterDialog?.querySelectorAll<HTMLInputElement>('[name="recruiter-type"]');
     const amountInput = recruiterDialog?.querySelector<HTMLInputElement>('#recruiter-ammount');
@@ -463,15 +465,6 @@ export default class Recruiter {
       const scheduleForCity = this.recruitmentSchedule.find(item => item.city.name === this.citySwitchManager.getCurrentCity()?.name);
       if (!scheduleForCity) throw new Error('No scheduler items in the queue');
 
-      // reevaluate provider cities if auto reevaluate is enabled after confirming new schedule
-      // TODO: rethink where to put this line (maybe this place is not bad, but is called always)
-      if (this.config.recruiter.autoReevaluate) {
-        this.reevaluateProviderCities();
-        console.log('provider cities reevaluated, schedule:', this.recruitmentSchedule);
-      }
-
-      this.persistSchedule();
-
       if (scheduleForCity.queue.length === 1 || (!scheduleForCity.timeoutId && !scheduleForCity.nextScheduledTime)) {
         this.tryRecruitOrStackResources(scheduleForCity);
       }
@@ -511,6 +504,8 @@ export default class Recruiter {
       const amountInputValue = amountInput!.value;
       const amountMaxCheckboxValue = amountMaxCheckbox!.checked;
       const citiesSelectValue = Array.from((citiesSelect)!.selectedOptions).map(option => option.value);
+      console.log('citiesSelectValue:', citiesSelectValue);
+
       const sourceCity = this.citySwitchManager.getCurrentCity();
       const shipmentTime = Number(shipmentTimeSelect!.value);
       const charms = this.getSelectedCharms();
@@ -524,14 +519,14 @@ export default class Recruiter {
       };
 
       let selectedCities: CityInfo[];
-      // if auto reevaluation is enabled, selected cities are cities from the select apart from source city
-      if (this.config.recruiter.autoReevaluate) {
+      // if auto reevaluation is disabled, selected cities are cities from the select apart from source city
+      if (!this.config.recruiter.autoReevaluate) {
         selectedCities = citiesSelectValue.map(cityName => this.citySwitchManager.getCityByName(cityName))
           .filter(city => city !== undefined && city.name !== sourceCity?.name) as CityInfo[];
       } else {
-        // if auto reevaluation is disabled, all cities are selected apart from those already recruiting in other cities (apart from source city)
-        const recruitingCities = this.recruitmentSchedule.map(schedule => schedule.city.name);
-        selectedCities = this.citySwitchManager.getCityList().filter(city => !recruitingCities.includes(city.name) || city.name !== sourceCity?.name);
+        // if auto reevaluation is enabled, all cities are selected apart from those already recruiting in other cities (apart from source city)
+        const recruitingCityNames = this.recruitmentSchedule.map(schedule => schedule.city.name);
+        selectedCities = this.citySwitchManager.getCityList().filter(city => !recruitingCityNames.includes(city.name) && city.name !== sourceCity?.name);
       }
 
       if (amountMaxCheckboxValue) {
@@ -583,6 +578,9 @@ export default class Recruiter {
       if (!scheduleExists) {
         console.log('schedue does not exist, pushing new schedule');
         this.recruitmentSchedule.push(schedule);
+        if (this.config.recruiter.autoReevaluate) {
+          this.reevaluateProviderCities();
+        }
       }
       this.renderRecruitmentQueue(schedule);
       this.persistSchedule();
@@ -590,6 +588,36 @@ export default class Recruiter {
     }
     recruiterAddBtn?.addEventListener('click', addButtonAction);
     this.eventListenersCleanupCallbacks.push(() => recruiterAddBtn?.removeEventListener('click', addButtonAction));
+
+    const runAllButtonAction = () => {
+      /* 
+      NOTE: it may be  unnecessary as every add action is followed by reevaluation
+      but keep it for now until sure
+      */
+      if (this.config.recruiter.autoReevaluate) {
+        this.reevaluateProviderCities();
+      }
+      this.recruitmentSchedule.forEach(schedule => {
+        if (!schedule.timeoutId && !schedule.nextScheduledTime) {
+          this.tryRecruitOrStackResources(schedule);
+        }
+      });
+    }
+    recruiterRunAllBtn?.addEventListener('click', runAllButtonAction);
+    this.eventListenersCleanupCallbacks.push(() => recruiterRunAllBtn?.removeEventListener('click', runAllButtonAction));
+
+
+    const restartButtonAction = () => {
+      if (this.config.recruiter.autoReevaluate) {
+        this.reevaluateProviderCities();
+      }
+      this.recruitmentSchedule.forEach(schedule => {
+        this.cleanupSchedule(schedule);
+        this.tryRecruitOrStackResources(schedule);
+      });
+    }
+    recruiterRestartBtn?.addEventListener('click', restartButtonAction);
+    this.eventListenersCleanupCallbacks.push(() => recruiterRestartBtn?.removeEventListener('click', restartButtonAction));
 
     // draggable recruiter dialog listeners
     {
@@ -626,6 +654,12 @@ export default class Recruiter {
       }
     }
 
+  }
+
+  private cleanupSchedule(schedule: RecruitmentSchedule) {
+    schedule.timeoutId && clearTimeout(schedule.timeoutId);
+    schedule.timeoutId = null;
+    schedule.nextScheduledTime = null;
   }
 
   private getSelectedCharms() {
@@ -724,9 +758,7 @@ export default class Recruiter {
     console.log('performRecruitOrStackResources:', scheduleItem);
     if (!scheduleItem) {
       console.log('no schedule item, clearing timeout and next scheduled time');
-      schedule.timeoutId && clearTimeout(schedule.timeoutId);
-      schedule.timeoutId = null;
-      schedule.nextScheduledTime = null;
+      this.cleanupSchedule(schedule);
       return;
     }
 
@@ -1153,9 +1185,7 @@ export default class Recruiter {
                 return;
               }
               queue.splice(id, 1);
-              clearTimeout(citySchedule.timeoutId);
-              citySchedule.timeoutId = null;
-              citySchedule.nextScheduledTime = null;
+              this.cleanupSchedule(citySchedule);
               this.tryRecruitOrStackResources(citySchedule);
             } else {
               queue.splice(id, 1);
@@ -1163,9 +1193,7 @@ export default class Recruiter {
           } else {
             queue.splice(id, 1);
             if (citySchedule?.timeoutId) {
-              clearTimeout(citySchedule.timeoutId);
-              citySchedule.timeoutId = null;
-              citySchedule.nextScheduledTime = null;
+              this.cleanupSchedule(citySchedule);
             }
           }
         } else {
