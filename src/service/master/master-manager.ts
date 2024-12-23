@@ -147,6 +147,9 @@ export default class MasterManager {
       if (hasAnyValue(configChanges.recruiter, true)) {
         this.recruiter.handleRecruiterConfigChange(configChanges.recruiter);
       }
+      if (hasAnyValue(configChanges.builder, true)) {
+        this.builder.handleBuilderConfigChange(configChanges.builder);
+      }
     }
   }
 

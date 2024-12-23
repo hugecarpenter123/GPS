@@ -27,6 +27,9 @@ const config = {
     guard: false,
     recruiter: false,
   },
+  builder: {
+    minimumTracking: true,
+  },
   recruiter: {
     autoReevaluate: true,
   }

@@ -2,6 +2,7 @@ import { TConfigChanges } from "../../config-popup/config-popup";
 import ConfigManager from "../../utility/config-manager";
 import { InfoError } from "../../utility/info-error";
 import { addDelay, shuffle, textToMs, waitUntil } from "../../utility/plain-utility";
+import ResourceLock from "../../utility/resource-lock";
 import Lock from "../../utility/ui-lock";
 import { performComplexClick, waitForElementInterval } from "../../utility/ui-utility";
 import CharmsUtility, { CityCharm } from "../charms/charms-utility";
@@ -87,6 +88,7 @@ export default class Recruiter {
   private tryCount: number = 0;
   private config!: ReturnType<typeof ConfigManager.prototype.getConfig>;
   private tradeManager!: TradeManager;
+  private resourceLock!: ResourceLock;
 
   private RUN: boolean = false;
   private observer: MutationObserver | null = null;
@@ -103,6 +105,8 @@ export default class Recruiter {
     if (!Recruiter.instance) {
       Recruiter.instance = new Recruiter();
       Recruiter.instance.addCSS();
+      Recruiter.instance.resourceLock = ResourceLock.getInstance();
+      Recruiter.instance.addResourceLockChangeListener();
       Recruiter.instance.resourceManager = await ResourceManager.getInstance();
       Recruiter.instance.lock = Lock.getInstance();
       Recruiter.instance.citySwitchManager = await CitySwitchManager.getInstance();
@@ -111,6 +115,14 @@ export default class Recruiter {
     }
     return Recruiter.instance;
   }
+
+  private addResourceLockChangeListener() {
+    this.resourceLock.addListener('resource-lock-change', (city: CityInfo) => {
+      console.log('resource-lock-change:', city);
+      this.reevaluateProviderCities();
+    });
+  }
+
   private addCSS() {
     const style = document.createElement('style');
     style.textContent = recruiterDialogCSS;
@@ -198,7 +210,9 @@ export default class Recruiter {
     const recruitingCityNames = this.recruitmentSchedule.filter(schedule => schedule.queue.length > 0).map(schedule => schedule.city);
     this.recruitmentSchedule.forEach(schedule => {
       schedule.queue.forEach(item => {
-        item.supplierCities = this.citySwitchManager.getCityList().filter(city => !recruitingCityNames.includes(city) && city.name !== schedule.city.name);
+        item.supplierCities = this.citySwitchManager.getCityList().filter(
+          city => !recruitingCityNames.includes(city) && city.name !== schedule.city.name && !this.resourceLock.isResourceLocked(city)
+        );
       });
     });
   }

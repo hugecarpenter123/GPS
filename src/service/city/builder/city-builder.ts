@@ -7,6 +7,9 @@ import { Building, buildings, buildingsSelectors } from "./buildings";
 import ResourceManager from "../../resources/resource-manager";
 import CitySwitchManager, { CityInfo } from "../city-switch-manager";
 import GeneralInfo from "../../master/ui/general-info";
+import { TConfigChanges } from "../../../config-popup/config-popup";
+import ConfigManager from "../../../utility/config-manager";
+import ResourceLock from "../../../utility/resource-lock";
 
 type QueueItem = {
   id: string,
@@ -46,6 +49,7 @@ export default class CityBuilder {
   private resourceManager!: ResourceManager;
 
   private RUN: boolean = false;
+  private resourceLock!: ResourceLock;
 
   private mainQueue: Array<CityQueue> = [];
 
@@ -56,6 +60,7 @@ export default class CityBuilder {
     if (!CityBuilder.instance) {
       CityBuilder.instance = new CityBuilder();
       CityBuilder.instance.lock = Lock.getInstance();
+      CityBuilder.instance.resourceLock = ResourceLock.getInstance();
       CityBuilder.instance.resourceManager = await ResourceManager.getInstance();
       CityBuilder.instance.citySwitchManager = await CitySwitchManager.getInstance();
       CityBuilder.instance.generalInfo = GeneralInfo.getInstance();
@@ -73,6 +78,56 @@ export default class CityBuilder {
     this.addBuildButtons();
     this.initToggleButtonEvents();
   }
+
+  public getActiveCities(): CityInfo[] {
+    return this.mainQueue.filter(citySchedule => citySchedule.queue.length > 0).map(queue => queue.city);
+  }
+
+  /**
+   * Handles builder config changes, method serves as a listener for config changes.
+   * @param configChanges 
+   */
+  public handleBuilderConfigChange(configChanges: TConfigChanges['builder']) {
+    const minimumTrackingChanged = configChanges.minimumTracking;
+
+    // minimum tracking change handling
+    if (minimumTrackingChanged) {
+      const minimumTracking = ConfigManager.getInstance().getConfig().builder.minimumTracking;
+      if (minimumTracking === true) {
+        // track cities only where queue is not empty
+        this.mainQueue = this.mainQueue.filter(cityQueue => {
+          if (cityQueue.queue.length === 0) {
+            if (cityQueue.schedule) {
+              clearInterval(cityQueue.schedule);
+              clearTimeout(cityQueue.schedule);
+              cityQueue.schedule = null;
+              cityQueue.scheduledDate = null;
+            }
+          }
+          return cityQueue.queue.length > 0;
+        });
+      } else {
+        // track all cities
+        this.citySwitchManager.getCityList().forEach(city => {
+          if (!this.mainQueue.find(queue => queue.city.name === city.name)) {
+            this.mainQueue.push({
+              city,
+              queue: [],
+              schedule: null,
+              scheduledDate: null
+            });
+          }
+        });
+      }
+      // finally if run is true, start flow for all new cities in the queue
+      if (this.RUN) {
+        this.mainQueue.forEach(cityQueue => {
+          if (!cityQueue.schedule) this.handleBuildSchedule(cityQueue);
+        });
+      }
+    }
+  }
+
   private initToggleButtonEvents() {
     const button = document.getElementById(CityBuilder.toggleBuilderButtonId)!;
 
@@ -264,6 +319,7 @@ export default class CityBuilder {
     const queueItem = { id, building, toLvl: currentLvl + lvlCounter };
     console.log('queueItem', queueItem);
 
+    this.resourceLock.lockResources(cityQueue.city);
     this.addBuldingToUIQueue(queueItem, 'end', cityQueue);
     cityQueue.queue.push(queueItem);
     this.saveQueueToStorage();
@@ -582,6 +638,10 @@ export default class CityBuilder {
       cityQueue.schedule = null;
       cityQueue.scheduledDate = null;
     }
+    // if queue is empty, release resources lock
+    if (!cityQueue.queue.length) {
+      this.resourceLock.releaseResources(cityQueue.city);
+    }
     this.clearUIQueueItem(item);
     await this.performBuildSchedule(cityQueue);
   }
@@ -752,31 +812,57 @@ export default class CityBuilder {
     throw new Error('No item in the queue.')
   }
 
+  /**
+   * Loads queue from storage and hydrates it with utilities that local storage can't store.
+   * If minimum tracking is disabled, then all cities are loaded to the queue (full initialization).
+   * If minimum tracking is enabled, then only cities that have items in builder queue are loaded to the main queue.
+   */
   private loadQueueFromStorage() {
-    this.mainQueue = this.citySwitchManager.getCityList().map((cityInfo) => ({
-      city: cityInfo,
-      queue: [],
-      schedule: null,
-      scheduledDate: null
-    }));
+    const minimumTracking = ConfigManager.getInstance().getConfig().builder.minimumTracking;
+
+    // if minimum tracking is disabled, then load all cities to the queue
+    if (!minimumTracking) {
+      this.mainQueue = this.citySwitchManager.getCityList().map((cityInfo) => ({
+        city: cityInfo,
+        queue: [],
+        schedule: null,
+        scheduledDate: null
+      }));
+    } else {
+      // if minimum tracking is enabled, then initialize it with empty array
+      this.mainQueue = [];
+    }
 
     const storageQueue = localStorage.getItem('cityBuilderQueue');
     if (storageQueue) {
-      JSON.parse(storageQueue)
-        .forEach((cityQueue: CityQueue) => {
-          const city = this.citySwitchManager.getCityByName(cityQueue.city.name);
-          if (!city) {
-            return;
-          }
-          // actual queue
-          const queueItems = cityQueue.queue.map(item => {
-            const building = Object.values(buildings).find(building => building.name === item.building.name)!;
-            return { ...item, building };
-          });
+      for (const cityQueue of (JSON.parse(storageQueue ?? '[]') as CityQueue[])) {
+        const city = this.citySwitchManager.getCityByName(cityQueue.city.name);
+        if (!city) {
+          continue;
+        }
+        // actual queue
+        const queueItems = cityQueue.queue.map(item => {
+          const building = Object.values(buildings).find(building => building.name === item.building.name)!;
+          return { ...item, building };
+        });
+        // if minimum tracking is disabled, then city is already in the queue, so update its queue (hydration step)
+        if (!minimumTracking) {
           this.mainQueue.find(queue => queue.city === city)!.queue = queueItems;
-        })
+        } else {
+          // if minimum tracking is enabled and item has queue, then add it to the queue with all properties
+          if (queueItems.length > 0) {
+            this.mainQueue.push({
+              city,
+              queue: queueItems,
+              schedule: null,
+              scheduledDate: null
+            });
+          }
+        }
+      }
     }
 
+    // wątpie by to było tutaj potrzebne, ale zostawiam na wszelki wypadek
     const currentCity = this.citySwitchManager.getCurrentCity();
     const currentCityQueue = this.mainQueue.find(queue => queue.city === currentCity);
     if (currentCityQueue) {

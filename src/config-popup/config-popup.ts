@@ -21,6 +21,9 @@ export type TConfigChanges = {
     guard: boolean;
     recruiter: boolean;
   };
+  builder: {
+    minimumTracking: boolean;
+  };
 };
 
 export default class ConfigPopup extends EventEmitter {
@@ -29,6 +32,7 @@ export default class ConfigPopup extends EventEmitter {
 
   private farm: boolean;
   private builder: boolean;
+  private minimumTracking: boolean;
   private guard: boolean;
   private recruiter: boolean;
   private recruiterAutoReevaluate: boolean;
@@ -42,7 +46,10 @@ export default class ConfigPopup extends EventEmitter {
     this.config = this.configManager.getConfig();
 
     this.farm = this.config.general.farm;
+
     this.builder = this.config.general.builder;
+    this.minimumTracking = this.config.builder.minimumTracking;
+
     this.guard = this.config.general.guard;
     this.recruiter = this.config.general.recruiter;
     this.recruiterAutoReevaluate = this.config.recruiter.autoReevaluate;
@@ -73,6 +80,7 @@ export default class ConfigPopup extends EventEmitter {
     const container = document.querySelector('#config-popup-container') as HTMLElement;
     const plunderCheckbox = container.querySelector('#farm');
     const builderCheckbox = container.querySelector('#builder');
+    const builderMinimumTrackingCheckbox = container.querySelector('#builder-tracking');
     const recruiterCheckbox = container.querySelector('#recruiter');
     const recruiterAutoReevaluateCheckbox = container.querySelector('#recruiter-auto-reevaluate');
     const guardCheckbox = container.querySelector('#guard');
@@ -116,6 +124,9 @@ export default class ConfigPopup extends EventEmitter {
           builder: this.config.general.builder !== this.builder,
           guard: this.config.general.guard !== this.guard,
           recruiter: this.config.general.recruiter !== this.recruiter,
+        },
+        builder: {
+          minimumTracking: this.config.builder.minimumTracking !== this.minimumTracking,
         }
       }
       // update config related fields and persist them to local storage if changed
@@ -124,7 +135,10 @@ export default class ConfigPopup extends EventEmitter {
         this.config.farmConfig.farmInterval = this.farmInterval;
         this.config.farmConfig.humanize = this.humanize;
         this.config.general.farm = this.farm;
+
         this.config.general.builder = this.builder;
+        this.config.builder.minimumTracking = this.minimumTracking;
+
         this.config.general.guard = this.guard;
         this.config.general.recruiter = this.recruiter;
         this.config.recruiter.autoReevaluate = this.recruiterAutoReevaluate;
@@ -195,6 +209,22 @@ export default class ConfigPopup extends EventEmitter {
       this.recruiterAutoReevaluate = (recruiterAutoReevaluateCheckbox as HTMLInputElement).checked;
     });
     // END recruiter section
+
+    // builder section
+    (builderMinimumTrackingCheckbox as HTMLInputElement).checked = this.minimumTracking;
+    const builderSection = container.querySelector('#builder')?.parentElement;
+    const builderSectionContainer = builderSection!.querySelector('.expandable-section');
+    const builderSectionArrow = builderSection!.querySelector('.arrow-down');
+
+    builderSectionArrow!.addEventListener('click', () => {
+      builderSectionContainer!.classList.toggle('hidden');
+      builderSectionArrow!.classList.toggle('rotate');
+    });
+
+    builderMinimumTrackingCheckbox!.addEventListener('change', () => {
+      this.minimumTracking = (builderMinimumTrackingCheckbox as HTMLInputElement).checked;
+    });
+    // END builder section
   }
 
   private async createInitialElements() {
