@@ -153,12 +153,6 @@
 
 /* end charms */
 
-#recruiter-dialog #recruiter-queue-content {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
 #recruiter-dialog .recruiter-queue-item {
   display: flex;
   align-items: center;

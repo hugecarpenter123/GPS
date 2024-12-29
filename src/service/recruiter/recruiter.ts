@@ -1,10 +1,9 @@
-import { TConfigChanges } from "../../config-popup/config-popup";
+import MasterQueue from "../master-queue/master-queue";
 import ConfigManager from "../../utility/config-manager";
 import { InfoError } from "../../utility/info-error";
-import { addDelay, shuffle, textToMs, waitUntil } from "../../utility/plain-utility";
-import ResourceLock from "../../utility/resource-lock";
+import { addDelay, textToMs, waitUntil } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
-import { performComplexClick, waitForElementInterval } from "../../utility/ui-utility";
+import { waitForElementInterval } from "../../utility/ui-utility";
 import CharmsUtility, { CityCharm } from "../charms/charms-utility";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
 import GeneralInfo from "../master/ui/general-info";
@@ -35,6 +34,14 @@ type UnitContext = {
   populationCapacity: number;
 }
 
+export type ScheduleOperationDetails = {
+  city: CityInfo;
+  queueItem: RecruiterQueueItem;
+  onFinishCallback: () => void;
+  setScheduleTimeout: (timeoutId: NodeJS.Timeout, nextScheduleDate: number) => void;
+  shiftQueueAndNext: () => void;
+}
+
 type StackResourcesResult = {
   fullyStacked: boolean;
   timeMs?: number;
@@ -57,7 +64,7 @@ type RequiredResourcesInfo = {
   }
 }
 
-type RecruitmentQueueItem = {
+export type RecruiterQueueItem = {
   type: 'barracks' | 'docks';
   supplierCities: CityInfo[];
   maxShipmentTime: number;
@@ -75,20 +82,24 @@ type RecruitmentSchedule = {
   city: CityInfo
   timeoutId: NodeJS.Timeout | null;
   nextScheduledTime: number | null;
-  queue: RecruitmentQueueItem[]
+  queue: RecruiterQueueItem[]
 }
+
+/*
+w momencie kliknięcia add:
+-item zostaje dodany do master queue
+*/
 
 export default class Recruiter {
   public static readonly MAX_DELIVERY_TIME_MS = 1000 * 60 * 25;
   private static instance: Recruiter;
-  private initialized: boolean = false;
   private resourceManager!: ResourceManager;
   private lock!: Lock;
   private citySwitchManager!: CitySwitchManager;
   private tryCount: number = 0;
   private config!: ReturnType<typeof ConfigManager.prototype.getConfig>;
   private tradeManager!: TradeManager;
-  private resourceLock!: ResourceLock;
+  private masterQueue!: MasterQueue;
 
   private RUN: boolean = false;
   private observer: MutationObserver | null = null;
@@ -96,7 +107,6 @@ export default class Recruiter {
   private recruitmentBuildingDialogAttr: string | null = null;
 
   private currentUnitContext: UnitContext | null = null;
-  private recruitmentSchedule: RecruitmentSchedule[] = [];
   private eventListenersCleanupCallbacks: (() => void)[] = [];
 
   private constructor() { };
@@ -105,22 +115,14 @@ export default class Recruiter {
     if (!Recruiter.instance) {
       Recruiter.instance = new Recruiter();
       Recruiter.instance.addCSS();
-      Recruiter.instance.resourceLock = ResourceLock.getInstance();
-      Recruiter.instance.addResourceLockChangeListener();
       Recruiter.instance.resourceManager = await ResourceManager.getInstance();
       Recruiter.instance.lock = Lock.getInstance();
       Recruiter.instance.citySwitchManager = await CitySwitchManager.getInstance();
       Recruiter.instance.config = ConfigManager.getInstance().getConfig();
       Recruiter.instance.tradeManager = await TradeManager.getInstance();
+      Recruiter.instance.masterQueue = await MasterQueue.getInstance();
     }
     return Recruiter.instance;
-  }
-
-  private addResourceLockChangeListener() {
-    this.resourceLock.addListener('resource-lock-change', (city: CityInfo) => {
-      console.log('resource-lock-change:', city);
-      this.reevaluateProviderCities();
-    });
   }
 
   private addCSS() {
@@ -129,10 +131,10 @@ export default class Recruiter {
     document.head.appendChild(style);
   }
 
-  public getRecruitmentScheduleTimes() {
-    return this.recruitmentSchedule
-      .map(citySchedule => citySchedule.nextScheduledTime)
-      .filter(time => time != null)
+  // TODO: implement
+  public async execute(operationDetails: ScheduleOperationDetails) {
+    console.log('execute:', operationDetails);
+    await this.tryRecruitOrStackResources(operationDetails);
   }
 
   private addRecruiterDialogHTML() {
@@ -140,7 +142,7 @@ export default class Recruiter {
     recruiterDialogContainer.id = 'recruiter-container';
     recruiterDialogContainer.style.zIndex = '2000';
     recruiterDialogContainer.innerHTML = recruiterDialogHTML;
-    if (this.config.recruiter.autoReevaluate) {
+    if (this.config.masterQueue.autoReevaluate) {
       recruiterDialogContainer.querySelector<HTMLDivElement>('#recruiter-cities')?.parentElement?.classList.add('hidden');
     }
     document.body.appendChild(recruiterDialogContainer);
@@ -198,53 +200,41 @@ export default class Recruiter {
     document.getElementById('recruiter-container')?.remove();
   }
 
-  public handleRecruiterConfigChange(configChanges: TConfigChanges['recruiter']) {
-    console.log('handleRecruiterConfigChange():', configChanges);
-    if (configChanges.autoReevaluate && this.config.recruiter.autoReevaluate) {
-      console.log('reevaluating provider cities');
-      this.reevaluateProviderCities();
-    }
-  }
+  // TODO: move it to master queue
+  // public handleRecruiterConfigChange(configChanges: TConfigChanges['recruiter']) {
+  //   console.log('handleRecruiterConfigChange():', configChanges);
+  //   if (configChanges.autoReevaluate && this.config.recruiter.autoReevaluate) {
+  //     console.log('reevaluating provider cities');
+  //     this.reevaluateProviderCities();
+  //   }
+  // }
 
-  private reevaluateProviderCities() {
-    const recruitingCityNames = this.recruitmentSchedule.filter(schedule => schedule.queue.length > 0).map(schedule => schedule.city);
-    this.recruitmentSchedule.forEach(schedule => {
-      schedule.queue.forEach(item => {
-        item.supplierCities = this.citySwitchManager.getCityList().filter(
-          city => !recruitingCityNames.includes(city) && city.name !== schedule.city.name && !this.resourceLock.isResourceLocked(city)
-        );
-      });
-    });
-  }
+  // TODO: rework to be done because of master queue
+  // private reevaluateProviderCities() {
+  //   const recruitingCityNames = this.recruitmentSchedule.filter(schedule => schedule.queue.length > 0).map(schedule => schedule.city);
+  //   this.recruitmentSchedule.forEach(schedule => {
+  //     schedule.queue.forEach(item => {
+  //       item.supplierCities = this.citySwitchManager.getCityList().filter(
+  //         city => !recruitingCityNames.includes(city) && city.name !== schedule.city.name && !this.resourceLock.isResourceLocked(city)
+  //       );
+  //     });
+  //   });
+  // }
 
+  // TODO: rework to be done because of master queue
+  /*
+  * Od teraz start i stop będą wywoływane z master queue
+  */
   public async start() {
-    console.log('recruiter start');
-    if (!this.initialized) {
-      this.loadSchedule();
-      this.initialized = true;
-    }
-
     this.RUN = true;
     if (!this.observer) {
-      // this.addRecruiterDialog();
       this.observer = this.mountObserver();
     }
-    this.recruitmentSchedule.forEach(schedule => {
-      if (schedule.queue.length) {
-        this.tryRecruitOrStackResources(schedule);
-      }
-    })
   }
 
+  // TODO: rework to be done because of master queue
   public async stop() {
     this.RUN = false;
-    // this.removeRecruiterDialog();
-    this.recruitmentSchedule.forEach(schedule => {
-      schedule.timeoutId && clearTimeout(schedule.timeoutId);
-      schedule.timeoutId = null;
-      schedule.nextScheduledTime = null;
-    });
-
     this.observer?.disconnect();
     this.unitChangeObserver?.disconnect();
     this.observer = null;
@@ -323,12 +313,11 @@ export default class Recruiter {
     this.attachOnCityChangeCallback();
     this.mountUnitChangeObserver();
 
-    const citySchedule = this.recruitmentSchedule.find(item => item.city.name === this.citySwitchManager.getCurrentCity()?.name);
-    this.renderRecruitmentQueue(citySchedule);
+    this.renderQueue(this.citySwitchManager.getCurrentCity());
   }
 
   /**
-   * Dodaje onclick listenera, dla toggle buttona. Gry zostanie wciśnięty poraz pierwszy, to inicjalizuje
+   * Dodaje onclick listenera, dla toggle buttona. Gdy zostanie wciśnięty poraz pierwszy, to inicjalizuje
    * wszystkie inne listenery potrzebne do obłsugi funkcjonalności. W przeciwnym razie, jedynym listenerem jest toggle onClick.
    */
   private addEntryEventListener(node: HTMLElement, type: 'barracks' | 'docks') {
@@ -360,8 +349,7 @@ export default class Recruiter {
   private attachOnCityChangeCallback() {
     const callback = async (city: CityInfo) => {
       this.populateCitiesSelect();
-      const citySchedule = this.recruitmentSchedule.find(item => item.city.name === city.name);
-      this.renderRecruitmentQueue(citySchedule);
+      this.renderQueue(city);
     }
     this.citySwitchManager.addListener('cityChange', callback);
     this.eventListenersCleanupCallbacks.push(() => this.citySwitchManager.removeListener('cityChange', callback));
@@ -420,13 +408,8 @@ export default class Recruiter {
     const recruiterDialog = document.getElementById('recruiter-dialog');
     const recruiterNav = recruiterDialog?.querySelector<HTMLElement>('#recruiter-nav');
 
-    const refreshIcon = recruiterDialog?.querySelector<SVGElement>('.recruiter-dialog-header-icon');
     const recruiterCloseBtn = recruiterDialog?.querySelector<HTMLButtonElement>('#recruiter-close-btn');
-    const recruiterConfirmBtn = recruiterDialog?.querySelector<HTMLButtonElement>('#recruiter-confirm-btn');
     const recruiterAddBtn = recruiterDialog?.querySelector<HTMLButtonElement>('#recruiter-add-btn');
-    const recruiterCancelBtn = recruiterDialog?.querySelector<HTMLButtonElement>('#recruiter-cancel-btn');
-    const recruiterRunAllBtn = recruiterDialog?.querySelector<HTMLButtonElement>('#recruiter-run-all-btn');
-    const recruiterRestartBtn = recruiterDialog?.querySelector<HTMLButtonElement>('#recruiter-restart-btn');
 
     const amountTypeRadios = recruiterDialog?.querySelectorAll<HTMLInputElement>('[name="recruiter-type"]');
     const amountInput = recruiterDialog?.querySelector<HTMLInputElement>('#recruiter-ammount');
@@ -434,24 +417,9 @@ export default class Recruiter {
     const citiesSelect = recruiterDialog?.querySelector<HTMLSelectElement>('#recruiter-cities');
     const shipmentTimeSelect = recruiterDialog?.querySelector<HTMLSelectElement>('#shipment-time');
 
-    console.log('this.currentUnitContext:', this.currentUnitContext);
-
-
-    recruiterCancelBtn?.addEventListener('click', () => {
-      console.log('cancel');
-      const currentCity = this.citySwitchManager.getCurrentCity();
-      if (!currentCity) return;
-      this.recruitmentSchedule = this.recruitmentSchedule.filter(item => {
-        if (item.city.name === currentCity.name) {
-          item.timeoutId && clearTimeout(item.timeoutId);
-          item.nextScheduledTime = null;
-          return false;
-        }
-        return true;
-      });
-      this.renderRecruitmentQueue(null);
-      this.persistSchedule();
-    });
+    // Adds predefined navigation buttons to the recruiter dialog
+    const masterQueueNavigation = this.masterQueue.getQueueNavigation(this.citySwitchManager.getCurrentCity()!);
+    document.querySelector('.recruiter-buttons-section')?.appendChild(masterQueueNavigation);
 
     /**
      * Disables/enables amount input based on amount max checkbox value
@@ -473,21 +441,6 @@ export default class Recruiter {
     amountMaxCheckbox!.checked ? (amountInput!.disabled = true) : (amountInput!.disabled = false);
 
     /**
-     * action happens here
-     */
-    const confirmButtonAcction = () => {
-      const scheduleForCity = this.recruitmentSchedule.find(item => item.city.name === this.citySwitchManager.getCurrentCity()?.name);
-      if (!scheduleForCity) throw new Error('No scheduler items in the queue');
-
-      if (scheduleForCity.queue.length === 1 || (!scheduleForCity.timeoutId && !scheduleForCity.nextScheduledTime)) {
-        this.tryRecruitOrStackResources(scheduleForCity);
-      }
-      recruiterDialog!.hidden = true;
-    }
-    recruiterConfirmBtn?.addEventListener('click', confirmButtonAcction);
-    this.eventListenersCleanupCallbacks.push(() => recruiterConfirmBtn?.removeEventListener('click', confirmButtonAcction));
-
-    /**
      * Closes recruiter dialog
      */
     const closeButtonAction = () => {
@@ -498,19 +451,6 @@ export default class Recruiter {
     this.eventListenersCleanupCallbacks.push(() => recruiterCloseBtn?.removeEventListener('click', closeButtonAction));
 
     /**
-     * Refreshes current unit image, sets new context and updates ui
-     */
-    const refreshButtonAction = async () => {
-      // TODO: should refresh ui
-      console.log('refresh');
-      await this.setCurrentUnitContext();
-      this.setDialogCurrentUnitImage();
-      this.populateCitiesSelect();
-    }
-    refreshIcon?.addEventListener('click', refreshButtonAction);
-    this.eventListenersCleanupCallbacks.push(() => refreshIcon?.removeEventListener('click', refreshButtonAction));
-
-    /**
      * Parses configuration from recruiter dialog calls executive method based on this.
      */
     const addButtonAction = () => {
@@ -518,33 +458,24 @@ export default class Recruiter {
       const amountInputValue = amountInput!.value;
       const amountMaxCheckboxValue = amountMaxCheckbox!.checked;
       const citiesSelectValue = Array.from((citiesSelect)!.selectedOptions).map(option => option.value);
-      console.log('citiesSelectValue:', citiesSelectValue);
 
       const sourceCity = this.citySwitchManager.getCurrentCity();
       const shipmentTime = Number(shipmentTimeSelect!.value);
       const charms = this.getSelectedCharms();
 
-      const scheduleExists = this.recruitmentSchedule.find(schedule => schedule.city.name === sourceCity?.name);
-      const schedule: RecruitmentSchedule = scheduleExists ?? {
-        city: sourceCity!,
-        nextScheduledTime: null,
-        timeoutId: null,
-        queue: []
-      };
-
       let selectedCities: CityInfo[];
       // if auto reevaluation is disabled, selected cities are cities from the select apart from source city
-      if (!this.config.recruiter.autoReevaluate) {
+      if (!this.config.masterQueue.autoReevaluate) {
         selectedCities = citiesSelectValue.map(cityName => this.citySwitchManager.getCityByName(cityName))
           .filter(city => city !== undefined && city.name !== sourceCity?.name) as CityInfo[];
       } else {
         // if auto reevaluation is enabled, all cities are selected apart from those already recruiting in other cities (apart from source city)
-        const recruitingCityNames = this.recruitmentSchedule.map(schedule => schedule.city.name);
-        selectedCities = this.citySwitchManager.getCityList().filter(city => !recruitingCityNames.includes(city.name) && city.name !== sourceCity?.name);
+        const busyCityNames = this.masterQueue.getBusyCities().map(city => city.name);
+        selectedCities = this.citySwitchManager.getCityList().filter(city => !busyCityNames.includes(city.name) && city.name !== sourceCity?.name);
       }
 
       if (amountMaxCheckboxValue) {
-        const properMaxSlotsAmount = this.getEmptySlotsCount(type) - schedule.queue.reduce((acc, item) => {
+        const properMaxSlotsAmount = this.getEmptySlotsCount(type) - this.masterQueue.getCityRecruiterSchedule(sourceCity!).reduce((acc, item) => {
           if (item.type === type) {
             if (item.amountType === 'slots') {
               return acc + item.amount;
@@ -555,7 +486,7 @@ export default class Recruiter {
           }
           return acc;
         }, 0);
-        schedule.queue.push({
+        this.masterQueue.addToQueue(sourceCity!, 'recruiter', {
           unitContextInfo: this.getCurrentUnitContextCopy(),
           amountType: 'slots',
           amount: properMaxSlotsAmount,
@@ -564,9 +495,9 @@ export default class Recruiter {
           supplierCities: selectedCities,
           maxShipmentTime: shipmentTime,
           charms
-        });
+        })
       } else if (amountType === 'units') {
-        schedule.queue.push({
+        this.masterQueue.addToQueue(sourceCity!, 'recruiter', {
           unitContextInfo: this.getCurrentUnitContextCopy(),
           amountType: 'units',
           amount: Number(amountInputValue),
@@ -577,7 +508,7 @@ export default class Recruiter {
           charms
         });
       } else if (amountType === 'slots') {
-        schedule.queue.push({
+        this.masterQueue.addToQueue(sourceCity!, 'recruiter', {
           unitContextInfo: this.getCurrentUnitContextCopy(),
           amountType: 'slots',
           amount: Number(amountInputValue),
@@ -588,50 +519,9 @@ export default class Recruiter {
           charms
         });
       }
-
-      if (!scheduleExists) {
-        console.log('schedue does not exist, pushing new schedule');
-        this.recruitmentSchedule.push(schedule);
-        if (this.config.recruiter.autoReevaluate) {
-          this.reevaluateProviderCities();
-        }
-      }
-      this.renderRecruitmentQueue(schedule);
-      this.persistSchedule();
-      console.log('scheduleItem added:', schedule);
     }
     recruiterAddBtn?.addEventListener('click', addButtonAction);
     this.eventListenersCleanupCallbacks.push(() => recruiterAddBtn?.removeEventListener('click', addButtonAction));
-
-    const runAllButtonAction = () => {
-      /* 
-      NOTE: it may be  unnecessary as every add action is followed by reevaluation
-      but keep it for now until sure
-      */
-      if (this.config.recruiter.autoReevaluate) {
-        this.reevaluateProviderCities();
-      }
-      this.recruitmentSchedule.forEach(schedule => {
-        if (!schedule.timeoutId && !schedule.nextScheduledTime) {
-          this.tryRecruitOrStackResources(schedule);
-        }
-      });
-    }
-    recruiterRunAllBtn?.addEventListener('click', runAllButtonAction);
-    this.eventListenersCleanupCallbacks.push(() => recruiterRunAllBtn?.removeEventListener('click', runAllButtonAction));
-
-
-    const restartButtonAction = () => {
-      if (this.config.recruiter.autoReevaluate) {
-        this.reevaluateProviderCities();
-      }
-      this.recruitmentSchedule.forEach(schedule => {
-        this.cleanupSchedule(schedule);
-        this.tryRecruitOrStackResources(schedule);
-      });
-    }
-    recruiterRestartBtn?.addEventListener('click', restartButtonAction);
-    this.eventListenersCleanupCallbacks.push(() => recruiterRestartBtn?.removeEventListener('click', restartButtonAction));
 
     // draggable recruiter dialog listeners
     {
@@ -670,12 +560,6 @@ export default class Recruiter {
 
   }
 
-  private cleanupSchedule(schedule: RecruitmentSchedule) {
-    schedule.timeoutId && clearTimeout(schedule.timeoutId);
-    schedule.timeoutId = null;
-    schedule.nextScheduledTime = null;
-  }
-
   private getSelectedCharms() {
     const selectedRequiredCharms =
       Array.from(document.querySelectorAll<HTMLElement>('#recruiter-charms-required-list .recruiter-charms-item.selected'))
@@ -691,74 +575,18 @@ export default class Recruiter {
     }
   }
 
-  private persistSchedule() {
-    localStorage.setItem('recruitmentSchedule', JSON.stringify(this.recruitmentSchedule.filter(item => item.queue.length)));
-  }
-
-  /*
-   * TODO: In order to use persisted schedule one must after initialization confirm that this schedule is valid.
-   * Also cityInfo must be hydrated as its expected to have switchAction method.
-   */
-  private loadSchedule() {
-    const unparsedSchedule = localStorage.getItem('recruitmentSchedule');
-    if (unparsedSchedule) {
-      const schedule: RecruitmentSchedule[] = JSON.parse(unparsedSchedule);
-      const isAnyQueue = schedule.some(item => item.queue.length);
-      if (isAnyQueue) {
-        if (this.simpleScheduleLoadConfirmationDialog(schedule)) {
-          this.recruitmentSchedule = this.hydrateSchedule(schedule);
-        } else {
-          this.recruitmentSchedule = [];
-          this.persistSchedule();
-        }
-      }
-    } else {
-      this.recruitmentSchedule = [];
-    }
-  }
-
-  private simpleScheduleLoadConfirmationDialog(schedule: RecruitmentSchedule[]) {
-    let message = `Czy chcesz kontynuować poprzednią sesje rekrutacji?`;
-    schedule.forEach(item => {
-      if (item.queue.length) {
-        message += `\n${item.city.name}:\n${item.queue.map(q => {
-          const unitName = q.unitContextInfo.unitSelector.split('.').at(-1);
-          return `\t${unitName} x ${q.amountLeft} ${q.amountType === 'slots' ? 'slotów' : 'jednostek'}`
-        }).join('\n')}`;
-      }
-    })
-    const confirm = window.confirm(message);
-    return confirm;
-  }
-
-  private hydrateSchedule(schedule: RecruitmentSchedule[]) {
-    schedule.forEach(item => {
-      console.log('hydrating schedule item:', item);
-      item.city = this.citySwitchManager.getCityByName(item.city.name)!;
-      console.log('city:', item.city);
-      item.queue.forEach(q => {
-        console.log('hydrating queue item.supplierCities:', q.supplierCities);
-        if (q.supplierCities) {
-          q.supplierCities = q.supplierCities.map(city => this.citySwitchManager.getCityByName(city.name) ?? null).filter(Boolean) as CityInfo[];
-          console.log('supplierCities:', q.supplierCities);
-        }
-      });
-    });
-    return schedule;
-  }
-
-  private async tryRecruitOrStackResources(schedule: RecruitmentSchedule) {
+  private async tryRecruitOrStackResources(operationDetails: ScheduleOperationDetails) {
     try {
       await this.lock.acquire({ method: 'tryRecruitOrStackResources', manager: 'recruiter' });
       GeneralInfo.getInstance().showInfo('Recruiter:', 'Rekrutacja/stakowanie surowców do rekrutacji');
-      await schedule.city.switchAction();
-      await this.performRecruitOrStackResources(schedule);
+      await operationDetails.city.switchAction();
+      await this.performRecruitOrStackResources(operationDetails);
       this.tryCount = 0;
     } catch (e) {
       console.warn('tryRecruitOrStackResources.catch:', e);
       this.tryCount++;
       if (this.tryCount < 3) {
-        this.performRecruitOrStackResources(schedule);
+        this.performRecruitOrStackResources(operationDetails);
       }
     } finally {
       GeneralInfo.getInstance().hideInfo();
@@ -766,21 +594,23 @@ export default class Recruiter {
     }
   }
 
-  private async performRecruitOrStackResources(schedule: RecruitmentSchedule) {
+  private async performRecruitOrStackResources(operationDetails: ScheduleOperationDetails) {
     // always first from the queue
-    const scheduleItem = schedule.queue[0];
+    const scheduleItem = operationDetails.queueItem;
     console.log('performRecruitOrStackResources:', scheduleItem);
     if (!scheduleItem) {
       console.log('no schedule item, clearing timeout and next scheduled time');
-      this.cleanupSchedule(schedule);
+      // NOTE: consider calling this as a method argument
+      this.masterQueue.clearCitySchedule(operationDetails.city);
       return;
     }
 
-    const { city } = schedule;
+    const { city } = operationDetails;
     const { supplierCities, charms } = scheduleItem;
     if (charms?.required && !CharmsUtility.areCharmsCastedOrAvailable(charms?.required)) {
       // TODO: get real timeout based on charms getting castable
-      this.createTimeoutForRecruitment(schedule, 10 * 60 * 1000);
+      const timeout = this.createTimeoutForRecruitment(operationDetails, 10 * 60 * 1000);
+      operationDetails.setScheduleTimeout(timeout, new Date().getTime() + 10 * 60 * 1000);
     } else {
       // TODO: delete
       console.log(`charms (${JSON.stringify((charms?.required.concat(charms.optional))?.map(c => c.dataPowerId))}) casted or available, can stack resources`)
@@ -804,13 +634,13 @@ export default class Recruiter {
 
       if (!hasEnoughPopulationPerSlot) {
         console.log('population exceeded min buffer, shifting queue');
-        schedule.queue.shift();
+        operationDetails.shiftQueueAndNext();
         return;
       }
 
       if (!hasEnoughStorageCapacityPerUnit) {
         console.log('not enough storage capacity for unit, shifting queue');
-        schedule.queue.shift();
+        operationDetails.shiftQueueAndNext();
         return;
       }
 
@@ -819,23 +649,26 @@ export default class Recruiter {
         if (stackResult.fullyStacked) {
           console.log('fully stacked, scheduling recruitment');
           const timeMs = stackResult.timeMs!;
-          schedule.timeoutId = this.createTimeoutForRecruitment(schedule, timeMs);
-          schedule.nextScheduledTime = new Date().getTime() + timeMs;
+          operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, timeMs), new Date().getTime() + timeMs);
         } else {
           console.log('not fully stacked, rescheduling stacking in 10 minutes');
           // schedule in 10 minutes
-          schedule.timeoutId = this.createTimeoutForRecruitment(schedule, 600000);
-          schedule.nextScheduledTime = new Date().getTime() + 600000;
-          console.log('recruitment schedule updated:', schedule);
+          operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, 600000), new Date().getTime() + 600000);
         }
       } else {
         console.log('enough resources, performing recruitment');
-        const recruitmentResult = await this.performRecruitment(schedule);
-        if (recruitmentResult === 'rescheduled') {
-          return;
+        const recruitmentResult = await this.performRecruitment(operationDetails);
+        if (recruitmentResult === 'reschedule') {
+          operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, 10 * 60 * 1000), new Date().getTime() + 10 * 60 * 1000);
+        } else if (recruitmentResult === 'done') {
+          operationDetails.onFinishCallback();
+        } else if (recruitmentResult === 'partial') {
+          console.log('recruitment partially performed, scheduling next round');
+          await this.performRecruitOrStackResources(operationDetails);
+        } else if (recruitmentResult === 'failed') {
+          console.log('recruitment failed, shifting queue');
+          operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, 10 * 60 * 1000), new Date().getTime() + 10 * 60 * 1000);
         }
-        console.log('recruitment performed, scheduling next recruitment');
-        await this.performRecruitOrStackResources(schedule);
       }
     } else {
       const needsMoreResourcesThanOneSlot = scheduleItem.unitContextInfo.unitInfo.population * scheduleItem.amountLeft! > scheduleItem.unitContextInfo.requiredResourcesPerSlot.population;
@@ -866,12 +699,12 @@ export default class Recruiter {
 
       if (!hasEnoughPopulation) {
         console.log('population exceeded min buffer, shifting queue');
-        schedule.queue.shift();
+        operationDetails.shiftQueueAndNext();
         return;
       }
       if (!hasEnoughStorageCapacityPerUnit) {
         console.log('not enough storage capacity for unit, shifting queue');
-        schedule.queue.shift();
+        operationDetails.shiftQueueAndNext();
         return;
       }
       if (!hasEnoughResources) {
@@ -880,31 +713,24 @@ export default class Recruiter {
         if (stackResult.fullyStacked) {
           console.log('fully stacked, scheduling recruitment');
           const timeMs = stackResult.timeMs!;
-          schedule.timeoutId = this.createTimeoutForRecruitment(schedule, timeMs);
-          schedule.nextScheduledTime = new Date().getTime() + timeMs;
+          operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, timeMs), new Date().getTime() + timeMs);
         } else {
           console.log('not fully stacked, scheduling in 10 minutes');
           // schedule in 10 minutes
-          schedule.timeoutId = this.createTimeoutForRecruitment(schedule, 600000);
-          schedule.nextScheduledTime = new Date().getTime() + 600000;
-          console.log('recruitment schedule updated:', schedule);
+          operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, 600000), new Date().getTime() + 600000);
         }
       } else {
-        console.log('enough resources, performing recruitment');
-        const recruitmentResult = await this.performRecruitment(schedule);
-        if (recruitmentResult === 'rescheduled') {
-          return;
-        }
-        // rzadki przypadek gdy nie można zarekrutować 1 jednostki (np kolon, a magazyn ma pojemność na styk)
-        if (recruitmentResult === false) {
-          // planowanie rekrutacji w 10 minut ponieważ zaplanowane surowce (max 90% magazynu) nie są wystarczające
-          // trzeba poczekać aż surowce się uzbierają
-          schedule.timeoutId = this.createTimeoutForRecruitment(schedule, 600000);
-          schedule.nextScheduledTime = new Date().getTime() + 600000;
-          console.log('recruitment schedule updated:', schedule);
-        } else {
-          console.log('recruitment performed, scheduling next recruitment');
-          await this.performRecruitOrStackResources(schedule);
+        const recruitmentResult = await this.performRecruitment(operationDetails);
+        if (recruitmentResult === 'reschedule') {
+          operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, 10 * 60 * 1000), new Date().getTime() + 10 * 60 * 1000);
+        } else if (recruitmentResult === 'done') {
+          operationDetails.onFinishCallback();
+        } else if (recruitmentResult === 'partial') {
+          console.log('recruitment partially performed, scheduling next round');
+          await this.performRecruitOrStackResources(operationDetails);
+        } else if (recruitmentResult === 'failed') {
+          console.log('recruitment failed, shifting queue');
+          operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, 10 * 60 * 1000), new Date().getTime() + 10 * 60 * 1000);
         }
       }
     }
@@ -919,9 +745,10 @@ export default class Recruiter {
     return timeToFinish;
   }
 
-  private async performRecruitment(schedule: RecruitmentSchedule): Promise<boolean | 'rescheduled'> {
+  // private async performRecruitment(operationDetails: ScheduleOperationDetails): Promise<boolean | 'rescheduled' | void> {
+  private async performRecruitment(operationDetails: ScheduleOperationDetails): Promise<'done' | 'failed' | 'partial' | 'reschedule'> {
     // recruitment process
-    const item = schedule.queue[0];
+    const item = operationDetails.queueItem;
 
     // handle charms ----------------
     console.log('performRecruitment, item charms:', item.charms)
@@ -929,9 +756,8 @@ export default class Recruiter {
     console.log('requiredCharmsCasted:', requiuredCharmsCasted)
     if (!requiuredCharmsCasted) {
       GeneralInfo.getInstance().showError('Recruiter', 'Nie udało się rzucić wymaganych zaklęć, ponowna próba za 10 minut', 5000);
-      this.createTimeoutForRecruitment(schedule, 10 * 60 * 1000);
       await this.closeAllRecruitmentBuildingDialogs();
-      throw new Error('No required charms available before recruitment, rescheduling in 10 mins');
+      return 'reschedule';
     }
     // END handle charms ------------
 
@@ -976,18 +802,13 @@ export default class Recruiter {
     // decrement recruitet amount
     console.log('item.amountLeft before:', item.amountLeft);
     item.amountLeft -= item.amountType === 'slots' ? 1 : recruitedUnitsAmount;
-    if (item.amountLeft <= 0) {
-      schedule.queue.shift();
-      if (schedule.queue.length === 0 && this.config.recruiter.autoReevaluate) {
-        this.reevaluateProviderCities();
-      }
-    }
-    console.log('item.amountLeft after:', item.amountLeft);
-    this.renderRecruitmentQueue(schedule);
     this.closeAllRecruitmentBuildingDialogs();
-    this.persistSchedule();
 
-    return recruitedUnitsAmount > 0;
+    if (item.amountLeft <= 0) {
+      return 'done';
+    } else {
+      return recruitedUnitsAmount > 0 ? 'partial' : 'failed';
+    }
   }
 
   private cleanEventListeners() {
@@ -1054,10 +875,10 @@ export default class Recruiter {
     await waitUntil(() => !!document.querySelector<HTMLElement>(`#unit_order.${buildingType}_building`));
   }
 
-  private createTimeoutForRecruitment(schedule: RecruitmentSchedule, timeMs: number) {
+  private createTimeoutForRecruitment(operationDetails: ScheduleOperationDetails, timeMs: number) {
     console.log('createTimeoutForRecruitment:', timeMs);
     return setTimeout(() => {
-      this.tryRecruitOrStackResources(schedule);
+      this.tryRecruitOrStackResources(operationDetails);
     }, timeMs);
   }
 
@@ -1121,30 +942,22 @@ export default class Recruiter {
    * Tworzy listę miast na podstawie aktualnego miasta i zaznacza wybrane miasta z ostatniej operacji w kolejce
    * przypisanej do danego miasta w momencie wywołania metody.
    */
-  private populateCitiesSelect(type: 'barracks' | 'docks' = 'barracks') {
+  private populateCitiesSelect() {
     const citiesSelectElement = document.querySelector<HTMLSelectElement>('#recruiter-cities');
     if (!citiesSelectElement) return;
 
     // if auto reevaluation is enabled, clear the select (don't show any cities, all are selected by default)
-    if (this.config.recruiter.autoReevaluate) {
+    if (this.config.masterQueue.autoReevaluate) {
       return;
     }
-    const recruitingCities = this.recruitmentSchedule.map(schedule => schedule.city.name);
     const cities = this.citySwitchManager.getCityList();
-    const selectedCities = this.recruitmentSchedule.find(schedule => schedule.city.name === this.citySwitchManager.getCurrentCity()?.name)?.queue.at(-1)?.supplierCities;
     citiesSelectElement.innerHTML = '';
     for (const city of cities) {
       if (city.name === this.citySwitchManager.getCurrentCity()?.name) continue;
       const option = document.createElement('option');
       option.value = city.name;
       option.textContent = city.name;
-      if (recruitingCities.includes(city.name)) {
-        option.disabled = true;
-      }
       citiesSelectElement.appendChild(option);
-      if (selectedCities?.some(sc => sc.name === city.name)) {
-        option.selected = true;
-      }
     }
   }
 
@@ -1157,81 +970,18 @@ export default class Recruiter {
     return JSON.parse(JSON.stringify(this.currentUnitContext));
   }
 
-  private renderRecruitmentQueue(citySchedule: RecruitmentSchedule | null | undefined) {
+  private renderQueue(city?: CityInfo) {
     const recruitmentQueueEl = document.getElementById('recruiter-queue-content');
     if (!recruitmentQueueEl) return;
-
     recruitmentQueueEl.innerHTML = '';
-    const queue = citySchedule?.queue ?? [];
-    /*
-      <div id="recruiter-queue-content">
-        <div class="recruiter-queue-item">
-          <div class="recruiter-queue-item-image"></div>
-          <span class="recruiter-queue-item-info">name</span>
-        </div>
-      </div>
-    */
-    for (const [id, item] of queue.entries()) {
-      const queueItemEl = document.createElement('div');
-      queueItemEl.classList.add('recruiter-queue-item');
-
-      const imageEl = document.createElement('div');
-      imageEl.setAttribute('class', item.unitContextInfo.unitImageClass);
-      imageEl.classList.add('recruiter-queue-item-image');
-      queueItemEl.appendChild(imageEl);
-
-      const infoEl = document.createElement('span');
-      infoEl.classList.add('recruiter-queue-item-info');
-      infoEl.textContent = `${item.amountLeft}x ${item.amountType === 'slots' ? 'slots' : 'units'}`;
-      queueItemEl.appendChild(infoEl);
-
-      const deleteBtn = document.createElement('button');
-      deleteBtn.setAttribute('type', 'button');
-      deleteBtn.classList.add('recruiter-queue-item-delete-btn');
-      deleteBtn.textContent = 'x';
-      queueItemEl.appendChild(deleteBtn);
-
-      const onDeleteClick = () => {
-        if (id === 0) {
-          if (queue.length > 1) {
-            if (citySchedule?.timeoutId) {
-              if (!this.simpleConfirmationDialog('Czy na pewno chcesz usunąć pierwszy element z kolejki? Spowoduje to rekrutację następnego elementu.')) {
-                return;
-              }
-              queue.splice(id, 1);
-              this.cleanupSchedule(citySchedule);
-              this.tryRecruitOrStackResources(citySchedule);
-            } else {
-              queue.splice(id, 1);
-            }
-          } else {
-            queue.splice(id, 1);
-            if (citySchedule?.timeoutId) {
-              this.cleanupSchedule(citySchedule);
-            }
-          }
-        } else {
-          queue.splice(id, 1);
-        }
-        if (queue.length === 0 && this.config.recruiter.autoReevaluate) {
-          this.reevaluateProviderCities();
-        }
-        this.persistSchedule();
-        deleteBtn.removeEventListener('click', onDeleteClick)
-        this.renderRecruitmentQueue(citySchedule);
-      }
-      deleteBtn.addEventListener('click', onDeleteClick);
-
-      recruitmentQueueEl!.appendChild(queueItemEl);
+    if (city) {
+      recruitmentQueueEl.appendChild(this.masterQueue.getCityQueueUI(city));
     }
   }
+
   private closeMinimizedRecruitmentBuildingDialogs() {
     document.querySelectorAll('.minimized_windows_area .box-middle').forEach(el => {
       if (el.textContent?.includes('Port') || el.textContent?.includes('Koszary')) (el.querySelector('.btn_wnd.close') as HTMLElement)?.click();
     });
-  }
-
-  private simpleConfirmationDialog(message: string) {
-    return window.confirm(message);
   }
 }

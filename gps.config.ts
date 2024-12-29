@@ -8,6 +8,9 @@ export enum FarmTimeInterval {
 }
 
 const config = {
+  masterQueue: {
+    autoReevaluate: true,
+  },
   resources: {
     minPopulationBuffer: 170, // buffer na kolona
     storeAlmostFullPercentage: 0.9,
@@ -25,14 +28,12 @@ const config = {
     farm: true,
     builder: true,
     guard: false,
+    masterQueue: true,
     recruiter: false,
   },
   builder: {
     minimumTracking: true,
   },
-  recruiter: {
-    autoReevaluate: true,
-  }
 }
 export type TConfig = typeof config;
 export default config;

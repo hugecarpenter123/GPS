@@ -7,7 +7,7 @@ import { FarmTimeInterval, TConfig } from "../../gps.config";
 import CitySwitchManager, { CityInfo } from '../service/city/city-switch-manager';
 
 export type TConfigChanges = {
-  recruiter: {
+  masterQueue: {
     autoReevaluate: boolean;
   };
   farmConfig: {
@@ -20,6 +20,7 @@ export type TConfigChanges = {
     builder: boolean;
     guard: boolean;
     recruiter: boolean;
+    masterQueue: boolean;
   };
   builder: {
     minimumTracking: boolean;
@@ -35,7 +36,8 @@ export default class ConfigPopup extends EventEmitter {
   private minimumTracking: boolean;
   private guard: boolean;
   private recruiter: boolean;
-  private recruiterAutoReevaluate: boolean;
+  private masterQueue: boolean;
+  private masterQueueAutoReevaluate: boolean;
   private farmInterval: FarmTimeInterval;
   private humanize: boolean;
   private uniquelySelectedFarmingCitiesPerIsle: Record<string, CityInfo> = {};
@@ -52,7 +54,8 @@ export default class ConfigPopup extends EventEmitter {
 
     this.guard = this.config.general.guard;
     this.recruiter = this.config.general.recruiter;
-    this.recruiterAutoReevaluate = this.config.recruiter.autoReevaluate;
+    this.masterQueue = this.config.general.masterQueue;
+    this.masterQueueAutoReevaluate = this.config.masterQueue.autoReevaluate;
     this.farmInterval = this.config.farmConfig.farmInterval;
     this.humanize = this.config.farmConfig.humanize;
   }
@@ -76,13 +79,19 @@ export default class ConfigPopup extends EventEmitter {
   public getPlunderConfig = () => {
   }
 
+  public isMasterQueueChecked = () => {
+    return this.masterQueue;
+  };
+
   private initEventListeners(): void {
     const container = document.querySelector('#config-popup-container') as HTMLElement;
     const plunderCheckbox = container.querySelector('#farm');
     const builderCheckbox = container.querySelector('#builder');
     const builderMinimumTrackingCheckbox = container.querySelector('#builder-tracking');
     const recruiterCheckbox = container.querySelector('#recruiter');
-    const recruiterAutoReevaluateCheckbox = container.querySelector('#recruiter-auto-reevaluate');
+    // const recruiterAutoReevaluateCheckbox = container.querySelector('#recruiter-auto-reevaluate');
+    const masterQueueCheckbox = container.querySelector('#master-queue');
+    const masterQueueAutoReevaluateCheckbox = container.querySelector('#master-queue-auto-reevaluate');
     const guardCheckbox = container.querySelector('#guard');
     const timeIntervalSelect = container.querySelector('#time-interval-select');
     const showTrigger = container.querySelector('.show-trigger');
@@ -105,14 +114,18 @@ export default class ConfigPopup extends EventEmitter {
         this.guard = false;
         (recruiterCheckbox as HTMLInputElement)!.checked = false;
         this.recruiter = false;
+        (masterQueueCheckbox as HTMLInputElement)!.checked = false;
+        this.masterQueue = false;
       }
 
       const conflictingCitiesChanged = Object.keys(this.uniquelySelectedFarmingCitiesPerIsle).some(isleId => this.uniquelySelectedFarmingCitiesPerIsle[isleId].name !== this.config.farmConfig.farmingCities.find(city => city.isleId === isleId)?.name);
       console.log('conflictingCitiesChanged', conflictingCitiesChanged);
 
+      this.addFarmTimeSelectionCheck(timeIntervalSelect as HTMLSelectElement);
+
       const managersConfigChanges: TConfigChanges = {
-        recruiter: {
-          autoReevaluate: this.config.recruiter.autoReevaluate !== this.recruiterAutoReevaluate,
+        masterQueue: {
+          autoReevaluate: this.config.masterQueue.autoReevaluate !== this.masterQueueAutoReevaluate,
         },
         farmConfig: {
           farmInterval: this.config.farmConfig.farmInterval !== this.farmInterval,
@@ -121,6 +134,7 @@ export default class ConfigPopup extends EventEmitter {
         },
         general: {
           farm: this.config.general.farm !== this.farm,
+          masterQueue: this.config.general.masterQueue !== this.masterQueue,
           builder: this.config.general.builder !== this.builder,
           guard: this.config.general.guard !== this.guard,
           recruiter: this.config.general.recruiter !== this.recruiter,
@@ -141,17 +155,12 @@ export default class ConfigPopup extends EventEmitter {
 
         this.config.general.guard = this.guard;
         this.config.general.recruiter = this.recruiter;
-        this.config.recruiter.autoReevaluate = this.recruiterAutoReevaluate;
+        this.config.general.masterQueue = this.masterQueue;
+        this.config.masterQueue.autoReevaluate = this.masterQueueAutoReevaluate;
         this.config.farmConfig.farmingCities = Object.values(this.uniquelySelectedFarmingCitiesPerIsle);
         this.configManager.persistConfig();
       }
 
-      if (this.farmInterval === FarmTimeInterval.FourthOption) {
-        if (!confirm('Farmienie ustawione na 4h/8h. Kliknij OK aby kontynuować lub Anuluj aby cofnąć (na 5min/10min).')) {
-          this.farmInterval = FarmTimeInterval.FirstOption;
-          (timeIntervalSelect as HTMLSelectElement).value = FarmTimeInterval.FirstOption.toString();
-        }
-      }
       container.classList.add('minimized');
       this.emit('managersChange', managersConfigChanges);
     }));
@@ -177,9 +186,7 @@ export default class ConfigPopup extends EventEmitter {
       console.log('this.farmInterval changed to: ', this.farmInterval);
     })
 
-
     // farm section
-
     const farmSection = container.querySelector('#farm')?.parentElement;
     const farmSectionContainer = farmSection!.querySelector('.expandable-section');
     const farmSectionArrow = farmSection!.querySelector('.arrow-down');
@@ -195,19 +202,6 @@ export default class ConfigPopup extends EventEmitter {
     // END farm section
 
     // recruiter section
-    (recruiterAutoReevaluateCheckbox as HTMLInputElement).checked = this.recruiterAutoReevaluate;
-    const recruiterSection = container.querySelector('#recruiter')?.parentElement;
-    const recruiterSectionContainer = recruiterSection!.querySelector('.expandable-section');
-    const recruiterSectionArrow = recruiterSection!.querySelector('.arrow-down');
-
-    recruiterSectionArrow!.addEventListener('click', () => {
-      recruiterSectionContainer!.classList.toggle('hidden');
-      recruiterSectionArrow!.classList.toggle('rotate');
-    });
-
-    recruiterAutoReevaluateCheckbox!.addEventListener('change', () => {
-      this.recruiterAutoReevaluate = (recruiterAutoReevaluateCheckbox as HTMLInputElement).checked;
-    });
     // END recruiter section
 
     // builder section
@@ -225,6 +219,28 @@ export default class ConfigPopup extends EventEmitter {
       this.minimumTracking = (builderMinimumTrackingCheckbox as HTMLInputElement).checked;
     });
     // END builder section
+
+    // master queue section
+    (masterQueueCheckbox as HTMLInputElement).checked = this.masterQueue;
+    (masterQueueAutoReevaluateCheckbox as HTMLInputElement).checked = this.masterQueueAutoReevaluate;
+    const masterQueueSection = container.querySelector('#master-queue')?.parentElement;
+    const masterQueueSectionContainer = masterQueueSection!.querySelector('.expandable-section');
+    const masterQueueSectionArrow = masterQueueSection!.querySelector('.arrow-down');
+
+    masterQueueSectionArrow!.addEventListener('click', () => {
+      masterQueueSectionContainer!.classList.toggle('hidden');
+      masterQueueSectionArrow!.classList.toggle('rotate');
+    });
+    // END master queue section
+  }
+
+  private addFarmTimeSelectionCheck(timeIntervalSelect: HTMLSelectElement) {
+    if (this.farmInterval === FarmTimeInterval.FourthOption && this.farm) {
+      if (!confirm('Farmienie ustawione na 4h/8h. Kliknij OK aby kontynuować lub Anuluj aby cofnąć (na 5min/10min).')) {
+        this.farmInterval = FarmTimeInterval.FirstOption;
+        (timeIntervalSelect as HTMLSelectElement).value = FarmTimeInterval.FirstOption.toString();
+      }
+    }
   }
 
   private async createInitialElements() {
@@ -236,6 +252,7 @@ export default class ConfigPopup extends EventEmitter {
     (container.querySelector('#builder') as HTMLInputElement)!.checked = this.builder;
     (container.querySelector('#guard') as HTMLInputElement)!.checked = this.guard;
     (container.querySelector('#recruiter') as HTMLInputElement)!.checked = this.recruiter;
+    (container.querySelector('#master-queue') as HTMLInputElement)!.checked = this.masterQueue;
     // farm section
     const intervalSelectElement = (container.querySelector('#time-interval-select') as HTMLSelectElement)
     const farmIntervalValuesUnparsed = Object.values(FarmTimeInterval);
@@ -357,15 +374,13 @@ export default class ConfigPopup extends EventEmitter {
     }
   }
 
-  private emitRecruiterConfigChange = () => {
-    this.emit('recruiterAutoReevaluateChange');
-  }
-
   public getManagersFlags = () => {
     return {
       farm: this.farm,
       builder: this.builder,
       guard: this.guard,
+      recruiter: this.recruiter,
+      masterQueue: this.masterQueue,
     }
   }
 
@@ -386,10 +401,10 @@ export default class ConfigPopup extends EventEmitter {
   }
 
   private configChanged(configChanges: { [key: string]: any }): boolean {
-    for (const [key, value] of Object.entries(configChanges)) {
-      if (typeof value === 'object') {
-        if (this.configChanged(value)) return true;
-      } else if (value) {
+    for (const [key2, value2] of Object.entries(configChanges)) {
+      if (typeof value2 === 'object') {
+        if (this.configChanged(value2)) return true;
+      } else if (value2) {
         return true;
       }
     }
@@ -400,5 +415,4 @@ export default class ConfigPopup extends EventEmitter {
     const container = document.querySelector<HTMLElement>('#config-popup-container');
     container?.classList.add('minimized');
   }
-
 }

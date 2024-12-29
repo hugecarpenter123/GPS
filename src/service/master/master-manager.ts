@@ -5,11 +5,12 @@ import { addDelay, getCookie, hasAnyValue, setCookie } from "../../utility/plain
 import CityBuilder from "../city/builder/city-builder";
 import CitySwitchManager from "../city/city-switch-manager";
 import FarmManager from "../farm/farm-manager";
+import MasterQueue from "../master-queue/master-queue";
 import Recruiter from "../recruiter/recruiter";
 import Scheduler from "../scheduler/Scheduler";
 import GeneralInfo from "./ui/general-info";
 
-export type Managers = 'farmManager' | 'scheduler' | 'builder' | 'recruiter';
+export type Managers = 'farmManager' | 'scheduler' | 'builder' | 'recruiter' | 'masterQueue';
 
 export default class MasterManager {
   private static instance: MasterManager
@@ -19,6 +20,7 @@ export default class MasterManager {
   private scheduler!: Scheduler;
   private builder!: CityBuilder;
   private recruiter!: Recruiter;
+  private masterQueue!: MasterQueue;
   private configMenuWindow!: ConfigPopup;
   private generalInfo!: GeneralInfo;
 
@@ -29,6 +31,7 @@ export default class MasterManager {
       scheduler: false,
       builder: false,
       recruiter: false,
+      masterQueue: false,
     };
   private constructor() {
     // Private constructor to prevent direct instantiation
@@ -44,6 +47,7 @@ export default class MasterManager {
       MasterManager.instance.scheduler = await Scheduler.getInstance();
       MasterManager.instance.builder = await CityBuilder.getInstance();
       MasterManager.instance.recruiter = await Recruiter.getInstance();
+      MasterManager.instance.masterQueue = await MasterQueue.getInstance();
       MasterManager.instance.initCaptchaPrevention();
       // MasterManager.instance.initRefreshUtility();
       MasterManager.instance.initConfigDialog();
@@ -109,6 +113,17 @@ export default class MasterManager {
   }
 
   private async runManagersFromConfig(configChanges?: TConfigChanges): Promise<void> {
+    if (this.configMenuWindow.isMasterQueueChecked()) {
+      if (!this.masterQueue.isRunning()) {
+        console.log('MasterQueue will be started...')
+        this.masterQueue.start();
+      }
+    } else {
+      if (this.masterQueue.isRunning()) {
+        console.log('MasterQueue will be stopped...')
+        this.masterQueue.stop();
+      }
+    }
     if (this.configMenuWindow.isBuilderChecked()) {
       if (!this.builder.isRunning()) {
         console.log('Builder will be started...')
@@ -144,8 +159,8 @@ export default class MasterManager {
     }
 
     if (configChanges) {
-      if (hasAnyValue(configChanges.recruiter, true)) {
-        this.recruiter.handleRecruiterConfigChange(configChanges.recruiter);
+      if (hasAnyValue(configChanges.masterQueue, true)) {
+        this.masterQueue.handleMasterQueueConfigChange(configChanges.masterQueue);
       }
       if (hasAnyValue(configChanges.builder, true)) {
         this.builder.handleBuilderConfigChange(configChanges.builder);
@@ -179,6 +194,10 @@ export default class MasterManager {
 
   public pauseRunningManagers(except: Managers[]): void {
     console.log('pauseRunningManagers', this.pausedManagersSnapshot);
+    if (!except.includes('masterQueue') && this.masterQueue.isRunning()) {
+      this.masterQueue.stop();
+      this.pausedManagersSnapshot.masterQueue = true;
+    }
     if (!except.includes('farmManager') && this.farmManager.isRunning()) {
       this.farmManager.stop();
       this.pausedManagersSnapshot.farmManager = true;
@@ -211,17 +230,21 @@ export default class MasterManager {
         this.pausedManagersSnapshot.farmManager = true;
       }
     }
-    // TODO: more robust check in the future since it will have its own schedule
-    if (!except.includes('recruiter') && this.recruiter.isRunning()) {
-      const recruiterTimes = this.recruiter.getRecruitmentScheduleTimes();
-      const recruiterTimesCollides = recruiterTimes.some((recruitingTime: number) =>
-        recruitingTime &&
-        recruitingTime <= actionTime &&
-        Math.abs((recruitingTime - actionTime)) <= 1000 * 30);
-      if (recruiterTimesCollides) {
-        this.recruiter.stop();
-        this.pausedManagersSnapshot.recruiter = true;
+    // NOTE: remake as masterqueue holds now all operations
+    if (!except.includes('masterQueue') && this.masterQueue.isRunning()) {
+      const masterQueueTimes = this.masterQueue.getMasterQueueScheduleTimes();
+      const masterQueueTimesCollides = masterQueueTimes.some((masterQueueTime: number) =>
+        masterQueueTime &&
+        masterQueueTime <= actionTime &&
+        Math.abs((masterQueueTime - actionTime)) <= 1000 * 30);
+      if (masterQueueTimesCollides) {
+        this.masterQueue.stop();
+        this.pausedManagersSnapshot.masterQueue = true;
       }
+    }
+    if (!except.includes('recruiter') && this.recruiter.isRunning()) {
+      this.recruiter.stop();
+      this.pausedManagersSnapshot.recruiter = true;
     }
     if (!except.includes('scheduler') && this.scheduler.isRunning()) {
       this.scheduler.stop();
@@ -265,6 +288,11 @@ export default class MasterManager {
             this.builder.start();
           }
           break;
+        case 'masterQueue':
+          if (isPaused && !except.includes('masterQueue')) {
+            this.masterQueue.start();
+          }
+          break;
       }
     });
 
@@ -286,5 +314,7 @@ export default class MasterManager {
     this.switchManager.stop();
     this.scheduler.stop();
     this.builder.stop();
+    this.recruiter.stop();
+    this.masterQueue.stop();
   }
 }

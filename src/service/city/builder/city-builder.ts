@@ -10,8 +10,10 @@ import GeneralInfo from "../../master/ui/general-info";
 import { TConfigChanges } from "../../../config-popup/config-popup";
 import ConfigManager from "../../../utility/config-manager";
 import ResourceLock from "../../../utility/resource-lock";
+import MasterQueue from "../../master-queue/master-queue";
+import TradeManager from "../../trade/trade-manager";
 
-type QueueItem = {
+export type BuilderQueueItem = {
   id: string,
   building: Building,
   toLvl: number
@@ -19,7 +21,7 @@ type QueueItem = {
 
 type CityQueue = {
   city: CityInfo,
-  queue: Array<QueueItem>
+  queue: Array<BuilderQueueItem>
   schedule: NodeJS.Timeout | null,
   scheduledDate: Date | null
   description?: string
@@ -47,6 +49,8 @@ export default class CityBuilder {
 
   private lock!: Lock;
   private resourceManager!: ResourceManager;
+  private masterQueue!: MasterQueue;
+  private tradeManager!: TradeManager;
 
   private RUN: boolean = false;
   private resourceLock!: ResourceLock;
@@ -64,6 +68,8 @@ export default class CityBuilder {
       CityBuilder.instance.resourceManager = await ResourceManager.getInstance();
       CityBuilder.instance.citySwitchManager = await CitySwitchManager.getInstance();
       CityBuilder.instance.generalInfo = GeneralInfo.getInstance();
+      CityBuilder.instance.masterQueue = await MasterQueue.getInstance();
+      CityBuilder.instance.tradeManager = await TradeManager.getInstance();
       CityBuilder.instance.addStyle();
       CityBuilder.instance.renderUI();
       CityBuilder.instance.loadQueueFromStorage();
@@ -75,14 +81,17 @@ export default class CityBuilder {
     const container = document.createElement('div');
     container.innerHTML = builderHtml;
     document.body.appendChild(container);
-    this.addBuildButtons();
+    this.addBuildingActionButtons();
+    // TODO: add master queue navigation here (probably)
     this.initToggleButtonEvents();
   }
 
+  // TODO: do delete (master queue has API for this)
   public getActiveCities(): CityInfo[] {
     return this.mainQueue.filter(citySchedule => citySchedule.queue.length > 0).map(queue => queue.city);
   }
 
+  // TODO: change because of master queue
   /**
    * Handles builder config changes, method serves as a listener for config changes.
    * @param configChanges 
@@ -149,6 +158,7 @@ export default class CityBuilder {
     });
   }
 
+  // TODO: delete because of master queue ahdnles  (DELETE)
   public getBuilderScheduleTimes() {
     return this.mainQueue.map(queue => queue.scheduledDate);
   }
@@ -168,7 +178,8 @@ export default class CityBuilder {
   <button id="show-builder">Toggle builder</button>
   */
 
-  private addBuildButtons() {
+  // TODO: change because of master queue (should call masterQueue.addToQueue(details))
+  private addBuildingActionButtons() {
     // <div id="build-container">
     const buildOptions = document.getElementById(CityBuilder.buildOptionsContainerId)!;
 
@@ -213,6 +224,7 @@ export default class CityBuilder {
     }
   }
 
+  // TODO: change because of master queue (should call masterQueue.addToQueue(details))
   private onOptionBuildButtonClick(building: Building) {
     const currentCity = this.citySwitchManager.getCurrentCity()!;
     let currentCityQueue = this.mainQueue.find((queueObj) => queueObj.city.name === currentCity.name);
@@ -228,12 +240,13 @@ export default class CityBuilder {
     this.addToQueue(building, currentCityQueue);
   }
 
+  // TODO: change because of master queue - delete because master queue is handling this
   /**
    * Tworzy element DOM przedstawiający element kolejki i zwraca go.
    * @param building 
    * @returns 
    */
-  private addBuldingToUIQueue(queueItem: QueueItem, position: 'start' | 'end' = 'end', cityQueue: CityQueue) {
+  private addBuldingToUIQueue(queueItem: BuilderQueueItem, position: 'start' | 'end' = 'end', cityQueue: CityQueue) {
     const additionalQueue = document.getElementById('additional-queue')!;
     const queueItemEl = document.createElement('div');
     queueItemEl.className = CityBuilder.queueItemClass;
@@ -281,6 +294,7 @@ export default class CityBuilder {
     return queueItemEl;
   }
 
+  // TODO: change because of master queue
   public revalidateQueueItemLevels(building: Building, fromIndex: number, cityQueue: CityQueue) {
     console.log('--------revalidateQueueItemLevels', building, fromIndex);
     const itemsToRevalidate = cityQueue.queue.filter((item, index) => index >= fromIndex && item.building.name === building.name);
@@ -404,7 +418,7 @@ export default class CityBuilder {
     }
   }
 
-  private async checkIfItemCanBeBuiltAndAddDeleteOrSchedule(cityQueue: CityQueue, item: QueueItem, forced: boolean = false) {
+  private async checkIfItemCanBeBuiltAndAddDeleteOrSchedule(cityQueue: CityQueue, item: BuilderQueueItem, forced: boolean = false) {
     const building = item.building;
 
     console.log('check if can build item:', item);
@@ -440,25 +454,6 @@ export default class CityBuilder {
       const resourcesInfo = await this.areResourcesStackable(building, cityQueue.city);
       if (resourcesInfo.areStackable === true) {
         console.log('\t-areResourcesStackable is true, scheduling build');
-        // // safe, but not perfect solution
-        // cityQueue.schedule = setInterval(async () => {
-        //   try {
-        //     cityQueue.scheduledDate = new Date(Date.now() + CityBuilder.BUILD_RETRY_INTERVAL);
-        //     await this.lock.acquire({ method: cityQueue.city.name + ' - checkIfItemCanBeBuiltAndAddDeleteOrSchedule (inside interval)', manager: 'builder' });
-        //     if ((await this.resourceManager.hasEnoughResources(resourcesInfo.requiredResources, cityQueue.city)) && (await this.canBuild(building, cityQueue.city))) {
-        //       console.log('\t\t-canBuild is true, building...');
-        //       const emptySlots = this.getEmptySlotsCount();
-        //       await building.buildAction();
-        //       await this.untilEmptyslotsAreEqual(emptySlots - 1);
-        //       await this.shiftQueueCleanScheduleAndTryNext(item, cityQueue);
-        //     }
-        //   } catch (e) {
-        //     console.warn('CityBuilder.checkIfItemCanBeBuiltAndAddDeleteOrSchedule().catch', e);
-        //   } finally {
-        //     this.lock.release();
-        //   }
-        // }, CityBuilder.BUILD_RETRY_INTERVAL);
-        // cityQueue.scheduledDate = new Date(Date.now() + CityBuilder.BUILD_RETRY_INTERVAL);
         await this.handleResourcesStackableFlow(building, cityQueue, resourcesInfo.requiredResources, item);
       }
       else if (resourcesInfo.areStackable === 'population' && this.allowCriticalBuilds) {
@@ -494,7 +489,7 @@ export default class CityBuilder {
     building: Building,
     cityQueue: CityQueue,
     requiredResources: { wood: number, stone: number, iron: number },
-    item: QueueItem
+    item: BuilderQueueItem
   ) {
     /**
      * Checks if there are enough resources to build the building.
@@ -605,7 +600,7 @@ export default class CityBuilder {
     return currentLvl;
   }
 
-  private clearUIQueueItem(item: QueueItem) {
+  private clearUIQueueItem(item: BuilderQueueItem) {
     const queueItemEl = document.querySelector(`[data-id="${item.id}"]`);
     if (queueItemEl) {
       queueItemEl.remove();
@@ -629,7 +624,7 @@ export default class CityBuilder {
     });
   }
 
-  private async shiftQueueCleanScheduleAndTryNext(item: QueueItem, cityQueue: CityQueue) {
+  private async shiftQueueCleanScheduleAndTryNext(item: BuilderQueueItem, cityQueue: CityQueue) {
     cityQueue.queue.shift();
     this.saveQueueToStorage();
     if (cityQueue.schedule) {

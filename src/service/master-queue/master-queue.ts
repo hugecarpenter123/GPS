@@ -1,20 +1,21 @@
 import { scheduler } from "timers/promises";
-import gpsConfig from "../../gps.config";
-import { Building } from "../service/city/builder/buildings";
-import CityBuilder, { BuilderQueueItem } from "../service/city/builder/city-builder";
-import CitySwitchManager, { CityInfo } from "../service/city/city-switch-manager";
-import Recruiter, { RecruiterQueueItem } from "../service/recruiter/recruiter";
-import ConfigManager from "../utility/config-manager";
-import ResourceLock from "../utility/resource-lock";
-import { IService } from "../utility/Service";
+import gpsConfig from "../../../gps.config";
+import { Building } from "../city/builder/buildings";
+import CityBuilder, { BuilderQueueItem } from "../city/builder/city-builder";
+import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
+import Recruiter, { RecruiterQueueItem } from "../recruiter/recruiter";
+import ConfigManager from "../../utility/config-manager";
+import ResourceLock from "../../utility/resource-lock";
+import masterQueueCss from './master-queue.css';
+import { IService } from "../../utility/Service";
+import { TConfigChanges } from "../../config-popup/config-popup";
 
 /*
 Każdy manager, któremu zależy na kolejności i sychronizacji z innymi elementami
 może się kolejkować w tej kolejce. Jeżeli kolejność nie odgrywa roli nie musi korzystać.
 
 -Każdy item posiada callbacka do wywołania swojego flow.
-  :Manger odustepnia API "performNext()", który wrappuje actionCallbacka, by zapisać jego timeout jako props (do poźniejszgo wstrzymwania)
-
+  :Manger odustepnia API "execute()", który wrappuje actionCallbacka, by zapisać jego timeout jako props (do poźniejszgo wstrzymwania)
 */
 
 type QueueItemDetails = (RecruiterQueueItem | BuilderQueueItem) & {
@@ -75,10 +76,18 @@ export default class MasterQueue implements IService {
   }
 
   private async init() {
+    // TODO: maybe don't initialize but everrytime call `await Recruiter.getInstance().execute(...)` ?
     this.recruiter = await Recruiter.getInstance();
     this.builder = await CityBuilder.getInstance();
     this.loadSchedule();
+    this.addCSS();
     this.initialized = true;
+  }
+
+  private addCSS() {
+    const style = document.createElement('style');
+    style.textContent = masterQueueCss;
+    document.head.appendChild(style);
   }
 
   public isRunning() {
@@ -570,6 +579,16 @@ export default class MasterQueue implements IService {
     })
     const confirm = window.confirm(message);
     return confirm;
+  }
+
+  public getMasterQueueScheduleTimes() {
+    return this.queue.map(citySchedule => citySchedule.scheduleDate).filter(Boolean).map(date => date!.getTime());
+  }
+
+  public handleMasterQueueConfigChange(configChange: TConfigChanges['masterQueue']) {
+    if (configChange.autoReevaluate) {
+      this.reevaluateProviderCities();
+    }
   }
 
 }

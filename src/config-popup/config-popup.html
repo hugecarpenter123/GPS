@@ -84,9 +84,16 @@
 
     <div class="input-wrapper">
       <input type="checkbox" id="recruiter" />
+      <label for="recruiter">
+        Recruiter
+      </label>
+    </div>
+
+    <div class="input-wrapper">
+      <input type="checkbox" id="master-queue" />
       <div class="label-chevron">
-        <label for="recruiter">
-          Recruiter
+        <label for="master-queue">
+          Master queue
         </label>
         <svg xmlns="http://www.w3.org/2000/svg" class="arrow-down" width="16" height="16" fill="currentColor"
           class="bi bi-chevron-down" viewBox="0 0 16 16">
@@ -98,13 +105,14 @@
         <div class="section-header"></div>
         <div class="section-content">
           <div class="input-wapper">
-            <input type="checkbox" id="recruiter-auto-reevaluate" />
-            <label for="recruiter-auto-reevaluate">Auto reevaluate</label>
+            <input type="checkbox" id="master-queue-auto-reevaluate" />
+            <label for="master-queue-auto-reevaluate">Auto reevaluate</label>
           </div>
         </div>
       </div>
     </div>
-    <div class="input-wrapper">
+
+    <div class="input-wrapper" hidden>
       <input type="checkbox" id="guard" disabled />
       <label for="guard">Guard (in progress)</label>
     </div>
