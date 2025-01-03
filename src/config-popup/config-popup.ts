@@ -20,6 +20,7 @@ export type TConfigChanges = {
     builder: boolean;
     guard: boolean;
     recruiter: boolean;
+    stockManager: boolean;
   };
   builder: {
     minimumTracking: boolean;
@@ -33,6 +34,7 @@ export default class ConfigPopup extends EventEmitter {
   private farm: boolean;
   private builder: boolean;
   private minimumTracking: boolean;
+  private stockManager: boolean;
   private guard: boolean;
   private recruiter: boolean;
   private recruiterAutoReevaluate: boolean;
@@ -55,6 +57,7 @@ export default class ConfigPopup extends EventEmitter {
     this.recruiterAutoReevaluate = this.config.recruiter.autoReevaluate;
     this.farmInterval = this.config.farmConfig.farmInterval;
     this.humanize = this.config.farmConfig.humanize;
+    this.stockManager = this.config.general.stockManager;
   }
 
   public isFarmChecked = () => {
@@ -76,6 +79,10 @@ export default class ConfigPopup extends EventEmitter {
   public getPlunderConfig = () => {
   }
 
+  public isStockManagerChecked = () => {
+    return this.stockManager;
+  }
+
   private initEventListeners(): void {
     const container = document.querySelector('#config-popup-container') as HTMLElement;
     const plunderCheckbox = container.querySelector('#farm');
@@ -88,7 +95,7 @@ export default class ConfigPopup extends EventEmitter {
     const showTrigger = container.querySelector('.show-trigger');
     const closeTrigger = container.querySelector('#close-popup');
     const humanizeCheckbox = container.querySelector('#humanize-checkbox');
-
+    const stockManagerCheckbox = container.querySelector('#stock-manager');
     if (!container) throw new Error('"#config-popup-container" couldn\'t be found.')
 
     closeTrigger!.addEventListener('click', () => {
@@ -124,6 +131,7 @@ export default class ConfigPopup extends EventEmitter {
           builder: this.config.general.builder !== this.builder,
           guard: this.config.general.guard !== this.guard,
           recruiter: this.config.general.recruiter !== this.recruiter,
+          stockManager: this.config.general.stockManager !== this.stockManager,
         },
         builder: {
           minimumTracking: this.config.builder.minimumTracking !== this.minimumTracking,
@@ -143,6 +151,7 @@ export default class ConfigPopup extends EventEmitter {
         this.config.general.recruiter = this.recruiter;
         this.config.recruiter.autoReevaluate = this.recruiterAutoReevaluate;
         this.config.farmConfig.farmingCities = Object.values(this.uniquelySelectedFarmingCitiesPerIsle);
+        this.config.general.stockManager = this.stockManager;
         this.configManager.persistConfig();
       }
 
@@ -172,6 +181,10 @@ export default class ConfigPopup extends EventEmitter {
     recruiterCheckbox!.addEventListener('change', () => {
       this.recruiter = (recruiterCheckbox as HTMLInputElement).checked;
     });
+    stockManagerCheckbox!.addEventListener('change', () => {
+      this.stockManager = (stockManagerCheckbox as HTMLInputElement).checked;
+    });
+
     timeIntervalSelect!.addEventListener('change', () => {
       this.farmInterval = Number((timeIntervalSelect as HTMLSelectElement).value)
       console.log('this.farmInterval changed to: ', this.farmInterval);
@@ -236,6 +249,7 @@ export default class ConfigPopup extends EventEmitter {
     (container.querySelector('#builder') as HTMLInputElement)!.checked = this.builder;
     (container.querySelector('#guard') as HTMLInputElement)!.checked = this.guard;
     (container.querySelector('#recruiter') as HTMLInputElement)!.checked = this.recruiter;
+    (container.querySelector('#stock-manager') as HTMLInputElement)!.checked = this.stockManager;
     // farm section
     const intervalSelectElement = (container.querySelector('#time-interval-select') as HTMLSelectElement)
     const farmIntervalValuesUnparsed = Object.values(FarmTimeInterval);
@@ -357,10 +371,6 @@ export default class ConfigPopup extends EventEmitter {
     }
   }
 
-  private emitRecruiterConfigChange = () => {
-    this.emit('recruiterAutoReevaluateChange');
-  }
-
   public getManagersFlags = () => {
     return {
       farm: this.farm,
@@ -400,5 +410,4 @@ export default class ConfigPopup extends EventEmitter {
     const container = document.querySelector<HTMLElement>('#config-popup-container');
     container?.classList.add('minimized');
   }
-
 }

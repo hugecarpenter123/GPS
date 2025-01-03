@@ -26,6 +26,7 @@ const config = {
     builder: true,
     guard: false,
     recruiter: false,
+    stockManager: false,
   },
   builder: {
     minimumTracking: true,

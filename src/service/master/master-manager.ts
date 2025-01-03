@@ -7,9 +7,10 @@ import CitySwitchManager from "../city/city-switch-manager";
 import FarmManager from "../farm/farm-manager";
 import Recruiter from "../recruiter/recruiter";
 import Scheduler from "../scheduler/Scheduler";
+import StockManager from "../stock-manager/stock-manager";
 import GeneralInfo from "./ui/general-info";
 
-export type Managers = 'farmManager' | 'scheduler' | 'builder' | 'recruiter';
+export type Managers = 'farmManager' | 'scheduler' | 'builder' | 'recruiter' | 'stockManager';
 
 export default class MasterManager {
   private static instance: MasterManager
@@ -21,6 +22,7 @@ export default class MasterManager {
   private recruiter!: Recruiter;
   private configMenuWindow!: ConfigPopup;
   private generalInfo!: GeneralInfo;
+  private stockManager!: StockManager;
 
   private pausedManagersSnapshot: {
     [key in Managers]: boolean;
@@ -29,6 +31,7 @@ export default class MasterManager {
       scheduler: false,
       builder: false,
       recruiter: false,
+      stockManager: false,
     };
   private constructor() {
     // Private constructor to prevent direct instantiation
@@ -44,6 +47,7 @@ export default class MasterManager {
       MasterManager.instance.scheduler = await Scheduler.getInstance();
       MasterManager.instance.builder = await CityBuilder.getInstance();
       MasterManager.instance.recruiter = await Recruiter.getInstance();
+      MasterManager.instance.stockManager = await StockManager.getInstance();
       MasterManager.instance.initCaptchaPrevention();
       // MasterManager.instance.initRefreshUtility();
       MasterManager.instance.initConfigDialog();
@@ -142,6 +146,17 @@ export default class MasterManager {
         this.recruiter.stop();
       }
     }
+    if (this.configMenuWindow.isStockManagerChecked()) {
+      if (!this.stockManager.isRunning()) {
+        console.log('StockManager will be started...')
+        this.stockManager.start();
+      }
+    } else {
+      if (this.stockManager.isRunning()) {
+        console.log('StockManager will be stopped...')
+        this.stockManager.stop();
+      }
+    }
 
     if (configChanges) {
       if (hasAnyValue(configChanges.recruiter, true)) {
@@ -195,6 +210,10 @@ export default class MasterManager {
       this.recruiter.stop();
       this.pausedManagersSnapshot.recruiter = true;
     }
+    if (!except.includes('stockManager') && this.stockManager.isRunning()) {
+      this.stockManager.stop();
+      this.pausedManagersSnapshot.stockManager = true;
+    }
     console.log('pauseRunningManagers', this.pausedManagersSnapshot);
   }
 
@@ -238,6 +257,10 @@ export default class MasterManager {
         this.pausedManagersSnapshot.builder = true;
       }
     }
+    if (!except.includes('stockManager') && this.stockManager.isRunning()) {
+      this.stockManager.stop();
+      this.pausedManagersSnapshot.stockManager = true;
+    }
     console.log('pauseRunningManagers', this.pausedManagersSnapshot);
   }
 
@@ -265,6 +288,11 @@ export default class MasterManager {
             this.builder.start();
           }
           break;
+        case 'stockManager':
+          if (isPaused && !except.includes('stockManager')) {
+            this.stockManager.start();
+          }
+          break;
       }
     });
 
@@ -286,5 +314,6 @@ export default class MasterManager {
     this.switchManager.stop();
     this.scheduler.stop();
     this.builder.stop();
+    this.stockManager.stop();
   }
 }
