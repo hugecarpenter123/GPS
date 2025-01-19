@@ -18,7 +18,7 @@ type TargetResourcesInfo = {
 }
 type StackResourcesResult = {
   fullyStacked: boolean;
-  timeMs?: number;
+  timeMs: number;
   resources?: TargetResourcesInfo;
 }
 
@@ -102,8 +102,7 @@ export default class TradeManager {
       counter++;
       await fromCity.switchAction(false);
       await performComplexClick(document.querySelector<HTMLElement>(`#town_${city.cityId}`)).catch(() => { console.log(`no town ${city.cityId} found`) });
-      await addDelay(500);
-    } while (!document.querySelector<HTMLElement>('#trading') && counter < 5)
+    } while (!(await waitForElementInterval('#trading', { interval: 333, retries: 5 }).catch(() => false)) && counter < 5)
     if (counter >= 5) throw new InfoError('Couldn\'t click trading option', {})
     document.querySelector<HTMLElement>('#trading')!.click();
     await waitUntil(() => !document.querySelector<HTMLElement>('#trade'), { delay: 333, maxIterations: 5 });
@@ -134,8 +133,9 @@ export default class TradeManager {
   }
 
   /**
-   * Goes through the cities and stacks resources, returns time in ms to last shipment or -1 if not enough resources, which means
-   * that stacking should be rescheduled
+   * Goes through the cities and stacks resources, returns time in ms to last shipment or -1 if resources are not stacked fully, which means
+   * that stacking should be rescheduled.
+   * @returns Object specyfing if resources are fully stacked, time in ms to last shipment (+3s) or -1 if not stacked fully.
    * @requires Lock
    */
   public async stackResources(targetResources: TargetResourcesInfo, city: CityInfo, fromCities: CityInfo[], maxShipmentTime: number): Promise<StackResourcesResult> {
@@ -306,7 +306,7 @@ export default class TradeManager {
       console.log('not fully stacked, timeMs:', highestTime);
       return {
         fullyStacked: false,
-        timeMs: highestTime + 3000,
+        timeMs: highestTime === -1 ? -1 : highestTime + 3000,
         resources: stillNeededResources
       }
     }
@@ -314,7 +314,7 @@ export default class TradeManager {
     console.log('fully stacked, timeMs:', highestTime);
     return {
       fullyStacked: true,
-      timeMs: highestTime + 3000,
+      timeMs: highestTime === -1 ? -1 : highestTime + 3000,
     }
   }
 

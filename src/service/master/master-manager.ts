@@ -85,6 +85,8 @@ export default class MasterManager {
           const recaptchaWindow = document.querySelector('#recaptcha_window');
           const captchaCurtain = document.querySelector('#captcha_curtain');
           if (recaptchaWindow) {
+            const recaptchaWindowCount = Number(localStorage.getItem('recaptchaWindow') ?? 0);
+            localStorage.setItem('recaptchaWindow', (recaptchaWindowCount + 1).toString());
             const checkbox = recaptchaWindow.querySelector<HTMLElement>('[class="recaptcha-checkbox-border"]');
             if (checkbox) {
               await addDelay(4000);
@@ -96,6 +98,8 @@ export default class MasterManager {
               }
             }
           } else if (captchaCurtain) {
+            const captchaCurtainCount = Number(localStorage.getItem('captchaCurtain') ?? 0);
+            localStorage.setItem('captchaCurtain', (captchaCurtainCount + 1).toString());
             const checkbox = captchaCurtain.querySelector<HTMLElement>('[class="captcha-checkbox-border"]');
             if (checkbox) {
               await addDelay(2000);

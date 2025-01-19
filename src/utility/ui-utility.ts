@@ -303,7 +303,7 @@ export function mouseDownEvent(element: HTMLElement) {
 
 export async function performComplexClick(element: HTMLElement | null | undefined) {
   if (!element) return;
-  console.log('performComplexClick() - window:', window);
+  console.log('performComplexClick() - at:', element);
   mouseDownEvent(element);
   await addDelay(50);
   mouseUpEvent(element);

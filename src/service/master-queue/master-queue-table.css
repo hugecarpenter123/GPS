@@ -1,0 +1,139 @@
+#master-queue-table-container {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  /* width: 100%; */
+  width: fit-content;
+  max-width: 90%;
+  max-height: 70vh;
+  overflow: auto;
+  z-index: 2000 !important;
+}
+
+#master-queue-table {
+  font-family: Arial, Helvetica, sans-serif;
+  border-collapse: collapse;
+  font-size: 18px;
+  text-align: left;
+  background-color: antiquewhite;
+  margin: 0 auto;
+}
+
+#master-queue-table .no-schedules {
+  text-align: center;
+  height: 50px;
+}
+
+#master-queue-table {
+  font-size: 14px;
+}
+
+#master-queue-table th,
+#master-queue-table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+}
+
+#master-queue-table th {
+  background-color: #f2f2f2;
+  font-weight: bold;
+}
+
+#master-queue-table td {
+  text-wrap: nowrap;
+}
+
+
+.cancel-button {
+  background-color: #f44336;
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition-duration: 150ms;
+}
+
+.cancel-button:hover {
+  background-color: #d32f2f;
+}
+
+#master-queue-table-toggle-button {
+  padding: 4px 8px;
+  font-size: 12px;
+  font-variant: small-caps;
+  cursor: pointer;
+  border-radius: 4px;
+  border: 1px solid tomato;
+  color: tomato;
+  box-shadow: 0 0 2px tomato;
+  position: absolute;
+  bottom: 135px;
+  left: 10px;
+  margin: 0;
+  z-index: 1000;
+  transition-duration: 150ms;
+}
+
+#master-queue-table-toggle-button:hover {
+  background-color: #f44336;
+  color: white;
+}
+
+#master-queue-table .actions {
+  min-width: 22px;
+}
+
+#master-queue-table .master-queue-actions {
+  display: flex;
+  flex-direction: column;
+}
+
+#master-queue-table-close-icon {
+  cursor: pointer;
+  right: 5px;
+  top: 5px;
+  color: #000;
+  transition-duration: 150ms;
+}
+
+#master-queue-table-close-icon:hover {
+  scale: 1.1;
+}
+
+#master-queue-table .queue-cell {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+
+#master-queue-table .hidden {
+  display: none;
+}
+
+#master-queue-table tbody {
+  max-width: 1000px;
+}
+
+#master-queue-table .master-queue-state {
+  text-align: center;
+  padding: 0 8px;
+}
+
+#master-queue-table .master-queue-state.running {
+  color: green;
+  font-weight: bold;
+}
+
+#master-queue-table .master-queue-state.idle {
+  color: orange;
+  font-weight: bold;
+}
+
+#master-queue-table .master-queue-actions {
+  display: flex;
+  flex-direction: column;
+}
+
+#master-queue-table-footer {}

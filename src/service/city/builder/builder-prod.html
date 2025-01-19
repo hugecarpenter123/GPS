@@ -4,5 +4,29 @@
   <div id="additional-queue">
 
   </div>
+  <div id="provider-cities-section">
+    <div class="input-wrapper" style="display: flex; gap: 8px; align-items: center;">
+      <label for="provider-cities">Supplier cities</label>
+      <select name="provider-cities" id="provider-cities">
+      </select>
+    </div>
+    <div class="input-wrapper" style="display: flex; gap: 8px; align-items: center;">
+      <label for="max-shipment-time">Max shipment time</label>
+      <select name="max-shipment-time" id="max-shipment-time">
+        <option value="600000">10 min</option>
+        <option value="900000">15 min</option>
+        <option value="1200000">20 min</option>
+        <option selected value="1500000">25 min</option>
+        <option value="1800000">30 min</option>
+        <option value="2100000">35 min</option>
+        <option value="2400000">40 min</option>
+        <option value="2700000">45 min</option>
+        <option value="3000000">50 min</option>
+        <option value="3300000">55 min</option>
+        <option value="3600000">60 min</option>
+      </select>
+    </div>
+  </div>
+  <div id="builder-navigation"></div>
 </div>
 <button id="toggle-builder" class="hidden">Toggle builder</button>

@@ -1,0 +1,39 @@
+<div>
+  <div id="master-queue-table-container">
+    <table id="master-queue-table" hidden>
+      <thead>
+        <tr>
+          <th id="master-queue-city-header">City</th>
+          <th id="master-queue-queue-header">Queue</th>
+          <th id="master-queue-state-header">State</th>
+          <th id="master-queue-actions-header" style="display: flex; gap: 12px;">
+            <span>Actions</span>
+            <div id="master-queue-table-close-icon" style="align-self: flex-start; justify-self: flex-end;">
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"
+                style="display: block;">
+                <line x1="1" y1="1" x2="23" y2="23"></line>
+                <line x1="23" y1="1" x2="1" y2="23"></line>
+              </svg>
+            </div>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- <tr id="master-queue-table-empty" hidden>
+          <td colspan="4" align="center">No schedules</td>
+        </tr> -->
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="4" align="center" id="master-queue-table-footer">
+
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  <div id="master-queue-table-toggle-button">
+    <span>Master Queue</span>
+  </div>
+</div>

@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+  <link rel="stylesheet" href="master-queue-table.css">
+  <link rel="stylesheet" href="master-queue.css">
+</head>
+
+<body>
+  <div>
+    <div id="master-queue-table-container">
+      <table id="master-queue-table">
+        <thead>
+          <tr>
+            <th id="master-queue-city-header">City</th>
+            <th id="master-queue-queue-header">Queue</th>
+            <th id="master-queue-state-header">State</th>
+            <th id="master-queue-actions-header" style="display: flex; gap: 12px;">
+              <span>Actions</span>
+              <div id="master-queue-table-close-icon" style="align-self: flex-start; justify-self: flex-end;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"
+                  style="display: block;">
+                  <line x1="1" y1="1" x2="23" y2="23"></line>
+                  <line x1="23" y1="1" x2="1" y2="23"></line>
+                </svg>
+              </div>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr id="master-queue-table-empty" hidden>
+            <td colspan="4" align="center">No schedules</td>
+          </tr>
+          <tr>
+            <td>HonkKong</td>
+            <td>
+              <div class="master-queue" style="flex-wrap: nowrap;">
+                <div class="master-queue-item">
+                  <span class="master-queue-item-position">1</span>
+                  <div class="master-queue-item-delete">&#x2715;</div>
+                  <div class="master-queue-item-image"></div>
+                  <div class="master-queue-item-info">
+                    <span class="desc1">archereeeeeeeee</span>
+                    <span class="desc2">100 units</span>
+                  </div>
+                </div>
+                <div class="master-queue-item">
+                  <span class="master-queue-item-position">2</span>
+                  <div class="master-queue-item-delete">&#x2715;</div>
+                  <div class="master-queue-item-level-bar">2</div>
+                  <div class="master-queue-item-image"></div>
+                  <div class="master-queue-item-info">
+                    <span class="desc1">archer</span>
+                    <span class="desc2">100 units</span>
+                  </div>
+                </div>
+                <div class="master-queue-item">
+                  <span class="master-queue-item-position">3</span>
+                  <div class="master-queue-item-delete">&#x2715;</div>
+                  <div class="master-queue-item-image"></div>
+                  <div class="master-queue-item-info">
+                    <span class="desc1"></span>
+                    <span class="desc2"></span>
+                  </div>
+                </div>
+                <div class="master-queue-item">
+                  <span class="master-queue-item-position">2</span>
+                  <div class="master-queue-item-delete">&#x2715;</div>
+                  <div class="master-queue-item-level-bar">2</div>
+                  <div class="master-queue-item-image"></div>
+                  <div class="master-queue-item-info">
+                    <span class="desc1">archer</span>
+                    <span class="desc2">100 units</span>
+                  </div>
+                </div>
+                <div class="master-queue-item">
+                  <span class="master-queue-item-position">2</span>
+                  <div class="master-queue-item-delete">&#x2715;</div>
+                  <div class="master-queue-item-level-bar">2</div>
+                  <div class="master-queue-item-image"></div>
+                  <div class="master-queue-item-info">
+                    <span class="desc1">archer</span>
+                    <span class="desc2">100 units</span>
+                  </div>
+                </div>
+                <div class="master-queue-item">
+                  <span class="master-queue-item-position">2</span>
+                  <div class="master-queue-item-delete">&#x2715;</div>
+                  <div class="master-queue-item-level-bar">2</div>
+                  <div class="master-queue-item-image"></div>
+                  <div class="master-queue-item-info">
+                    <span class="desc1">archer</span>
+                    <span class="desc2">100 units</span>
+                  </div>
+                </div>
+              </div>
+            </td>
+            <td class="master-queue-state running">Running</td>
+            <td class="master-queue-actions">
+              <button>Run</button>
+              <button>Restart</button>
+              <button>Pause</button>
+              <button>Delete</button>
+            </td>
+          </tr>
+          <tr>
+            <td>HonkKong</td>
+            <td>
+              <div class="queue-cell">
+                <div class="master-queue-item">
+                  <span class="master-queue-item-position">1</span>
+                  <div class="master-queue-item-delete">&#x2715;</div>
+                  <div class="master-queue-item-image"></div>
+                  <div class="master-queue-item-info">
+                    <span class="desc1">archereeeeeeeee</span>
+                    <span class="desc2">100 units</span>
+                  </div>
+                </div>
+                <div class="master-queue-item">
+                  <span class="master-queue-item-position">2</span>
+                  <div class="master-queue-item-delete">&#x2715;</div>
+                  <div class="master-queue-item-level-bar">2</div>
+                  <div class="master-queue-item-image"></div>
+                  <div class="master-queue-item-info">
+                    <span class="desc1">archer</span>
+                    <span class="desc2">100 units</span>
+                  </div>
+                </div>
+                <div class="master-queue-item">
+                  <span class="master-queue-item-position">3</span>
+                  <div class="master-queue-item-delete">&#x2715;</div>
+                  <div class="master-queue-item-image"></div>
+                  <div class="master-queue-item-info">
+                    <span class="desc1"></span>
+                    <span class="desc2"></span>
+                  </div>
+                </div>
+                <div class="master-queue-item">
+                  <span class="master-queue-item-position">2</span>
+                  <div class="master-queue-item-delete">&#x2715;</div>
+                  <div class="master-queue-item-level-bar">2</div>
+                  <div class="master-queue-item-image"></div>
+                  <div class="master-queue-item-info">
+                    <span class="desc1">archer</span>
+                    <span class="desc2">100 units</span>
+                  </div>
+                </div>
+                <div class="master-queue-item">
+                  <span class="master-queue-item-position">2</span>
+                  <div class="master-queue-item-delete">&#x2715;</div>
+                  <div class="master-queue-item-level-bar">2</div>
+                  <div class="master-queue-item-image"></div>
+                  <div class="master-queue-item-info">
+                    <span class="desc1">archer</span>
+                    <span class="desc2">100 units</span>
+                  </div>
+                </div>
+                <div class="master-queue-item">
+                  <span class="master-queue-item-position">2</span>
+                  <div class="master-queue-item-delete">&#x2715;</div>
+                  <div class="master-queue-item-level-bar">2</div>
+                  <div class="master-queue-item-image"></div>
+                  <div class="master-queue-item-info">
+                    <span class="desc1">archer</span>
+                    <span class="desc2">100 units</span>
+                  </div>
+                </div>
+            </td>
+            <td class="master-queue-state idle">Idle</td>
+            <td class="master-queue-actions">
+              <button>Run</button>
+              <button>Restart</button>
+              <button>Pause</button>
+              <button>Delete</button>
+            </td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="4" align="center" id="master-queue-table-footer">
+              <button>Run all</button>
+              <button>Restart all</button>
+              <button>Pause all</button>
+              <button>Delete all</button>
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <div id="master-queue-table-toggle-button">
+      <span>Master Queue</span>
+    </div>
+  </div>
+</body>
+
+</html>

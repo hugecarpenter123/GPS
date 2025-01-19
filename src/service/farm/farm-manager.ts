@@ -1,7 +1,7 @@
 import EventEmitter from "events";
 import gpsConfig, { FarmTimeInterval } from "../../../gps.config";
 import ConfigManager from "../../utility/config-manager";
-import { addDelay, calculateTimeToNextOccurrence, formatDateToSimpleString, getBrowserStateSnapshot, getElementStateSnapshot, getRandomMs, textToMs } from "../../utility/plain-utility";
+import { addDelay, calculateTimeToNextOccurrence, formatDateToSimpleString, getBrowserStateSnapshot, getElementStateSnapshot, getRandomMs, textToMs, waitUntil } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
 import { performComplexClick, waitForElement, waitForElementFromNode, waitForElementInterval, waitForElements, waitForElementsInterval } from "../../utility/ui-utility";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
@@ -84,12 +84,16 @@ export default class FarmManager extends EventEmitter {
 
       // opening farm overview
       document.querySelector<HTMLElement>('[name="farm_town_overview"]')!.click();
-      this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : addDelay(100);
+      this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
+      await waitUntil(() => !document.querySelector<HTMLElement>('#fto_town_list'), { delay: 200, maxIterations: 5 });
       // end of opening farm overview
 
       // checking if there is a cooldown
       {
-        let cooldownWrapper = await waitForElementInterval('.ribbon_wrapper', { retries: 4, interval: 400 }).catch(() => {
+        if (!document.querySelector('.fto_town.active')) {
+          document.querySelector<HTMLElement>('.fto_town')!.click();
+        }
+        let cooldownWrapper = await waitForElementInterval('.ribbon_wrapper', { retries: 10, interval: 200 }).catch(() => {
           throw new InfoError('cooldownWrapper not found, cannot proceed', {
             browserState: getBrowserStateSnapshot(),
             elementState: getElementStateSnapshot(document.querySelector<HTMLElement>('.ribbon_wrapper')!),
@@ -100,7 +104,7 @@ export default class FarmManager extends EventEmitter {
           console.log('cooldownWrapper found, not hidden');
           let cooldownTimeTextParsed;
           while (!(cooldownTimeTextParsed = cooldownWrapper.querySelector('.ribbon_locked .unlock_time')?.textContent?.match(/\d{2}:\d{2}:\d{2}/)?.[0])) {
-            await addDelay(333);
+            await addDelay(250);
           }
           const timeout = calculateTimeToNextOccurrence(cooldownTimeTextParsed!) + this.config.general.timeDifference + 1000;
           const scheduledDate = new Date(Date.now() + timeout);
@@ -121,7 +125,7 @@ export default class FarmManager extends EventEmitter {
       // end of checking if there is a cooldown
 
       while (document.querySelector<HTMLElement>('#fto_town_wrapper .button.button_new')?.classList.contains('disabled')) {
-        await addDelay(500);
+        await addDelay(100);
       }
 
       // selecting cities
@@ -130,7 +134,7 @@ export default class FarmManager extends EventEmitter {
         .then(el => el.click())
         .then(async () => {
           while (!document.querySelector<HTMLElement>('#fto_town_wrapper .checkbox.select_all')?.classList.contains('checked')) {
-            await addDelay(500);
+            await addDelay(100);
           }
         });
       this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
@@ -157,20 +161,20 @@ export default class FarmManager extends EventEmitter {
       const farmOptions = document.querySelectorAll<HTMLElement>('.fto_time_checkbox')!;
       const farmOptionIndex = this.getFarmOptionIndex()!;
       !farmOptions[farmOptionIndex].classList.contains('checked') && farmOptions[farmOptionIndex].click();
-      this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : addDelay(100);
+      this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : await addDelay(100);
       !farmOptions[farmOptionIndex + 4]?.classList.contains('checked') && farmOptions[farmOptionIndex + 4]?.click();
-      this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : addDelay(100);
+      this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : await addDelay(100);
       // end of selecting farm option
 
       // collecting resources
       console.log('collecting resources');
       // document.querySelector<HTMLElement>('#fto_claim_button')!.click();
       await waitForElementInterval('#fto_claim_button', { retries: 4, interval: 400 }).then(el => el.click()).catch(() => { throw new Error('collecting resources failed, no button found') });
-      this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : addDelay(100);
+      this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
       // end of collecting resources
 
       // potentially confirm click confirm button
-      await waitForElementInterval('.btn_confirm.button_new', { retries: 3, interval: 400 })
+      await waitForElementInterval('.btn_confirm.button_new', { retries: 5, interval: 400 })
         .then(el => el.click())
         .catch(() => null);
       // end of confirm button click

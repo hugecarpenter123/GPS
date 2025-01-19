@@ -78,13 +78,6 @@ export type RecruiterQueueItem = {
   }
 }
 
-type RecruitmentSchedule = {
-  city: CityInfo
-  timeoutId: NodeJS.Timeout | null;
-  nextScheduledTime: number | null;
-  queue: RecruiterQueueItem[]
-}
-
 /*
 w momencie kliknięcia add:
 -item zostaje dodany do master queue
@@ -131,7 +124,6 @@ export default class Recruiter {
     document.head.appendChild(style);
   }
 
-  // TODO: implement
   public async execute(operationDetails: ScheduleOperationDetails) {
     console.log('execute:', operationDetails);
     await this.tryRecruitOrStackResources(operationDetails);
@@ -200,31 +192,6 @@ export default class Recruiter {
     document.getElementById('recruiter-container')?.remove();
   }
 
-  // TODO: move it to master queue
-  // public handleRecruiterConfigChange(configChanges: TConfigChanges['recruiter']) {
-  //   console.log('handleRecruiterConfigChange():', configChanges);
-  //   if (configChanges.autoReevaluate && this.config.recruiter.autoReevaluate) {
-  //     console.log('reevaluating provider cities');
-  //     this.reevaluateProviderCities();
-  //   }
-  // }
-
-  // TODO: rework to be done because of master queue
-  // private reevaluateProviderCities() {
-  //   const recruitingCityNames = this.recruitmentSchedule.filter(schedule => schedule.queue.length > 0).map(schedule => schedule.city);
-  //   this.recruitmentSchedule.forEach(schedule => {
-  //     schedule.queue.forEach(item => {
-  //       item.supplierCities = this.citySwitchManager.getCityList().filter(
-  //         city => !recruitingCityNames.includes(city) && city.name !== schedule.city.name && !this.resourceLock.isResourceLocked(city)
-  //       );
-  //     });
-  //   });
-  // }
-
-  // TODO: rework to be done because of master queue
-  /*
-  * Od teraz start i stop będą wywoływane z master queue
-  */
   public async start() {
     this.RUN = true;
     if (!this.observer) {
@@ -232,7 +199,6 @@ export default class Recruiter {
     }
   }
 
-  // TODO: rework to be done because of master queue
   public async stop() {
     this.RUN = false;
     this.observer?.disconnect();
@@ -417,9 +383,8 @@ export default class Recruiter {
     const citiesSelect = recruiterDialog?.querySelector<HTMLSelectElement>('#recruiter-cities');
     const shipmentTimeSelect = recruiterDialog?.querySelector<HTMLSelectElement>('#shipment-time');
 
-    // Adds predefined navigation buttons to the recruiter dialog
-    const masterQueueNavigation = this.masterQueue.getQueueNavigation(this.citySwitchManager.getCurrentCity()!);
-    document.querySelector('.recruiter-buttons-section')?.appendChild(masterQueueNavigation);
+    const buttonsSection = document.querySelector<HTMLElement>('.recruiter-buttons-section')!;
+    this.masterQueue.getNavigation('city', this.citySwitchManager.getCurrentCity()!, buttonsSection);
 
     /**
      * Disables/enables amount input based on amount max checkbox value
@@ -598,13 +563,6 @@ export default class Recruiter {
     // always first from the queue
     const scheduleItem = operationDetails.queueItem;
     console.log('performRecruitOrStackResources:', scheduleItem);
-    if (!scheduleItem) {
-      console.log('no schedule item, clearing timeout and next scheduled time');
-      // NOTE: consider calling this as a method argument
-      this.masterQueue.clearCitySchedule(operationDetails.city);
-      return;
-    }
-
     const { city } = operationDetails;
     const { supplierCities, charms } = scheduleItem;
     if (charms?.required && !CharmsUtility.areCharmsCastedOrAvailable(charms?.required)) {
@@ -666,7 +624,8 @@ export default class Recruiter {
           console.log('recruitment partially performed, scheduling next round');
           await this.performRecruitOrStackResources(operationDetails);
         } else if (recruitmentResult === 'failed') {
-          console.log('recruitment failed, shifting queue');
+          // in case its one unit but takes most of the store capacity, and stacking provided only 90% of the resources but 100% is required
+          console.log('recruitment failed, but teoretically should be possible, so rescheduling in 10 minutes');
           operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, 10 * 60 * 1000), new Date().getTime() + 10 * 60 * 1000);
         }
       }
@@ -745,7 +704,7 @@ export default class Recruiter {
     return timeToFinish;
   }
 
-  // private async performRecruitment(operationDetails: ScheduleOperationDetails): Promise<boolean | 'rescheduled' | void> {
+
   private async performRecruitment(operationDetails: ScheduleOperationDetails): Promise<'done' | 'failed' | 'partial' | 'reschedule'> {
     // recruitment process
     const item = operationDetails.queueItem;
@@ -799,7 +758,7 @@ export default class Recruiter {
       item.amountType === 'slots' ? Infinity : item.amountLeft!,
     );
 
-    // decrement recruitet amount
+    // decrement recruited amount
     console.log('item.amountLeft before:', item.amountLeft);
     item.amountLeft -= item.amountType === 'slots' ? 1 : recruitedUnitsAmount;
     this.closeAllRecruitmentBuildingDialogs();
@@ -836,6 +795,12 @@ export default class Recruiter {
     console.log('closeAllRecruitmentBuildingDialogs done');
   }
 
+  /**
+   * Rekrutuje jednostki w dialogu rekrutera. 
+   * @param unitSelector Selektor jednostki w dialogu rekrutera.
+   * @param amount Liczba jednostek do rekrutacji.
+   * @returns Liczba rekrutowanych jednostek.
+   */
   private async recruitUnits(unitSelector: string, amount: number): Promise<number> {
     let counter = 0;
     do {
@@ -961,6 +926,13 @@ export default class Recruiter {
     }
   }
 
+  /**
+   * Zwraca liczbę pustych slotów w rekruterze.
+   * @param buildingType Typ budynku rekrutera.
+   * @returns Liczba pustych slotów.
+   * @requires
+   * - Budynek rekrutera musi być otwarty.
+   */
   private getEmptySlotsCount(buildingType: 'barracks' | 'docks') {
     // return Number(document.querySelectorAll('.type_unit_queue .empty_slot').length);
     return Number(document.querySelectorAll(`.type_unit_queue.${buildingType}`)[0].querySelectorAll('.empty_slot').length);
@@ -983,5 +955,18 @@ export default class Recruiter {
     document.querySelectorAll('.minimized_windows_area .box-middle').forEach(el => {
       if (el.textContent?.includes('Port') || el.textContent?.includes('Koszary')) (el.querySelector('.btn_wnd.close') as HTMLElement)?.click();
     });
+  }
+
+
+  public async isRealQueueFull(type: 'barracks' | 'docks', city?: CityInfo): Promise<{ isRealQueueFull: boolean, timeToFreeSlot: number }> {
+    if (city) await city.switchAction(false);
+    await this.goToRecruitmentBuilding(type);
+    const emptySlots = this.getEmptySlotsCount(type);
+    const returnValue = { isRealQueueFull: !emptySlots, timeToFreeSlot: 0 };
+    if (!emptySlots) {
+      returnValue.timeToFreeSlot = await this.getTimeToFreeSlot(type);
+    }
+    await this.closeAllRecruitmentBuildingDialogs();
+    return returnValue;
   }
 }

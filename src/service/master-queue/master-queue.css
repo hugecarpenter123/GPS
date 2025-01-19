@@ -6,6 +6,7 @@
 }
 
 .master-queue-item-delete {
+  z-index: 1;
   cursor: pointer;
   font-size: 1rem;
   color: tomato;
@@ -23,7 +24,7 @@
 
 .master-queue-item-level-bar {
   font-size: 0.7rem;
-  color: green;
+  color: lightgreen;
   font-weight: bold;
   position: absolute;
   top: 36px;
@@ -49,7 +50,7 @@
 .master-queue-item-image {
   width: 50px;
   height: 50px;
-  background-color: rgba(232, 248, 13, 0.3);
+  background-color: rgba(232, 248, 13, 0.5);
 }
 
 .master-queue-item-info {
@@ -61,6 +62,9 @@
 }
 
 .master-queue-item-position {
+  z-index: 1;
+  user-select: none;
+  font-weight: bold;
   font-size: 0.8rem;
   color: #000;
   position: absolute;
@@ -94,11 +98,11 @@
 .run-all-button,
 .reset-all-button,
 .clear-all-button {
-  padding: 4px 8px;
+  /* padding: 4px 8px; */
   cursor: pointer;
 }
 
-.run-this-button {
+/* .run-this-button {
   border: 2px dashed green;
   color: green;
 }
@@ -126,4 +130,4 @@
 .clear-all-button {
   border: 1px solid red;
   color: red;
-}
+} */
