@@ -46,7 +46,6 @@ export default class CitySwitchManager extends EventEmitter {
   private async initCityList(): Promise<CityInfo[]> {
     this.generalInfo.showInfo('City Switch Manager:', 'Inicjalizacja listy miast');
 
-
     // gets dropdown trigger that contains city info
     const dropdownTrigger = await waitForElement('.town_groups_dropdown.btn_toggle_town_groups_menu');
     dropdownTrigger.click();
@@ -116,7 +115,13 @@ export default class CitySwitchManager extends EventEmitter {
     await this.goBackToFirstTown();
     this.generalInfo.hideInfo();
     localStorage.setItem(CitySwitchManager.LOCAL_STORAGE_CITY_LIST_KEY, JSON.stringify(cityList));
+
+    if (!cityList.length) {
+      throw new Error('Critical error: No cities found');
+    }
+
     return cityList;
+
   }
 
   private async openTownList() {

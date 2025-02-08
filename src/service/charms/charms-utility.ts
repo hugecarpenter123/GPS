@@ -1,4 +1,4 @@
-import { addDelay, waitUntil } from "../../utility/plain-utility";
+import { addDelay, textToMs, waitUntil } from "../../utility/plain-utility";
 import { waitForElement } from "../../utility/ui-utility";
 
 const baseIconClasses = 'power_icon30x30 new_ui_power_icon animated_power_icon animated_power_icon_30x30'
@@ -66,7 +66,7 @@ export default class CharmsUtility {
 
   /**
    * Casts the charms if not casted. Returns true if all charms can be casted (and casts them) or are already casted.
-   * Else returns false and does not cast the charms. If required is false then casts all charms no matter if can be casted or not.
+   * Else returns false and does not cast any charms unless required is set to false then casts all that are possible.
    * @param charms 
    * @param required 
    * @returns true if all charms can be casted or are already casted
@@ -129,5 +129,13 @@ export default class CharmsUtility {
   public static areCharmsCastedOrAvailable(charms: CityCharm[]) {
     const workingCharms = this.getCurrentCityWorkingCharms();
     return charms.every((charm) => workingCharms.includes(charm) || this.canCastCharm(charm))
+  }
+
+  public static getCharmsCastingTime(charms: CityCharm[]): Map<string, number> {
+    return new Map(charms.map(charm => {
+      const powerElement = document.querySelector<HTMLDivElement>(`[data-power_id="${charm.dataPowerId}"]`);
+      const counter = powerElement?.querySelector('[name="counter"]')?.textContent;
+      return [charm.dataPowerId, counter ? textToMs(counter) : 0]
+    }))
   }
 }

@@ -312,7 +312,7 @@ export default class CityBuilder {
       await this.buildOrScheduleOrRemove(operationDetails);
     } else {
       console.log('\t-isEmptySlot is false, scheduling speed up');
-      await this.setTimeoutForSpeedUpAndPerformBuildSchedule(operationDetails);
+      await this.setTimeoutForSpeedUpAndPerformBuildSchedule(operationDetails, 'slot');
     }
   }
 
@@ -350,7 +350,7 @@ export default class CityBuilder {
    * Speeds up first build or schedules it and then performs build schedule. (valid for master queue)
    * @param operationDetails 
    */
-  private async setTimeoutForSpeedUpAndPerformBuildSchedule(operationDetails: ScheduleOperationDetails<BuilderQueueItem>) {
+  private async setTimeoutForSpeedUpAndPerformBuildSchedule(operationDetails: ScheduleOperationDetails<BuilderQueueItem>, purpose: 'slot' | 'resources' | 'charms' | 'other') {
     console.log('setTimeoutForSpeedUpAndPerformBuildSchedule execution()');
     const timeToSpeedUp = await this.getTimeToCanSpeedUp(operationDetails.city).catch(() => null);
     console.log('\t-timeToSpeedUp:', timeToSpeedUp);
@@ -366,9 +366,8 @@ export default class CityBuilder {
     } else {
       console.log('\t-time to speed up is:', timeToSpeedUp, 'will be scheduled at:', getTimeInFuture(timeToSpeedUp));
       const timeToAction = timeToSpeedUp + (2 * 1000);
-      const scheduleTime = Date.now() + timeToAction;
 
-      const timeout = setTimeout(async () => {
+      const executionCallback = async () => {
         try {
           await this.lock.acquire({ method: operationDetails.city.name + ' - setTimeoutForNextSpeedUpAndSchedule (inside timeout)', manager: 'builder' });
           console.log('setTimeoutForNextSpeedUpAndSchedule() inside timeout');
@@ -383,9 +382,9 @@ export default class CityBuilder {
         } finally {
           this.lock.release();
         }
-      }, timeToAction);
+      }
       console.warn('setting timeout for speed up and schedule (setTimeoutForSpeedUpAndPerformBuildSchedule)', new Date(Date.now() + timeToAction));
-      operationDetails.setScheduleTimeout(timeout, scheduleTime);
+      operationDetails.setScheduleTimeout(executionCallback, timeToAction, purpose);
     }
   }
 
@@ -439,7 +438,9 @@ export default class CityBuilder {
     else if (canBuild === 'impossible') {
       if (!(await this.isQueueEmpty(operationDetails.city))) {
         console.log('\t-canBuild is impossible, but queue is not empty, scheduling build because maybe after that it will be possible');
-        await this.setTimeoutForSpeedUpAndPerformBuildSchedule(operationDetails);
+        /* NOTE: it can be set as "waiting for the slot" as it waits for building to be done 
+        in order to know if that was the condition why building was not possible */
+        await this.setTimeoutForSpeedUpAndPerformBuildSchedule(operationDetails, 'slot');
       } else {
         console.log('\t-canBuild is impossible, and queue is empty, element must be deleted');
         await this.onScheduleItemFinished(operationDetails);
@@ -472,7 +473,8 @@ export default class CityBuilder {
       // surowce zestackowane, nie można zbudować, ale są inne elementy w kolejce, które po zbudowaniu mogą zmienić warunek więc czekaj
       else if (resourcesInfo.areStackable === 'alreadyStacked' && !(await this.isQueueEmpty(operationDetails.city))) {
         console.log('\t\t-areResourcesStackable is alreadyStacked, waiting for other items to be built');
-        await this.setTimeoutForSpeedUpAndPerformBuildSchedule(operationDetails);
+        /* NOTE: it can be set as "waiting for the slot" as it waits for building to be done in order to know if that was the condition that is to be met */
+        await this.setTimeoutForSpeedUpAndPerformBuildSchedule(operationDetails, 'slot');
       } else {
         console.log('Item cannot be scheduled, because it has not met requirements');
         await this.onScheduleItemFinished(operationDetails);
@@ -617,16 +619,18 @@ export default class CityBuilder {
 
     // jeżeli nie ma czasu do przyspieszenia (brak budynku w kolejce), to sprawdź w czasie określonym przez czas dostawy
     if (!timeToSpeedUp) {
-      operationDetails.setScheduleTimeout(setTimeout(async () => {
-        await this.handleBuildSchedule(operationDetails);
-      }, timeToRetry), retrialTime);
+      operationDetails.setScheduleTimeout(
+        async () => await this.handleBuildSchedule(operationDetails),
+        timeToRetry,
+        'slot' /* NOTE: na pewno slot? */
+      );
     }
     /* w przeciwnym razie sprawdź czy timeToSpeedUp jest krótszy od czasu dostawy surowców
     jeżeli tak, to ustaw timeout na przyspieszenie i wywołaj metodę rekurencyjnie
     */
     else if (timeToSpeedUp < timeToRetry) {
       console.warn('\t-timeToSpeedUp < timeToRetry, setting timeout to speed up first build on', new Date(Date.now() + timeToSpeedUp));
-      operationDetails.setScheduleTimeout(setTimeout(async () => {
+      operationDetails.setScheduleTimeout(async () => {
         try {
           await this.lock.acquire({ method: operationDetails.city.name + ' - handleResourcesStackable (inside checking timeout)', manager: 'builder' });
           // this.generalInfo.showInfo('Builder:', `Przyspieszanie budowy w mieście: ${cityQueue.city.name}`);
@@ -641,14 +645,14 @@ export default class CityBuilder {
         } finally {
           this.lock.release();
         }
-      }, timeToSpeedUp), Date.now() + timeToSpeedUp);
+      }, timeToSpeedUp, 'resources');
     } else {
       /* at this point it's known that there are items in the queue, that needs to be constantly checked for speed up and also
       there is waiting element in the virtual queue, that needs to be checked if can be finally added to real queue.
       Also checking time is shorter than time to speed up, so it will be checked first
       */
       console.warn('\t-timeToSpeedUp >= timeToRetry, setting timeout to speed up first build on', new Date(Date.now() + timeToSpeedUp));
-      operationDetails.setScheduleTimeout(setTimeout(async () => {
+      operationDetails.setScheduleTimeout(async () => {
         try {
           await this.lock.acquire({ method: operationDetails.city.name + ' - handleResourcesStackable (inside checking timeout)', manager: 'builder' });
           if (await resourcesCheckContition()) {
@@ -661,7 +665,7 @@ export default class CityBuilder {
         } finally {
           this.lock.release();
         }
-      }, timeToRetry), retrialTime);
+      }, timeToRetry, 'resources');
     }
   }
 

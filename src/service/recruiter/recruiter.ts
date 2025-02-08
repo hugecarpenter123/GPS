@@ -1,4 +1,4 @@
-import MasterQueue from "../master-queue/master-queue";
+import MasterQueue, { ScheduleOperationDetails } from "../master-queue/master-queue";
 import ConfigManager from "../../utility/config-manager";
 import { InfoError } from "../../utility/info-error";
 import { addDelay, textToMs, waitUntil } from "../../utility/plain-utility";
@@ -32,14 +32,6 @@ type UnitContext = {
   };
   storeCapacity: number;
   populationCapacity: number;
-}
-
-export type ScheduleOperationDetails = {
-  city: CityInfo;
-  queueItem: RecruiterQueueItem;
-  onFinishCallback: () => void;
-  setScheduleTimeout: (timeoutId: NodeJS.Timeout, nextScheduleDate: number) => void;
-  shiftQueueAndNext: () => void;
 }
 
 type StackResourcesResult = {
@@ -124,7 +116,7 @@ export default class Recruiter {
     document.head.appendChild(style);
   }
 
-  public async execute(operationDetails: ScheduleOperationDetails) {
+  public async execute(operationDetails: ScheduleOperationDetails<RecruiterQueueItem>) {
     console.log('execute:', operationDetails);
     await this.tryRecruitOrStackResources(operationDetails);
   }
@@ -540,7 +532,7 @@ export default class Recruiter {
     }
   }
 
-  private async tryRecruitOrStackResources(operationDetails: ScheduleOperationDetails) {
+  private async tryRecruitOrStackResources(operationDetails: ScheduleOperationDetails<RecruiterQueueItem>) {
     try {
       await this.lock.acquire({ method: 'tryRecruitOrStackResources', manager: 'recruiter' });
       GeneralInfo.getInstance().showInfo('Recruiter:', 'Rekrutacja/stakowanie surowców do rekrutacji');
@@ -559,21 +551,21 @@ export default class Recruiter {
     }
   }
 
-  private async performRecruitOrStackResources(operationDetails: ScheduleOperationDetails) {
+  private async performRecruitOrStackResources(operationDetails: ScheduleOperationDetails<RecruiterQueueItem>) {
     // always first from the queue
     const scheduleItem = operationDetails.queueItem;
     console.log('performRecruitOrStackResources:', scheduleItem);
     const { city } = operationDetails;
     const { supplierCities, charms } = scheduleItem;
     if (charms?.required && !CharmsUtility.areCharmsCastedOrAvailable(charms?.required)) {
-      // TODO: get real timeout based on charms getting castable
-      const timeout = this.createTimeoutForRecruitment(operationDetails, 10 * 60 * 1000);
-      operationDetails.setScheduleTimeout(timeout, new Date().getTime() + 10 * 60 * 1000);
-    } else {
-      // TODO: delete
-      console.log(`charms (${JSON.stringify((charms?.required.concat(charms.optional))?.map(c => c.dataPowerId))}) casted or available, can stack resources`)
+      const timeToCharmsCastable = CharmsUtility.getCharmsCastingTime(charms?.required);
+      const timeToCharmsCastableMs = Math.max(...Array.from(timeToCharmsCastable.values()), 10 * 60 * 1000);
+      operationDetails.setScheduleTimeout(
+        async () => await this.tryRecruitOrStackResources(operationDetails),
+        timeToCharmsCastableMs,
+        'charms'
+      )
     }
-
     const resources = await this.resourceManager.getResourcesInfo();
 
     if (scheduleItem.amountType === 'slots') {
@@ -607,26 +599,54 @@ export default class Recruiter {
         if (stackResult.fullyStacked) {
           console.log('fully stacked, scheduling recruitment');
           const timeMs = stackResult.timeMs!;
-          operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, timeMs), new Date().getTime() + timeMs);
+          // operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, timeMs), new Date().getTime() + timeMs);
+          operationDetails.setScheduleTimeout(
+            async () => await this.tryRecruitOrStackResources(operationDetails),
+            timeMs,
+            'resources'
+          )
         } else {
           console.log('not fully stacked, rescheduling stacking in 10 minutes');
           // schedule in 10 minutes
-          operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, 600000), new Date().getTime() + 600000);
+          // operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, 600000), new Date().getTime() + 600000);
+          operationDetails.setScheduleTimeout(
+            async () => await this.tryRecruitOrStackResources(operationDetails),
+            600000,
+            'resources'
+          )
         }
       } else {
-        console.log('enough resources, performing recruitment');
         const recruitmentResult = await this.performRecruitment(operationDetails);
-        if (recruitmentResult === 'reschedule') {
-          operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, 10 * 60 * 1000), new Date().getTime() + 10 * 60 * 1000);
-        } else if (recruitmentResult === 'done') {
+        if (recruitmentResult === 'done') {
+          console.log('recruitment done, calling onFinishCallback');
           operationDetails.onFinishCallback();
         } else if (recruitmentResult === 'partial') {
           console.log('recruitment partially performed, scheduling next round');
           await this.performRecruitOrStackResources(operationDetails);
+        } else if (recruitmentResult === 'slot') {
+          const timeToFreeSlot = await this.getTimeToFreeSlot(scheduleItem.type);
+          console.log('no free slot, rescheduling in time to free slot:', timeToFreeSlot);
+          operationDetails.setScheduleTimeout(
+            async () => await this.tryRecruitOrStackResources(operationDetails),
+            timeToFreeSlot,
+            'slot'
+          )
+        } else if (recruitmentResult === 'charms') {
+          const maxTimeToCharmsCastable = CharmsUtility.getCharmsCastingTime(charms?.required ?? []);
+          const maxTimeToCharmsCastableMs = Math.max(...Array.from(maxTimeToCharmsCastable.values()), 10 * 60 * 1000);
+          console.log('required charms not available, rescheduling in max time to cast charms:', maxTimeToCharmsCastableMs);
+          operationDetails.setScheduleTimeout(
+            async () => await this.tryRecruitOrStackResources(operationDetails),
+            maxTimeToCharmsCastableMs,
+            'charms'
+          )
         } else if (recruitmentResult === 'failed') {
-          // in case its one unit but takes most of the store capacity, and stacking provided only 90% of the resources but 100% is required
-          console.log('recruitment failed, but teoretically should be possible, so rescheduling in 10 minutes');
-          operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, 10 * 60 * 1000), new Date().getTime() + 10 * 60 * 1000);
+          console.log('recruitment failed, but technically possible, so rescheduling in 10 minutes');
+          operationDetails.setScheduleTimeout(
+            () => this.tryRecruitOrStackResources(operationDetails),
+            10 * 60 * 1000,
+            'other'
+          )
         }
       }
     } else {
@@ -672,31 +692,61 @@ export default class Recruiter {
         if (stackResult.fullyStacked) {
           console.log('fully stacked, scheduling recruitment');
           const timeMs = stackResult.timeMs!;
-          operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, timeMs), new Date().getTime() + timeMs);
+          // operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, timeMs), new Date().getTime() + timeMs);
+          operationDetails.setScheduleTimeout(
+            async () => await this.tryRecruitOrStackResources(operationDetails),
+            timeMs,
+            'resources'
+          )
         } else {
           console.log('not fully stacked, scheduling in 10 minutes');
           // schedule in 10 minutes
-          operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, 600000), new Date().getTime() + 600000);
+          // operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, 600000), new Date().getTime() + 600000);
+          operationDetails.setScheduleTimeout(
+            async () => await this.tryRecruitOrStackResources(operationDetails),
+            600000,
+            'resources'
+          )
         }
       } else {
         const recruitmentResult = await this.performRecruitment(operationDetails);
-        if (recruitmentResult === 'reschedule') {
-          operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, 10 * 60 * 1000), new Date().getTime() + 10 * 60 * 1000);
-        } else if (recruitmentResult === 'done') {
+        if (recruitmentResult === 'done') {
+          console.log('recruitment done, calling onFinishCallback');
           operationDetails.onFinishCallback();
         } else if (recruitmentResult === 'partial') {
           console.log('recruitment partially performed, scheduling next round');
           await this.performRecruitOrStackResources(operationDetails);
+        } else if (recruitmentResult === 'slot') {
+          const timeToFreeSlot = await this.getTimeToFreeSlot(scheduleItem.type);
+          console.log('no free slot, rescheduling in time to free slot:', timeToFreeSlot);
+          operationDetails.setScheduleTimeout(
+            async () => await this.tryRecruitOrStackResources(operationDetails),
+            timeToFreeSlot,
+            'slot'
+          )
+        } else if (recruitmentResult === 'charms') {
+          const maxTimeToCharmsCastable = CharmsUtility.getCharmsCastingTime(charms?.required ?? []);
+          const maxTimeToCharmsCastableMs = Math.max(...Array.from(maxTimeToCharmsCastable.values()), 10 * 60 * 1000);
+          console.log('required charms not available, rescheduling in max time to cast charms:', maxTimeToCharmsCastableMs);
+          operationDetails.setScheduleTimeout(
+            async () => await this.tryRecruitOrStackResources(operationDetails),
+            maxTimeToCharmsCastableMs,
+            'charms'
+          )
         } else if (recruitmentResult === 'failed') {
-          console.log('recruitment failed, shifting queue');
-          operationDetails.setScheduleTimeout(this.createTimeoutForRecruitment(operationDetails, 10 * 60 * 1000), new Date().getTime() + 10 * 60 * 1000);
+          console.log('recruitment failed, but technically possible, so rescheduling in 10 minutes');
+          operationDetails.setScheduleTimeout(
+            () => this.tryRecruitOrStackResources(operationDetails),
+            10 * 60 * 1000,
+            'other'
+          )
         }
       }
     }
   }
 
   private async getTimeToFreeSlot(buildingType: 'barracks' | 'docks') {
-    const timeToFinishElement = await waitForElementInterval(`#unit_order.${buildingType}_building .first_order .type_unit_queue .curr`, { retries: 2, interval: 333 }).catch(() => null);
+    const timeToFinishElement = await waitForElementInterval(`#unit_order.${buildingType}_building .first_order .type_unit_queue .curr`, { retries: 3, interval: 333 }).catch(() => null);
     const timeToFinish = timeToFinishElement?.textContent?.match(/(\d+:\d+:\d+)/)?.[0] ? textToMs(timeToFinishElement.textContent!) : undefined;
     if (!timeToFinish) {
       throw new Error('No time to finish element found');
@@ -705,7 +755,7 @@ export default class Recruiter {
   }
 
 
-  private async performRecruitment(operationDetails: ScheduleOperationDetails): Promise<'done' | 'failed' | 'partial' | 'reschedule'> {
+  private async performRecruitment(operationDetails: ScheduleOperationDetails<RecruiterQueueItem>): Promise<'done' | 'failed' | 'partial' | 'charms' | 'slot'> {
     // recruitment process
     const item = operationDetails.queueItem;
 
@@ -716,7 +766,7 @@ export default class Recruiter {
     if (!requiuredCharmsCasted) {
       GeneralInfo.getInstance().showError('Recruiter', 'Nie udało się rzucić wymaganych zaklęć, ponowna próba za 10 minut', 5000);
       await this.closeAllRecruitmentBuildingDialogs();
-      return 'reschedule';
+      return 'charms';
     }
     // END handle charms ------------
 
@@ -724,34 +774,8 @@ export default class Recruiter {
     await this.goToRecruitmentBuilding(item.type);
 
     // free slots check
-    // const freeSlots = this.getEmptySlotsCount(item.type);
-    // if (!freeSlots) {
-    //   const timeToFreeSlot = await this.getTimeToFreeSlot(item.type);
-    //   const minutes20 = 20 * 60 * 1000;
-    //   if (timeToFreeSlot < minutes20) {
-    //     // reschedule recruitment
-    //     this.createTimeoutForRecruitment(schedule, timeToFreeSlot);
-    //     schedule.nextScheduledTime = new Date().getTime() + timeToFreeSlot;
-    //     console.log('recruitment schedule updated:', schedule);
-    //     return 'rescheduled';
-    //   } else {
-    //     // find element with different type and move it to the front
-    //     const index = schedule.queue.findIndex(item => item.type != item.type);
-    //     if (index !== -1) {
-    //       const before = schedule.queue.slice(0, index);
-    //       const after = schedule.queue.slice(index + 1);
-    //       schedule.queue = [schedule.queue[index], ...before, ...after];
-    //       this.tryRecruitOrStackResources(schedule);
-    //       return 'rescheduled';
-    //     } else {
-    //       this.createTimeoutForRecruitment(schedule, timeToFreeSlot);
-    //       schedule.nextScheduledTime = new Date().getTime() + timeToFreeSlot;
-    //       console.log('recruitment schedule updated:', schedule);
-    //       return 'rescheduled';
-    //     }
-    //   }
-    // }
-    // end free slots check
+    const freeSlots = this.getEmptySlotsCount(item.type);
+    if (!freeSlots) return 'slot';
 
     const recruitedUnitsAmount = await this.recruitUnits(
       item.unitContextInfo.unitSelector,
@@ -840,13 +864,6 @@ export default class Recruiter {
     await waitUntil(() => !!document.querySelector<HTMLElement>(`#unit_order.${buildingType}_building`));
   }
 
-  private createTimeoutForRecruitment(operationDetails: ScheduleOperationDetails, timeMs: number) {
-    console.log('createTimeoutForRecruitment:', timeMs);
-    return setTimeout(() => {
-      this.tryRecruitOrStackResources(operationDetails);
-    }, timeMs);
-  }
-
   /**
    * Ustawia klasę obrazu jednostki w dialogu rekrutera na podstawie globalnego kontekstu jednostki.
    */
@@ -927,15 +944,14 @@ export default class Recruiter {
   }
 
   /**
-   * Zwraca liczbę pustych slotów w rekruterze.
+   * Zwraca liczbę pustych slotów w danym budynku (Port/Koszary).
    * @param buildingType Typ budynku rekrutera.
    * @returns Liczba pustych slotów.
    * @requires
    * - Budynek rekrutera musi być otwarty.
    */
   private getEmptySlotsCount(buildingType: 'barracks' | 'docks') {
-    // return Number(document.querySelectorAll('.type_unit_queue .empty_slot').length);
-    return Number(document.querySelectorAll(`.type_unit_queue.${buildingType}`)[0].querySelectorAll('.empty_slot').length);
+    return Number(document.querySelector(`.type_unit_queue.${buildingType}`)?.querySelectorAll('.empty_slot').length);
   }
 
   private getCurrentUnitContextCopy() {
@@ -957,7 +973,12 @@ export default class Recruiter {
     });
   }
 
-
+  /**
+   * Sprawdza, czy kolejka w porcie/koszarach jest pełna..
+   * @param type Typ budynku rekrutera.
+   * @param city Miasto, w którym sprawdza się kolejka.
+   * @returns Obiekt zawierający informację, czy kolejka jest pełna oraz czas do zwolnienia slotu.
+   */
   public async isRealQueueFull(type: 'barracks' | 'docks', city?: CityInfo): Promise<{ isRealQueueFull: boolean, timeToFreeSlot: number }> {
     if (city) await city.switchAction(false);
     await this.goToRecruitmentBuilding(type);
@@ -969,4 +990,19 @@ export default class Recruiter {
     await this.closeAllRecruitmentBuildingDialogs();
     return returnValue;
   }
+
+  /**
+   * Zwraca liczbę pustych slotów w koszarach.
+   * @returns Liczba pustych slotów.
+   * @Requires Lock
+   */
+  private async getBarracksEmptySlotsCount() {
+    await this.goToRecruitmentBuilding('barracks');
+    return document.querySelectorAll('.type_unit_queue .empty_slot').length;
+  }
+
+  private async getDocksEmptySlotsCount() {
+    return Number(document.querySelectorAll('.type_unit_queue .empty_slot').length);
+  }
+
 }

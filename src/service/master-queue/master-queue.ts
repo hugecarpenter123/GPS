@@ -1,10 +1,12 @@
 /*
 Funkcjonalności do zrobienia:
 -start all - powinno uruchamiać wszystkie kolejki ale nie naraz, tylko jedna po drugiej - naprawić
--start - uruchamia kolejkę nawet gdy kolejka już się uruchamia - naprawić
--"no free button found" error przerywa działanie kolejki - naprawić
-
 -jeżeli kolejka buildera/recruiter jest pełna, a następny element musi czekać na miejsce w kolejce - udostępnj surowce
+  -w momencie wywołania metody uruchamiającej element musi być znana liczba pustych slotów w kolejce
+  -może to być wykonane podczas zakończenia poprzedniego elementu za pomocą callbacku z informacjązwrotną
+  -ale jeżeli kolejka startuje (więc nie ma poprzedniego elementu) to może to być przekazane w callbacku setTimeout jako informacja o tym do czego służy timeout
+
+-status kolejki - nie updatuje się gdy kolejka miastowa się zacieła - naprawić
  */
 
 import gpsConfig from "../../../gps.config";
@@ -25,26 +27,18 @@ type QueueItemDetails = (RecruiterQueueItem | BuilderQueueItem) & {
   maxShipmentTime: number
 };
 
-type RealQueueInfo = {
-  isFull: boolean;
-  timeToFreeSlot: number;
-} | {
-  'barracks': {
-    isFull: boolean;
-    timeToFreeSlot: number;
-  },
-  'docks': {
-    isFull: boolean;
-    timeToFreeSlot: number;
-  }
-}
+export type TimeoutPurpose = 'slot' | 'resources' | 'charms' | 'other';
 
 export type ScheduleOperationDetails<T> = {
   id: string;
   city: CityInfo;
   queueItem: T;
   onFinishCallback: () => void;
-  setScheduleTimeout: (timeoutId: NodeJS.Timeout, nextScheduleDate: number) => void;
+  // setScheduleTimeout: (timeoutId: NodeJS.Timeout, nextScheduleDate: number) => void;
+  setScheduleTimeout: (
+    operationCallback: () => Promise<void> | void,
+    timeToExecution: number,
+    purpose: TimeoutPurpose) => void;
   shiftQueueAndNext: () => void;
 }
 
@@ -60,6 +54,11 @@ export type CitySchedule = {
   currentAction?: 'recruiter' | 'builder' | null;
   timeoutId?: NodeJS.Timeout | null;
   scheduleDate?: Date | null;
+  timeoutData?: {
+    timeoutId: NodeJS.Timeout;
+    executionTime: number;
+    purpose: TimeoutPurpose;
+  } | null;
 }
 
 
@@ -67,6 +66,8 @@ export default class MasterQueue implements IService {
   private static readonly TABLE_ID = 'master-queue-table';
   private static readonly TABLE_EMPTY_ID = 'master-queue-table-empty';
   private static readonly TABLE_FOOTER_ID = 'master-queue-table-footer';
+  private static readonly TABLE_TOGGLE_BUTTON_ID = 'master-queue-table-toggle-button';
+  private static readonly TABLE_CLOSE_BUTTON_ID = 'master-queue-table-close-button';
 
   private static readonly LOCAL_STORAGE_KEY = 'master-queue';
   private config!: typeof gpsConfig;
@@ -123,10 +124,10 @@ export default class MasterQueue implements IService {
     const tableWrapper = document.createElement('div');
     document.body.appendChild(tableWrapper);
     tableWrapper.outerHTML = masterQueueTableHtml;
-    const table = document.getElementById('master-queue-table')!;
+    const table = document.getElementById(MasterQueue.TABLE_ID)!;
     const tableFooter = document.querySelector<HTMLElement>(`#${MasterQueue.TABLE_FOOTER_ID}`)!;
     this.getNavigation('master', tableFooter);
-    document.querySelector<HTMLButtonElement>('#master-queue-table-toggle-button')!.addEventListener('click', () => {
+    document.querySelector<HTMLButtonElement>(`#${MasterQueue.TABLE_TOGGLE_BUTTON_ID}`)!.addEventListener('click', () => {
       if (table.hidden) {
         this.rehydrateTable();
         table.hidden = false;
@@ -134,19 +135,15 @@ export default class MasterQueue implements IService {
         table.hidden = true;
       }
     });
-    document.getElementById('master-queue-table-close-icon')!.addEventListener('click', () => {
+    document.getElementById(MasterQueue.TABLE_CLOSE_BUTTON_ID)!.addEventListener('click', () => {
       table.hidden = true;
     });
   }
 
-
-  private assessIfTableIsEmpty() {
-    const emptyRow = document.getElementById('master-queue-table-empty')!;
-    emptyRow.hidden = this.queue.filter(citySchedule => citySchedule.queue.length > 0).length === 0;
-  }
-
   private rehydrateTable() {
-    const tableBody = document.querySelector<HTMLTableSectionElement>('#master-queue-table tbody');
+    // NOTE: on rework replace tbody with div.tbody
+    // TODO: also wtf is this? why this check?
+    const tableBody = document.querySelector<HTMLTableSectionElement>(`#${MasterQueue.TABLE_ID} tbody`);
     if (!tableBody) return;
 
     const isTableEmpty = this.queue.filter(citySchedule => citySchedule.queue.length > 0).length === 0;
@@ -157,6 +154,7 @@ export default class MasterQueue implements IService {
       tableFooter.hidden = false;
     }
 
+    // TODO: on table rework replace tr and td with `div.tr` and `div.td`
     // NOTE: or have all elements created first in array, then clear and then add
     // first clear table
     tableBody.innerHTML = `
@@ -165,6 +163,7 @@ export default class MasterQueue implements IService {
     </tr>`;
 
     // then hydrate table
+    // TODO: on table rework replace td/tr with `div.td` and `div.tr`
     for (const citySchedule of this.queue) {
       if (citySchedule.queue.length === 0) continue;
       const row = document.createElement('tr');
@@ -213,9 +212,10 @@ export default class MasterQueue implements IService {
   }
 
   private showToggleButton(value: boolean) {
-    const toggleButton = document.getElementById('master-queue-table-toggle-button')!;
+    const toggleButton = document.getElementById(`${MasterQueue.TABLE_TOGGLE_BUTTON_ID}`)!;
     toggleButton.hidden = !value;
   }
+
 
   public async stop() {
     this.RUN = false;
@@ -357,7 +357,7 @@ export default class MasterQueue implements IService {
           city: citySchedule.city,
           queueItem: nextQueueItem.itemDetails as BuilderQueueItem,
           onFinishCallback: () => { this.shiftQueueAndRunNext(citySchedule) },
-          setScheduleTimeout: (timeoutId: NodeJS.Timeout, nextScheduleDate: number) => { this.setScheduleTimeout(citySchedule, timeoutId, nextScheduleDate) },
+          setScheduleTimeout: (operationCallback: () => Promise<void> | void, timeToExecution: number, purpose: TimeoutPurpose) => { this.setScheduleTimeout(citySchedule, operationCallback, timeToExecution, purpose) },
           shiftQueueAndNext: () => { this.shiftQueueAndRunNext(citySchedule) }
         } as ScheduleOperationDetails<BuilderQueueItem>
       );
@@ -368,7 +368,7 @@ export default class MasterQueue implements IService {
           city: citySchedule.city,
           queueItem: nextQueueItem.itemDetails as RecruiterQueueItem,
           onFinishCallback: () => { this.shiftQueueAndRunNext(citySchedule) },
-          setScheduleTimeout: (timeoutId: NodeJS.Timeout, nextScheduleDate: number) => { this.setScheduleTimeout(citySchedule, timeoutId, nextScheduleDate) },
+          setScheduleTimeout: (operationCallback: () => Promise<void> | void, timeToExecution: number, purpose: TimeoutPurpose) => { this.setScheduleTimeout(citySchedule, operationCallback, timeToExecution, purpose) },
           shiftQueueAndNext: () => { this.shiftQueueAndRunNext(citySchedule) }
         } as ScheduleOperationDetails<RecruiterQueueItem>
       );
@@ -411,6 +411,7 @@ export default class MasterQueue implements IService {
         statusCell.textContent = status.charAt(0).toUpperCase() + status.slice(1);
       })
     } else {
+      // TODO: on table rework replace tr with `div.tr` because there will be miration from native table api
       const statusCell = table.querySelector<HTMLTableRowElement>(`tr[data-city="${citySchedule.city.name}"] .master-queue-state`);
       console.log('row:', statusCell);
       if (statusCell) {
@@ -421,13 +422,31 @@ export default class MasterQueue implements IService {
     }
   }
 
+  /**
+   * If autoReevaluate is enabled:
+   * - reevaluates provider cities for all city schedules considering:
+   *   - queued cities (as consumers)
+   *   - white list cities (as providers)
+   *   - locked cities (as consumers)
+   * If schedule argument is provided and schedule queue length is in [0, 1] then reevaluates all items, otherwise reevaluates only items from specified schedule
+   * @param schedule - city schedule to reevaluate
+   */
   private reevaluateProviderCities(schedule?: CitySchedule) {
     if (this.config.masterQueue.autoReevaluate) {
       // domyślnie miasta które są zakolejkowane są wyłączane z grupy dostawców, chyba że są w białej liście np. bo chwilowo nie mogą utylizować surowców
-      const queuedCities = this.queue.filter(citySchedule => citySchedule.queue.length > 0 && !this.resourcesWhiteList.map(city => city.name).includes(citySchedule.city.name));
-      const queuedCityNames = queuedCities.map(citySchedule => citySchedule.city.name);
+      const queuedCityNames = this.queue.filter(citySchedule => citySchedule.queue.length > 0).map(citySchedule => citySchedule.city.name);
+      const whiteListCityNames = this.resourcesWhiteList.map(city => city.name);
       const lockedCityNames = this.resourceLock.getLockList().map(city => city.name);
-      const providerCities = this.citySwitchManager.getCityList().filter(city => !queuedCityNames.includes(city.name) && !lockedCityNames.includes(city.name));
+
+      const consumerCityNames = new Set<string>([
+        // miasta które są zakolejkowane ale nie są w białej liście
+        ...queuedCityNames.filter(queuedCity => !whiteListCityNames.includes(queuedCity)),
+        // miasta które są zablokowane (mają większy priorytet niż white list)
+        ...lockedCityNames
+      ]);
+
+      const allCities = this.citySwitchManager.getCityList();
+      const providerCities = allCities.filter(city => !consumerCityNames.has(city.name));
 
       // jeżeli w kolejce jest 0 lub 1 elementów, to znaczy że to potencjalnie punkt krytyczny gdy trzeba reewaluować dostawców wszystkich elementów
       if (schedule && !([0, 1].includes(schedule.queue.length))) {
@@ -446,9 +465,48 @@ export default class MasterQueue implements IService {
     }
   }
 
-  private setScheduleTimeout(citySchedule: CitySchedule, timeoutId: NodeJS.Timeout, nextScheduleDate: number) {
+  private addCityToSuppliersList(city: CityInfo) {
+    if (!this.resourcesWhiteList.map(city => city.name).includes(city.name)) {
+      this.resourcesWhiteList.push(city);
+    }
+  }
+
+  // private setScheduleTimeout(citySchedule: CitySchedule, timeoutId: NodeJS.Timeout, executionTime: number, purpose: 'slot' | 'resources' | 'other') {
+  private setScheduleTimeout(
+    citySchedule: CitySchedule,
+    operationCallback: () => Promise<void> | void,
+    timeToExecution: number,
+    purpose: TimeoutPurpose
+  ) {
+    if (purpose === 'slot' || purpose === 'charms') {
+      if (timeToExecution - Date.now() > 1000 * 60 * 30) {
+        this.addCityToSuppliersList(citySchedule.city);
+        this.reevaluateProviderCities();
+      }
+    }
+
+    // creating timeout that will execute operationCallback and remove city from suppliers list
+    const timeoutId = setTimeout(async () => {
+      if (purpose === 'slot' || purpose === 'charms') {
+        this.removeCityFromSupplierCityList(citySchedule.city);
+        // NOTE: rethink if reevaluation there is optimal and necessary
+        this.reevaluateProviderCities();
+      }
+      await operationCallback();
+    }, timeToExecution);
+
+
+    // NOTE: to be deleted later when migrated to new timeout system
     citySchedule.timeoutId = timeoutId;
-    citySchedule.scheduleDate = new Date(nextScheduleDate);
+    citySchedule.scheduleDate = new Date(Date.now() + timeToExecution);
+    // END NOTE
+
+    // TODO: ensure its cleared on timeout clear
+    citySchedule.timeoutData = {
+      timeoutId,
+      executionTime: Date.now() + timeToExecution,
+      purpose
+    }
   }
 
   public getBusyCities() {
@@ -986,12 +1044,12 @@ export default class MasterQueue implements IService {
     }
   }
 
-  private removeCityFromResourcesWhiteList(city: CityInfo) {
+  private removeCityFromSupplierCityList(city: CityInfo) {
     const lengthBefore = this.resourcesWhiteList.length;
     this.resourcesWhiteList = this.resourcesWhiteList.filter(city => city.name !== city.name);
     const lengthAfter = this.resourcesWhiteList.length;
-    if (lengthBefore !== lengthAfter) {
-      this.reevaluateProviderCities();
-    }
+    // if (lengthBefore !== lengthAfter) {
+    //   this.reevaluateProviderCities();
+    // }
   }
 }
