@@ -94,7 +94,8 @@ export default class CityBuilder {
   private accustomHtmlToMasterQueue() {
     // NOTE: hydrate builder navigation with master-queue navigation
     const buttonsSection = document.querySelector<HTMLElement>('#builder-navigation')!;
-    this.masterQueue.getNavigation('city', this.citySwitchManager.getCurrentCity()!, buttonsSection);
+    const currentCity = this.citySwitchManager.getCurrentCity()!;
+    this.masterQueue.getNavigation('city', currentCity, buttonsSection);
 
     // NOTE: "master-queue" class must be added for master-queue to handle queue display
     const additionalQueue = document.querySelector<HTMLElement>('#additional-queue')!;

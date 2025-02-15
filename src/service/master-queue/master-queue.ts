@@ -19,6 +19,7 @@ import CityBuilder, { BuilderQueueItem } from "../city/builder/city-builder";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
 import Recruiter, { RecruiterQueueItem } from "../recruiter/recruiter";
 import masterQueueCss from './master-queue.css';
+
 import masterQueueTableCss from './master-queue-table.css';
 import masterQueueTableHtml from './master-queue-table.prod.html';
 
@@ -63,11 +64,12 @@ export type CitySchedule = {
 
 
 export default class MasterQueue implements IService {
+  private static readonly TABLE_CONTAINER_ID = 'master-queue-table-container';
   private static readonly TABLE_ID = 'master-queue-table';
   private static readonly TABLE_EMPTY_ID = 'master-queue-table-empty';
   private static readonly TABLE_FOOTER_ID = 'master-queue-table-footer';
   private static readonly TABLE_TOGGLE_BUTTON_ID = 'master-queue-table-toggle-button';
-  private static readonly TABLE_CLOSE_BUTTON_ID = 'master-queue-table-close-button';
+  private static readonly TABLE_CLOSE_BUTTON_ID = 'master-queue-table-close-icon';
 
   private static readonly LOCAL_STORAGE_KEY = 'master-queue';
   private config!: typeof gpsConfig;
@@ -124,29 +126,30 @@ export default class MasterQueue implements IService {
     const tableWrapper = document.createElement('div');
     document.body.appendChild(tableWrapper);
     tableWrapper.outerHTML = masterQueueTableHtml;
+    const tableContainer = document.getElementById(MasterQueue.TABLE_CONTAINER_ID)!;
     const table = document.getElementById(MasterQueue.TABLE_ID)!;
     const tableFooter = document.querySelector<HTMLElement>(`#${MasterQueue.TABLE_FOOTER_ID}`)!;
     this.getNavigation('master', tableFooter);
     document.querySelector<HTMLButtonElement>(`#${MasterQueue.TABLE_TOGGLE_BUTTON_ID}`)!.addEventListener('click', () => {
-      if (table.hidden) {
+      if (tableContainer.hidden) {
         this.rehydrateTable();
-        table.hidden = false;
+        tableContainer.hidden = false;
       } else {
-        table.hidden = true;
+        tableContainer.hidden = true;
       }
     });
     document.getElementById(MasterQueue.TABLE_CLOSE_BUTTON_ID)!.addEventListener('click', () => {
-      table.hidden = true;
+      tableContainer.hidden = true;
     });
   }
 
   private rehydrateTable() {
-    // NOTE: on rework replace tbody with div.tbody
     // TODO: also wtf is this? why this check?
-    const tableBody = document.querySelector<HTMLTableSectionElement>(`#${MasterQueue.TABLE_ID} tbody`);
+    const tableBody = document.querySelector<HTMLTableSectionElement>(`#${MasterQueue.TABLE_ID} .tbody`);
     if (!tableBody) return;
 
     const isTableEmpty = this.queue.filter(citySchedule => citySchedule.queue.length > 0).length === 0;
+    console.log('isTableEmpty:', isTableEmpty);
     const tableFooter = document.getElementById(MasterQueue.TABLE_FOOTER_ID)!;
     if (isTableEmpty) {
       tableFooter.hidden = true;
@@ -154,28 +157,27 @@ export default class MasterQueue implements IService {
       tableFooter.hidden = false;
     }
 
-    // TODO: on table rework replace tr and td with `div.tr` and `div.td`
-    // NOTE: or have all elements created first in array, then clear and then add
-    // first clear table
     tableBody.innerHTML = `
-    <tr id="master-queue-table-empty" ${isTableEmpty ? '' : 'hidden'}>
-      <td colspan="4" style="padding: 12px;" align="center">No schedules</td>
-    </tr>`;
+    <div class="tr ${isTableEmpty ? '' : 'hidden'}" id="${MasterQueue.TABLE_EMPTY_ID}">
+      <div class="td no-schedules">No schedules</div>
+    </div>`;
 
     // then hydrate table
-    // TODO: on table rework replace td/tr with `div.td` and `div.tr`
     for (const citySchedule of this.queue) {
       if (citySchedule.queue.length === 0) continue;
-      const row = document.createElement('tr');
+      const row = document.createElement('div');
+      row.classList.add('tr');
       row.dataset.city = citySchedule.city.name;
 
       // city Cell
-      const cityCell = document.createElement('td');
+      const cityCell = document.createElement('div');
+      cityCell.classList.add('td');
       cityCell.textContent = citySchedule.city.name;
       row.appendChild(cityCell);
 
       // queue Cell
-      const queueCell = document.createElement('td');
+      const queueCell = document.createElement('div');
+      queueCell.classList.add('td');
       const queueCellContent = document.createElement('div');
       queueCellContent.classList.add('queue-cell');
       this.createUIQueueItems(queueCellContent, citySchedule);
@@ -183,14 +185,16 @@ export default class MasterQueue implements IService {
       row.appendChild(queueCell);
 
       // state Cell
-      const stateCell = document.createElement('td');
+      const stateCell = document.createElement('div');
+      stateCell.classList.add('td');
       stateCell.classList.add('master-queue-state');
       stateCell.classList.add(citySchedule.currentAction ? 'running' : 'idle');
       stateCell.textContent = citySchedule.currentAction ? 'Running' : 'Idle';
       row.appendChild(stateCell);
 
       // actions Cell
-      const actionsCell = document.createElement('td');
+      const actionsCell = document.createElement('div');
+      actionsCell.classList.add('td');
       actionsCell.classList.add('master-queue-actions');
       this.getNavigation('city', citySchedule, actionsCell);
       row.appendChild(actionsCell);
@@ -405,14 +409,13 @@ export default class MasterQueue implements IService {
   private setUITableStatuses(status: 'idle' | 'running', citySchedule?: CitySchedule) {
     const table = document.getElementById(MasterQueue.TABLE_ID)!;
     if (!citySchedule) {
-      table.querySelectorAll<HTMLTableRowElement>('tr .master-queue-state').forEach(statusCell => {
+      table.querySelectorAll<HTMLTableRowElement>('div.tr .master-queue-state').forEach(statusCell => {
         statusCell.classList.remove('idle', 'running');
         statusCell.classList.add(status);
         statusCell.textContent = status.charAt(0).toUpperCase() + status.slice(1);
       })
     } else {
-      // TODO: on table rework replace tr with `div.tr` because there will be miration from native table api
-      const statusCell = table.querySelector<HTMLTableRowElement>(`tr[data-city="${citySchedule.city.name}"] .master-queue-state`);
+      const statusCell = table.querySelector<HTMLTableRowElement>(`div.tr [data-city="${citySchedule.city.name}"] .master-queue-state`);
       console.log('row:', statusCell);
       if (statusCell) {
         statusCell.classList.remove('idle', 'running');
@@ -479,7 +482,8 @@ export default class MasterQueue implements IService {
     purpose: TimeoutPurpose
   ) {
     if (purpose === 'slot' || purpose === 'charms') {
-      if (timeToExecution - Date.now() > 1000 * 60 * 30) {
+      if (timeToExecution > 1000 * 60 * 30) {
+        console.log(`${citySchedule.city.name}: ${citySchedule.queue[0].itemType} awaits for ${purpose}, adding to suppliers list`);
         this.addCityToSuppliersList(citySchedule.city);
         this.reevaluateProviderCities();
       }
@@ -689,7 +693,7 @@ export default class MasterQueue implements IService {
   }
 
   private isTableOpened = () => {
-    return document.getElementById('master-queue-table')?.hidden === false;
+    return document.getElementById(MasterQueue.TABLE_ID)?.hidden === false;
   }
 
   // TODO: hydrate schedule from local storage and add load method in ~constructor
