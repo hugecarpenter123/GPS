@@ -597,7 +597,7 @@ export default class CityBuilder {
           operationDetails.queueItem.maxShipmentTime
         );
         // if stackResourcesResult.timeMs is -1, then resources are not fully stacked and it needs to be retried in 10 minutes
-        if (stackResourcesResult.timeMs === -1) {
+        if (stackResourcesResult.timeMs === -1 || stackResourcesResult.fullyStacked === false) {
           timeToRetry = 1000 * 60 * 10;
           retrialTime = Date.now() + 1000 * 60 * 10;
         } else {

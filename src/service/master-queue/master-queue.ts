@@ -409,13 +409,13 @@ export default class MasterQueue implements IService {
   private setUITableStatuses(status: 'idle' | 'running', citySchedule?: CitySchedule) {
     const table = document.getElementById(MasterQueue.TABLE_ID)!;
     if (!citySchedule) {
-      table.querySelectorAll<HTMLTableRowElement>('div.tr .master-queue-state').forEach(statusCell => {
+      table.querySelectorAll<HTMLDivElement>('div.tr .master-queue-state').forEach(statusCell => {
         statusCell.classList.remove('idle', 'running');
         statusCell.classList.add(status);
         statusCell.textContent = status.charAt(0).toUpperCase() + status.slice(1);
       })
     } else {
-      const statusCell = table.querySelector<HTMLTableRowElement>(`div.tr [data-city="${citySchedule.city.name}"] .master-queue-state`);
+      const statusCell = table.querySelector<HTMLDivElement>(`div.tr[data-city="${citySchedule.city.name}"] .master-queue-state`);
       console.log('row:', statusCell);
       if (statusCell) {
         statusCell.classList.remove('idle', 'running');

@@ -139,6 +139,13 @@ export default class TradeManager {
    * @requires Lock
    */
   public async stackResources(targetResources: TargetResourcesInfo, city: CityInfo, fromCities: CityInfo[], maxShipmentTime: number): Promise<StackResourcesResult> {
+    // TODO: it is being called even if there are no cities to trade with, check if flow will work if return value is false
+    if (!fromCities.length) {
+      return {
+        fullyStacked: false,
+        timeMs: -1
+      }
+    }
 
     // TODO: it must be resolved, because shipment time may be higher than maxShipmentTime (RARE CASE)
     // let [woodRealState, stoneRealState, ironRealState] can only be used if there is no shipment time higher than maxShipmentTime

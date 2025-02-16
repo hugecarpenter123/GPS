@@ -237,11 +237,11 @@ export default class MasterManager {
     // NOTE: remake as masterqueue holds now all operations
     if (!except.includes('masterQueue') && this.masterQueue.isRunning()) {
       const masterQueueTimes = this.masterQueue.getMasterQueueScheduleTimes();
-      const masterQueueTimesCollides = masterQueueTimes.some((masterQueueTime: number) =>
-        masterQueueTime &&
-        masterQueueTime <= actionTime &&
-        Math.abs((masterQueueTime - actionTime)) <= 1000 * 30);
-      if (masterQueueTimesCollides) {
+      const masterQueueTimesCollide = masterQueueTimes.some((masterQueueScheduleTime: number) =>
+        masterQueueScheduleTime &&
+        masterQueueScheduleTime <= actionTime &&
+        Math.abs((masterQueueScheduleTime - actionTime)) <= 1000 * 30);
+      if (masterQueueTimesCollide) {
         this.masterQueue.stop();
         this.pausedManagersSnapshot.masterQueue = true;
       }

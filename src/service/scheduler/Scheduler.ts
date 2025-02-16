@@ -12,15 +12,6 @@ import buttonPanelExtension from './button-panel-extension.html';
 import schedulerListHtml from './scheduler-list-prod.html';
 import schedulerListCss from './scheduler-list.css';
 
-/*
- TODO: Pomysły:
- -dodać możliwość schedulowania w krótkim odstępnie czasowym, 
- : implementacja :
-    wiedząc że managery są wyłączone przez poprzednią operację nie potrzeba dużo czasu do ustawienia nastepnej operacji
-    -dodać w locku metodę lofkc(force, shiftQueueIfManger) lub lock('priority'), które appenduje na początku (chyba że inny ma priority to za nim)
-    -zmienić ify sprawdzające możliwość dodania itemu
-*/
-
 enum OperationType {
   ARMY_ATTACK,
   ARMY_SUPPORT,
@@ -47,6 +38,7 @@ type ScheduleItem = {
   realActionTime: number;
   sourceCity: CityInfo;
   targetCitySelector: string;
+  targetCityCords: [string, string];
   targetCityName: string;
   data: any;
   includeHero?: boolean;
@@ -143,7 +135,7 @@ export default class Scheduler {
    * -zczytać czas podróży jednostek i obliczyć na podstawie tych danych timeout
    * -zczytać wioskę źródłową oraz gridy wioski na której operacja ma być wykonana
    * -dodać obiekt ScheduleItem do listy oraz do LocaleStorage oraz ustawic timeout
-   * -timeout powinien usunąć wszstko co z nim związane powykonaniu operacji
+   * -timeout powinien usunąć wszstko co z nim związane po wykonaniu operacji
    */
   private async extendAttackSupportUI(node: HTMLElement): Promise<void> {
     // observer mounted, argument is the grand parent of the button panel
@@ -212,6 +204,7 @@ export default class Scheduler {
       const sourceCity = this.citySwitchManager.getCurrentCity()
       // attack_support_tab_target_9542
       const targetCitySelector = '#town_' + Array.from(node.classList).find(cls => cls.match(/attack_support_tab_target_\d+/))!.match(/\d+/)![0];
+      const cords = this.readCords();
 
       if (!this.canAddSchedulerItem(actionDate)) {
         console.warn('unsafe operation, failed to be scheudled');
@@ -290,6 +283,7 @@ export default class Scheduler {
         realActionTime: actionDate.getTime() + this.config.general.timeDifference,
         sourceCity: sourceCity!,
         targetCitySelector: targetCitySelector,
+        targetCityCords: cords,
         data: inputData,
         includeHero: includeHero,
         timeoutStructure: scheduleTimeout,
@@ -316,6 +310,7 @@ export default class Scheduler {
     if (this.isLockTakenByScheduler) this.lock.release();
     this.isLockTakenByScheduler = false;
     this.generalInfo.showInfo('Scheduler:', 'Czyszczenie cache po operacji.');
+    // NOTE: potential optimization remove later from there as it will be called after switchAction
     await this.removeSavedCoords(schedulerItem.id);
     this.generalInfo.hideInfo();
     this.tryRestoreManagers();
@@ -394,7 +389,8 @@ export default class Scheduler {
             throw new Error('Failed to find saved coordinates from the list')
           };
           dropdownItem.click();
-          await addDelay(400);
+          // NOTE: potential optimization (remove duplicate from cleanup function) - also it will work well if cords are added in preparation timeout
+          this.removeSavedCoords(schedulerItem.id);
 
           // pozamykaj okna ----------------
           for (const el of document.querySelectorAll<HTMLElement>('.minimized_windows_area .btn_wnd.close')) {
@@ -424,6 +420,7 @@ export default class Scheduler {
           const targetCityElementSnapshot = getElementStateSnapshot(targetCityElement);
           // console.log('targetCityElement', targetCityElement);
 
+          // TODO: reghink if this is needed
           let counter = 0;
           do {
             await performComplexClick(targetCityElement);
@@ -462,7 +459,7 @@ export default class Scheduler {
             (await waitForElementInterval('#support', { interval: 500, timeout: 2000 })).click();
           }
 
-          // wypełnij inputy
+          // TODO: reghink if complex setting input value is needed
           console.log('fill inputData');
           for (const data of inputData) {
             if (data.value) {
@@ -500,6 +497,7 @@ export default class Scheduler {
             // console.log('now time + way duration:', formatDateToSimpleString(new Date(new Date().getTime() + wayDurationMs)))
             if (operationType === OperationType.ARMY_ATTACK) {
               (await waitForElement('#btn_attack_town')).click();
+              // TODO: instead of anticipating confirmation for ally attack, assess if that's the case - it will eliminate the need waiting
               await waitForElement('.js-window-main-container.classic_window.dialog .btn_confirm.button_new', 1000)
                 .then(el => el.click())
                 .catch(() => { });
@@ -507,6 +505,7 @@ export default class Scheduler {
               (await waitForElement('.attack_support_window a .middle')).click();
             }
 
+            // TODO: check what is this all about
             this.armyMovement.setCallback((id: string) => {
               schedulerItem.movementId = id;
               schedulerItem.undoMovementAction = () => this.undoArmyMovement(schedulerItem.sourceCity, id);
@@ -569,7 +568,12 @@ export default class Scheduler {
     if (schedulerItem.operationType === OperationType.ARMY_ATTACK || schedulerItem.operationType === OperationType.ARMY_SUPPORT) {
       schedulerItem.actionDate = new Date(schedulerItem.actionDate)
       schedulerItem.targetDate = new Date(schedulerItem.targetDate)
-      schedulerItem.sourceCity = this.citySwitchManager.getCityByName(schedulerItem.sourceCity.name)!; //TODO: possible erorr
+      const sourceCity = this.citySwitchManager.getCityByName(schedulerItem.sourceCity.name)
+      // at this point source city doesn't exist, so it's not possible to add operation to scheduler
+      if (!sourceCity) {
+        return;
+      }
+      schedulerItem.sourceCity = sourceCity;
 
       if (!this.canAddSchedulerItem(schedulerItem.actionDate)) {
         console.warn('unsafe operation, failed to be scheudled during hydration');
@@ -623,6 +627,11 @@ export default class Scheduler {
     this._info = info;
   }
 
+  /*
+  TODO: rework:
+  -operacje do tego samego miasta mogą być wykonywane po sobie natychmiastowo
+  -operacje, które następują po innej operacji ale do innego miasta potrzebują 3s różnicy czasu
+  */
   /**
    * Sprawdza czy można dodać operację do schedulera ze względu na czas do wykonania operacji oraz czas do najbliższej akcji w schedulerze.
    * Jezeli odstęp czasowy pomiędzy tą operacją a teraz lub najbliższą zaplanowaną operacją jest mniejszy niż 10s zwraca fałsz.
@@ -650,6 +659,10 @@ export default class Scheduler {
       return false;
     }
   }
+
+  /*
+  TODO: check restoring managers logic after master-queue implementation
+  */
   /**
    * Sprawdza czy przywrócenie działania managerów nie koliduje z obecną kolejką schedulera, (minumum 60s do najbliższej akcji)
    * jeżeli nie koliduje to przywraca działanie managerów.

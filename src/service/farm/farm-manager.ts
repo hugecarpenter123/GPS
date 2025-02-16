@@ -1,7 +1,7 @@
 import EventEmitter from "events";
 import gpsConfig, { FarmTimeInterval } from "../../../gps.config";
 import ConfigManager from "../../utility/config-manager";
-import { addDelay, calculateTimeToNextOccurrence, formatDateToSimpleString, getBrowserStateSnapshot, getElementStateSnapshot, getRandomMs, textToMs, waitUntil } from "../../utility/plain-utility";
+import { addDelay, calculateTimeToNextOccurrence, doUntil, formatDateToSimpleString, getBrowserStateSnapshot, getElementStateSnapshot, getRandomMs, textToMs, waitUntil } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
 import { performComplexClick, waitForElement, waitForElementFromNode, waitForElementInterval, waitForElements, waitForElementsInterval } from "../../utility/ui-utility";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
@@ -258,23 +258,7 @@ export default class FarmManager extends EventEmitter {
     }
   }
 
-  /**
-   * Obecna implementacja. Sprawdzenie pierwszej wioski z brzegu, czy posiada czas oczekiwania. 
-   * -jeżeli nie, farmienie wszystkich posiadanych wiosek na wyspie (bez względu na stan)
-   * -jeżeli tak (nawet jeżeli pozostałe nie mają czasu oczekiwania), ma miejsce oczekiwanie
-   * 
-   * Sposób działania w przypadku wielu miast gracza:
-   * -Wzięcia locka raz na wszystkie miasta
-   * -iteracja przez wszystkie miasta (switchowanie miast)
-   * -farmienie jednym ciągiem tzn traktowanie, że wszystkie miasta mają zawsze ta samą strategię farmienia wiosek i są na tym samym czasie oczekiwania
-   * 
-   * Alternatywne podejście
-   * -na każde miasto gracza jest osobny callback
-   *  :w efekcie każde miasto może farmić swoje wioski z potencjalnie innym odsępem czasowym
-   * -wszystkie wioski przypisane od miasta są traktowane jako jeden byt, czyli losowa wioska określa ten sam czas oczekiwania dla wszystkich innych
-   * -sposób przechodzenia między wioskami ten sam: inicjalna funkcja start, która bierze Locka raz na wszystkie iteracje miast
-   *  a potem farmienie przez callbacki
-   */
+
   private async farmVillages(city: CityInfo) {
     try {
       console.log('farmVillages, wait for lock', city.name);
@@ -293,76 +277,70 @@ export default class FarmManager extends EventEmitter {
     }
   }
 
-  /**
-   * Make sure, that if there are 2 or more cities on the same isle not to duplicate farming operation and scheduling.
-   * Although nothing bad or unpredictable will happen, it is a waste of resources. 
-   * Solution
-   * :store villages unique selectors, and check if previous ones (on condtition that there is more than 1 village) are not the same.
-   *  -if previous ones are the same, omit
-   *  -else allow normal flow
-   */
   private async farmVillagesFlow(city: CityInfo, forced: boolean = false) {
     try {
       console.log('farmVillagesFlow, switch to city', city.name, new Date());
       await city.switchAction();
 
-      let timeout: number = this.config.farmConfig.farmInterval;
-
-      this.config.farmConfig.humanize ? addDelay(getRandomMs(400, 1200)) : addDelay(333);
-
       // Selectors mapping and timeout check
       const villages = await waitForElementsInterval('a.owned.farm_town[data-same_island="true"]', { timeout: 3000 }).catch(() => null);
-      console.log('\t-villages to farm:', villages?.length);
 
       if (!villages || villages.length === 0) return;
-      const villageStyleSelectors = Array.from(villages).map(v => {
-        return `[style="${v.getAttribute('style')}"]`
-      })
 
-      const villagesAmount = villageStyleSelectors.length;
       this.mountMessageDialogsObservers(city);
 
-      for (const [i, villageSelector] of villageStyleSelectors.entries()) {
-        console.log(`\t-checking village: ${i}, from town: ${city.name}`);
+      let masterWindow: HTMLDivElement | null = null;
+      await doUntil(
+        () => !(masterWindow = document.querySelector('body > .window_curtain >.classic_window.farm_town')),
+        async () => {
+          await performComplexClick(document.querySelector<HTMLElement>('a.owned.farm_town[data-same_island="true"]')!);
+        },
+        { delay: 333, maxIterations: 7 }
+      );
 
-        let counter = 0;
-        do {
-          console.log('\t-clicking village element on the map', counter);
-          await performComplexClick(document.querySelector<HTMLElement>(villageSelector)!);
-          console.log('\t-clicked village element on the map', counter);
-          await addDelay(100);
-          if (counter === 3) throw new Error('Farm villages dialog didn\'t show up');
-          counter++;
-        } while (!(await waitForElementInterval('.farm_towns', { retries: 3, interval: 500 }).catch(() => false)));
-        this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : addDelay(100);
+      let previousVillageName: string | null = null;
+      let farmedVillageCounter = 0;
+
+      while (farmedVillageCounter !== villages.length) {
+        const currentVillageName = masterWindow!.querySelector<HTMLElement>('.village_name')?.textContent;
+
+        if (previousVillageName === currentVillageName) {
+          // await masterWindow!.querySelector<HTMLElement>('.village_info .btn_next')?.click();
+          await waitForElementInterval('.village_info .btn_next', { retries: 10, interval: 200, fromNode: masterWindow! }).then(el => { console.log('\t-clicked next'); el.click() });
+          await waitUntil(() => {
+            const nextVillageName = masterWindow!.querySelector<HTMLElement>('.village_name')?.textContent;
+            return !nextVillageName?.length || (previousVillageName === nextVillageName);
+          }, { delay: 200, maxIterations: 10 });
+        }
+        previousVillageName = masterWindow!.querySelector<HTMLElement>('.village_name')!.textContent;
 
         const farmOptionIndex = this.getFarmOptionIndex();
+        let farmNotOwned = false;
+        await waitForElementsInterval('.btn_claim_resources.button.button_new', { retries: 10, interval: 200, fromNode: masterWindow! })
+          .then((els) => {
+            if (!els[farmOptionIndex].classList.contains('disabled')) {
+              els[farmOptionIndex].click();
+            }
+          })
+          .catch(() => { console.log('\t-could not find farm option buttons'); farmNotOwned = true; });
 
-        counter = 0;
-        do {
-          console.log('\t-clicking farm button', counter);
-          await waitForElements('.btn_claim_resources.button.button_new', 500)
-            .then((els) => els[farmOptionIndex].click())
-            .catch(() => { });
-          console.log('\t-clicked farm button', counter);
-          if (counter === 3) throw new Error('Farm button not found');
-          counter++;
-          await addDelay(100);
-        } while (!await waitForElement('.actions_locked_banner.cooldown', 1500).catch(() => false));
-        this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : addDelay(100);
-
-        if (i === villagesAmount - 1) {
-          timeout = await this.getUnlockTimeOrNull(await waitForElement('.farm_towns'), 2000) ?? this.config.farmConfig.farmInterval;
+        // adjust criterion by which it is assessed that village is not owned
+        if (farmNotOwned) {
+          console.log('\t-village is not owned, skipping');
+          continue;
         }
-
-        console.log('\t-closing village window');
-        await waitForElement('.btn_wnd.close', 2000).then(el => el.click()).catch(() => { })
-        console.log('\t-closed village window');
-        this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : addDelay(100);
+        await waitUntil(() => !document.querySelector('.actions_locked_banner.cooldown'), { delay: 200, maxIterations: 10 });
+        farmedVillageCounter++;
       }
 
+      console.log('post loop actions');
+      const cooldownTime = await this.getUnlockTimeOrNull(masterWindow!);
+      // const timeoutTime = Math.min(cooldownTime ?? Infinity, this.config.farmConfig.farmInterval);
+      await waitForElement('.btn_wnd.close', 2000).then(el => el.click()).catch(() => { })
+
+      // NOTE: check if this is called in the finally block (remove duplicate if so)
       this.disconnectObservers();
-      this.scheduleNextFarmingOperationForCity(timeout + 1000, city);
+      this.scheduleNextFarmingOperationForCity(cooldownTime ?? this.config.farmConfig.farmInterval + 1000, city);
 
     } catch (e) {
       console.warn('FarmManager.farmVillagesFlow().catch', e);
@@ -407,7 +385,9 @@ export default class FarmManager extends EventEmitter {
 
   private disconnectObservers() {
     this.messageDialogObserver?.disconnect();
+    this.messageDialogObserver = null;
     this.humanMessageDialogObserver?.disconnect();
+    this.humanMessageDialogObserver = null;
   }
 
   private scheduleNextFarmingOperationForCity = (timeInterval: number, city: CityInfo) => {
@@ -432,7 +412,7 @@ export default class FarmManager extends EventEmitter {
    * Metoda jest odpowiedzią na blokadę farmienia wynikającą z konieczności potwierdzenia farmienia w przypadku pełengo magazynu.
    * Metoda obserwuje czy pojawił się popup z promptem do potwierdzenia kontynuacji i klika akceptuj.
    */
-  private mountMessageDialogsObservers = async (city?: CityInfo) => {
+  private mountMessageDialogsObservers = (city?: CityInfo) => {
     if (!this.messageDialogObserver) {
       const observer = new MutationObserver(async (mutations) => {
         for (const mutation of mutations) {
@@ -469,8 +449,8 @@ export default class FarmManager extends EventEmitter {
     this.messageDialogObserver.observe(document.body, { childList: true })
   }
 
-  private async getUnlockTimeOrNull(window: HTMLElement, timeout?: number): Promise<number | null> {
-    const cooldownBar = await waitForElementFromNode(window, '.actions_locked_banner.cooldown', timeout ?? 500).catch(() => null);
+  private async getUnlockTimeOrNull(node: HTMLElement): Promise<number | null> {
+    const cooldownBar = await waitForElementInterval('.actions_locked_banner.cooldown', { retries: 10, interval: 200, fromNode: node }).catch(() => null);
     if (cooldownBar) {
       const unlcokTimeEl = cooldownBar.querySelector('.pb_bpv_unlock_time')
       return new Promise((res, rej) => {
@@ -490,7 +470,6 @@ export default class FarmManager extends EventEmitter {
         }, 100)
       })
     }
-
     return null;
   }
 

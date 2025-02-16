@@ -410,7 +410,7 @@ export default class Recruiter {
     /**
      * Parses configuration from recruiter dialog calls executive method based on this.
      */
-    const addButtonAction = () => {
+    const addButtonAction = async () => {
       const amountType: 'units' | 'slots' = amountTypeRadios![0].checked ? 'units' : 'slots';
       const amountInputValue = amountInput!.value;
       const amountMaxCheckboxValue = amountMaxCheckbox!.checked;
@@ -432,7 +432,7 @@ export default class Recruiter {
       }
 
       if (amountMaxCheckboxValue) {
-        const properMaxSlotsAmount = this.getEmptySlotsCount(type) - this.masterQueue.getCityRecruiterSchedule(sourceCity!).reduce((acc, item) => {
+        const properMaxSlotsAmount = await this.getEmptySlotsCount(type) - this.masterQueue.getCityRecruiterSchedule(sourceCity!).reduce((acc, item) => {
           if (item.type === type) {
             if (item.amountType === 'slots') {
               return acc + item.amount;
@@ -717,8 +717,9 @@ export default class Recruiter {
           console.log('recruitment partially performed, scheduling next round');
           await this.performRecruitOrStackResources(operationDetails);
         } else if (recruitmentResult === 'slot') {
+          console.log('no free slot, rescheduling in time to free slot');
           const timeToFreeSlot = await this.getTimeToFreeSlot(scheduleItem.type);
-          console.log('no free slot, rescheduling in time to free slot:', timeToFreeSlot);
+          console.log('timeToFreeSlot:', timeToFreeSlot);
           operationDetails.setScheduleTimeout(
             async () => await this.tryRecruitOrStackResources(operationDetails),
             timeToFreeSlot,
@@ -774,7 +775,8 @@ export default class Recruiter {
     await this.goToRecruitmentBuilding(item.type);
 
     // free slots check
-    const freeSlots = this.getEmptySlotsCount(item.type);
+    const freeSlots = await this.getEmptySlotsCount(item.type);
+    console.log('freeSlots:', freeSlots);
     if (!freeSlots) return 'slot';
 
     const recruitedUnitsAmount = await this.recruitUnits(
@@ -950,8 +952,10 @@ export default class Recruiter {
    * @requires
    * - Budynek rekrutera musi być otwarty.
    */
-  private getEmptySlotsCount(buildingType: 'barracks' | 'docks') {
-    return Number(document.querySelector(`.type_unit_queue.${buildingType}`)?.querySelectorAll('.empty_slot').length);
+  private async getEmptySlotsCount(buildingType: 'barracks' | 'docks') {
+    // return Number(document.querySelector(`.type_unit_queue.${buildingType}`)?.querySelectorAll('.empty_slot').length);
+    const unitQueueEl = await waitForElementInterval(`.type_unit_queue.${buildingType}`, { retries: 4, interval: 333 });
+    return Number(unitQueueEl?.querySelectorAll('.empty_slot').length);
   }
 
   private getCurrentUnitContextCopy() {
@@ -982,7 +986,7 @@ export default class Recruiter {
   public async isRealQueueFull(type: 'barracks' | 'docks', city?: CityInfo): Promise<{ isRealQueueFull: boolean, timeToFreeSlot: number }> {
     if (city) await city.switchAction(false);
     await this.goToRecruitmentBuilding(type);
-    const emptySlots = this.getEmptySlotsCount(type);
+    const emptySlots = await this.getEmptySlotsCount(type);
     const returnValue = { isRealQueueFull: !emptySlots, timeToFreeSlot: 0 };
     if (!emptySlots) {
       returnValue.timeToFreeSlot = await this.getTimeToFreeSlot(type);
