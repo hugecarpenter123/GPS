@@ -1,3 +1,5 @@
+/* must ble classess because elements are rendered in multiple places */
+
 .master-queue {
   display: flex;
   align-items: flex-start;
@@ -72,12 +74,12 @@
   left: 4px;
 }
 
-.desc1 {
+.master-queue-item-info .desc1 {
   font-weight: bold;
 }
 
-.desc1,
-.desc2 {
+.master-queue-item-info .desc1,
+.master-queue-item-info .desc2 {
   text-overflow: ellipsis;
   overflow: hidden;
   white-space: nowrap;
@@ -98,36 +100,5 @@
 .run-all-button,
 .reset-all-button,
 .clear-all-button {
-  /* padding: 4px 8px; */
   cursor: pointer;
 }
-
-/* .run-this-button {
-  border: 2px dashed green;
-  color: green;
-}
-
-.reset-this-button {
-  border: 2px dashed orange;
-  color: orange;
-}
-
-.clear-this-button {
-  border: 2px dashed red;
-  color: red;
-}
-
-.run-all-button {
-  border: 1px solid green;
-  color: green;
-}
-
-.reset-all-button {
-  border: 1px solid orange;
-  color: orange;
-}
-
-.clear-all-button {
-  border: 1px solid red;
-  color: red;
-} */

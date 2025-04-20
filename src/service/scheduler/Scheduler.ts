@@ -1,7 +1,19 @@
+/* 
+Scheduler:
+-gromadzi dane na temat operacji w tym:
+ --wszystkie callbacki związane z daną operacją
+ --odniesienia do anulowania ruchu
+-podczas operacji:
+ --zarządza cyklem innych menadżerów, pauzuje i odpauzowuje
+ --wywołuje zewnętrzną metodę do wykonania operacji danej operacji, która zaopatrza scheduler w informacje takie jak:
+  ---jak anulować operacje
+  ---jak usunąć zaplanowane operacje w związku z wykonaniem operacji
+*/
+
 import { TConfig } from "../../../gps.config";
 import ConfigManager from "../../utility/config-manager";
 import { InfoError } from "../../utility/info-error";
-import { addDelay, getBrowserStateSnapshot, getElementStateSnapshot, textToMs, waitUntil } from "../../utility/plain-utility";
+import { addDelay, getBrowserStateSnapshot, getElementStateSnapshot, textToMs, waitWhile } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
 import { performComplexClick, setInputValue, triggerHover, waitForElement, waitForElementInterval, waitForElements } from "../../utility/ui-utility";
 import ArmyMovement from "../army/army-movement";
@@ -232,7 +244,7 @@ export default class Scheduler {
 
       await addDelay(100);
 
-      await waitUntil(() => !document.querySelector<HTMLElement>(targetCitySelector),
+      await waitWhile(() => !document.querySelector<HTMLElement>(targetCitySelector),
         {
           onError: () => {
             this.error = 'Nie udało się zapisać współrzędnych wioski, zamknij okna innych wiosek i spróbuj ponownie.';
@@ -339,7 +351,8 @@ export default class Scheduler {
       .find(el => el.textContent?.trim() === id)?.querySelector<HTMLElement>('.remove')?.click();
 
     await waitForElementInterval('.confirmation .btn_confirm', { interval: 500, timeout: 2000 })
-      .then(el => (el as HTMLButtonElement).click());
+      .then(el => (el as HTMLButtonElement).click())
+      .catch(e => console.warn('removeSavedCoords catch:', e));
   }
 
   private readCords(): [string, string] {
@@ -390,7 +403,7 @@ export default class Scheduler {
           };
           dropdownItem.click();
           // NOTE: potential optimization (remove duplicate from cleanup function) - also it will work well if cords are added in preparation timeout
-          this.removeSavedCoords(schedulerItem.id);
+          // this.removeSavedCoords(schedulerItem.id);
 
           // pozamykaj okna ----------------
           for (const el of document.querySelectorAll<HTMLElement>('.minimized_windows_area .btn_wnd.close')) {

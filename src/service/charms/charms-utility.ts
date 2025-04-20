@@ -1,54 +1,65 @@
-import { addDelay, textToMs, waitUntil } from "../../utility/plain-utility";
+import { addDelay, textToMs, waitWhile } from "../../utility/plain-utility";
 import { waitForElement } from "../../utility/ui-utility";
 
-const baseIconClasses = 'power_icon30x30 new_ui_power_icon animated_power_icon animated_power_icon_30x30'
+const baseCityIconClasses = 'power_icon30x30 new_ui_power_icon animated_power_icon animated_power_icon_30x30'
+const baseAttackIconClasses = 'power_icon45x45 new_ui_power_icon animated_power_icon animated_power_icon_45x45'
 
-export type CityCharm = {
+export type CharmDetails = {
   dataPowerId: string;
   classes: string;
 }
 
 type OptionalCharmsArg = {
-  required?: CityCharm[];
-  optional?: CityCharm[];
+  required?: CharmDetails[];
+  optional?: CharmDetails[];
 }
 
 export default class CharmsUtility {
-  public static cityCharms: CityCharm[] = [
-    { dataPowerId: 'divine_sign', classes: baseIconClasses + ' ' + 'divine_sign' },
-    { dataPowerId: 'kingly_gift', classes: baseIconClasses + ' ' + 'kingly_gift' },
-    { dataPowerId: 'call_of_the_ocean', classes: baseIconClasses + ' ' + 'call_of_the_ocean' },
-    { dataPowerId: 'wedding', classes: baseIconClasses + ' ' + 'wedding' },
-    { dataPowerId: 'happiness', classes: baseIconClasses + ' ' + 'happiness' },
-    { dataPowerId: 'fertility_improvement', classes: baseIconClasses + ' ' + 'fertility_improvement' },
-    { dataPowerId: 'patroness', classes: baseIconClasses + ' ' + 'patroness' },
-    { dataPowerId: 'town_protection', classes: baseIconClasses + ' ' + 'town_protection' },
-    { dataPowerId: 'underworld_treasures', classes: baseIconClasses + ' ' + 'underworld_treasures' },
-    { dataPowerId: 'natures_gift', classes: baseIconClasses + ' ' + 'natures_gift' },
-    { dataPowerId: 'cleanse', classes: baseIconClasses + ' ' + 'cleanse' },
-    { dataPowerId: 'charitable_festival', classes: baseIconClasses + ' ' + 'charitable_festival' },
-    { dataPowerId: 'hymn_to_aphrodite', classes: baseIconClasses + ' ' + 'hymn_to_aphrodite' },
-    { dataPowerId: 'ares_sacrifice', classes: baseIconClasses + ' ' + 'ares_sacrifice' },
-    { dataPowerId: 'spartan_training', classes: baseIconClasses + ' ' + 'spartan_training' },
+  public static cityCharms: CharmDetails[] = [
+    { dataPowerId: 'divine_sign', classes: baseCityIconClasses + ' ' + 'divine_sign' },
+    { dataPowerId: 'kingly_gift', classes: baseCityIconClasses + ' ' + 'kingly_gift' },
+    { dataPowerId: 'call_of_the_ocean', classes: baseCityIconClasses + ' ' + 'call_of_the_ocean' },
+    { dataPowerId: 'wedding', classes: baseCityIconClasses + ' ' + 'wedding' },
+    { dataPowerId: 'happiness', classes: baseCityIconClasses + ' ' + 'happiness' },
+    { dataPowerId: 'fertility_improvement', classes: baseCityIconClasses + ' ' + 'fertility_improvement' },
+    { dataPowerId: 'patroness', classes: baseCityIconClasses + ' ' + 'patroness' },
+    { dataPowerId: 'town_protection', classes: baseCityIconClasses + ' ' + 'town_protection' },
+    { dataPowerId: 'underworld_treasures', classes: baseCityIconClasses + ' ' + 'underworld_treasures' },
+    { dataPowerId: 'natures_gift', classes: baseCityIconClasses + ' ' + 'natures_gift' },
+    { dataPowerId: 'cleanse', classes: baseCityIconClasses + ' ' + 'cleanse' },
+    { dataPowerId: 'charitable_festival', classes: baseCityIconClasses + ' ' + 'charitable_festival' },
+    { dataPowerId: 'hymn_to_aphrodite', classes: baseCityIconClasses + ' ' + 'hymn_to_aphrodite' },
+    { dataPowerId: 'ares_sacrifice', classes: baseCityIconClasses + ' ' + 'ares_sacrifice' },
+    { dataPowerId: 'spartan_training', classes: baseCityIconClasses + ' ' + 'spartan_training' },
   ]
 
-  public static getCurrentCityWorkingCharms(): CityCharm[] {
+  public static attackCharms: CharmDetails[] = [
+    { dataPowerId: 'fair_wind', classes: baseAttackIconClasses + ' ' + 'fair_wind' },
+    { dataPowerId: 'strength_of_heroes', classes: baseAttackIconClasses + ' ' + 'strength_of_heroes' },
+    { dataPowerId: 'cap_of_invisibility', classes: baseAttackIconClasses + ' ' + 'cap_of_invisibility' },
+    { dataPowerId: 'resurrection', classes: baseAttackIconClasses + ' ' + 'resurrection' },
+    { dataPowerId: 'effort_of_the_huntress', classes: baseAttackIconClasses + ' ' + 'effort_of_the_huntress' },
+    { dataPowerId: 'ares_army', classes: baseAttackIconClasses + ' ' + 'ares_army' },
+    { dataPowerId: 'bloodlust', classes: baseAttackIconClasses + ' ' + 'bloodlust' },
+  ]
+
+  public static getCurrentCityWorkingCharms(): CharmDetails[] {
     const castedPowersArea = document.querySelector('.casted_powers_area')
     const workingCharms = Array.from(castedPowersArea?.querySelectorAll('.casted_power.power_icon16x16') ?? [])
       .map(el => {
         const charm = el.classList[2];
-        return this.cityCharms.find(c => c.dataPowerId === charm) as CityCharm
+        return this.cityCharms.find(c => c.dataPowerId === charm) as CharmDetails
       })
       .filter(c => c !== undefined);
     return workingCharms;
   }
 
-  private static async performCastCharms(charms: CityCharm[]): Promise<void> {
+  private static async performCastCharms(charms: CharmDetails[]): Promise<void> {
     for (const charm of charms) {
       const powerElement = document.querySelector<HTMLDivElement>(`[data-power_id="${charm.dataPowerId}"]`);
       if (powerElement) {
         powerElement.click();
-        await waitUntil(() => !document.querySelector<HTMLDivElement>(`[data-power_id="${charm.dataPowerId}"]`)?.classList.contains('active_animation'),
+        await waitWhile(() => !document.querySelector<HTMLDivElement>(`[data-power_id="${charm.dataPowerId}"]`)?.classList.contains('active_animation'),
           { delay: 333, maxIterations: 4, onError: () => console.warn('CharmUtility: charm not activated after clicking!:', charm) });
       } else {
         console.warn('CharmUtility: charm not found:', charm);
@@ -56,11 +67,11 @@ export default class CharmsUtility {
     }
   }
 
-  public static getRecruitmentSpecificCharms(): CityCharm[] {
+  public static getRecruitmentSpecificCharms(): CharmDetails[] {
     return [
-      { dataPowerId: 'call_of_the_ocean', classes: baseIconClasses + ' ' + 'call_of_the_ocean' },
-      { dataPowerId: 'fertility_improvement', classes: baseIconClasses + ' ' + 'fertility_improvement' },
-      { dataPowerId: 'spartan_training', classes: baseIconClasses + ' ' + 'spartan_training' },
+      { dataPowerId: 'call_of_the_ocean', classes: baseCityIconClasses + ' ' + 'call_of_the_ocean' },
+      { dataPowerId: 'fertility_improvement', classes: baseCityIconClasses + ' ' + 'fertility_improvement' },
+      { dataPowerId: 'spartan_training', classes: baseCityIconClasses + ' ' + 'spartan_training' },
     ]
   }
 
@@ -71,7 +82,7 @@ export default class CharmsUtility {
    * @param required 
    * @returns true if all charms can be casted or are already casted
    */
-  private static async castCharmsIfNotCasted(charms: CityCharm[], required: boolean = true): Promise<boolean> {
+  private static async castCharmsIfNotCasted(charms: CharmDetails[], required: boolean = true): Promise<boolean> {
     console.warn('castCharmsIfNotCasted', { charms, required });
     const castedCharms = this.getCurrentCityWorkingCharms();
     console.log('castedCharms in the city:', castedCharms);
@@ -118,20 +129,20 @@ export default class CharmsUtility {
    * @param charm 
    * @returns true if the charm can be casted
    */
-  private static canCastCharm(charm: CityCharm): boolean {
+  private static canCastCharm(charm: CharmDetails): boolean {
     return !document.querySelector<HTMLDivElement>(`[data-power_id="${charm.dataPowerId}"]`)?.classList.contains('disabled');
   }
 
-  public static getCharmByPowerId(powerId: string): CityCharm | undefined {
+  public static getCharmByPowerId(powerId: string): CharmDetails | undefined {
     return this.cityCharms.find(c => c.dataPowerId === powerId);
   }
 
-  public static areCharmsCastedOrAvailable(charms: CityCharm[]) {
+  public static areCharmsCastedOrAvailable(charms: CharmDetails[]) {
     const workingCharms = this.getCurrentCityWorkingCharms();
     return charms.every((charm) => workingCharms.includes(charm) || this.canCastCharm(charm))
   }
 
-  public static getCharmsCastingTime(charms: CityCharm[]): Map<string, number> {
+  public static getCharmsCastingTime(charms: CharmDetails[]): Map<string, number> {
     return new Map(charms.map(charm => {
       const powerElement = document.querySelector<HTMLDivElement>(`[data-power_id="${charm.dataPowerId}"]`);
       const counter = powerElement?.querySelector('[name="counter"]')?.textContent;

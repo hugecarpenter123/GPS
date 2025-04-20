@@ -23,12 +23,12 @@
   height: 50px;
 }
 
-.attack {
+#table-container .attack {
   font-weight: 600;
   color: #d32f2f;
 }
 
-.support {
+#table-container .support {
   font-weight: 600;
   color: #2979ff;
 }
@@ -53,7 +53,7 @@
 }
 
 
-.cancel-button {
+#table-container .cancel-button {
   background-color: #f44336;
   color: white;
   border: none;
@@ -62,7 +62,7 @@
   transition-duration: 150ms;
 }
 
-.cancel-button:hover {
+#table-container .cancel-button:hover {
   background-color: #d32f2f;
 }
 
@@ -84,11 +84,11 @@
   background-color: #ddd;
 }
 
-.actions {
+#table-container .actions {
   min-width: 22px;
 }
 
-.close-icon {
+#table-container .close-icon {
   position: absolute;
   cursor: pointer;
   right: 5px;
@@ -96,11 +96,11 @@
   color: #000;
 }
 
-.close-icon:hover {
+#table-container .close-icon:hover {
   scale: 1.1;
   transition-duration: 150ms;
 }
 
-.hidden {
+#table-container .hidden {
   display: none;
 }

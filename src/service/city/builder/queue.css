@@ -1,3 +1,8 @@
+#build-container.hidden,
+#build-container .hidden {
+  display: none !important;
+}
+
 #additional-queue {
   display: flex;
   gap: 8px;
@@ -46,10 +51,6 @@
 .queue-item .cancel:hover {
   transform: scale(1.4);
   transition: all 0.2s ease;
-}
-
-hidden {
-  display: none;
 }
 
 #build-container {

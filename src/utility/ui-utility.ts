@@ -181,7 +181,7 @@ export function waitForElementsInterval(selector: string, options: WaitForElemen
       resolve(elements);
     } else {
 
-      const timeoutId = retries ? setTimeout(() => {
+      const timeoutId = !retries ? setTimeout(() => {
         clearInterval(observer);
         reject(`${selector} - not found within timeout`);
       }, timeout)

@@ -1,19 +1,18 @@
 /*
-Funkcjonalności do zrobienia:
--start all - powinno uruchamiać wszystkie kolejki ale nie naraz, tylko jedna po drugiej - naprawić
--jeżeli kolejka buildera/recruiter jest pełna, a następny element musi czekać na miejsce w kolejce - udostępnj surowce
-  -w momencie wywołania metody uruchamiającej element musi być znana liczba pustych slotów w kolejce
-  -może to być wykonane podczas zakończenia poprzedniego elementu za pomocą callbacku z informacjązwrotną
-  -ale jeżeli kolejka startuje (więc nie ma poprzedniego elementu) to może to być przekazane w callbacku setTimeout jako informacja o tym do czego służy timeout
-
--status kolejki - nie updatuje się gdy kolejka miastowa się zacieła - naprawić
- */
+Serwisy powinny udostępniać:
+-metodę `post-delete-action`: która wykona poprawki, korekty itp na kolejce
+-metodę `hydrate-schedule-item`
+-podczas addToQueue info do renderowania itemu: 
+  --styl dla obrazka
+  --tytuł
+  --opis?
+  --pask poziomu?
+*/
 
 import gpsConfig from "../../../gps.config";
 import { TConfigChanges } from "../../config-popup/config-popup";
 import ConfigManager from "../../utility/config-manager";
 import ResourceLock from "../../utility/resource-lock";
-import { IService } from "../../utility/Service";
 import { Building } from "../city/builder/buildings";
 import CityBuilder, { BuilderQueueItem } from "../city/builder/city-builder";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
@@ -22,6 +21,24 @@ import masterQueueCss from './master-queue.css';
 
 import masterQueueTableCss from './master-queue-table.css';
 import masterQueueTableHtml from './master-queue-table.prod.html';
+import Service from "../../utility/service";
+import EventEmitter from "events";
+
+export enum QueuePriority {
+  High = 'high',
+  Normal = 'normal',
+  Low = 'low',
+}
+
+export type QueueItemType = 'recruiter' | 'builder' | 'municipal utility';
+
+export interface BaseQueueItemDetails {
+  priority?: QueuePriority
+  maxShipmentTime: number,
+  supplierCities: CityInfo[]
+}
+
+type QueueItemDetails2<T> = T & BaseQueueItemDetails;
 
 type QueueItemDetails = (RecruiterQueueItem | BuilderQueueItem) & {
   supplierCities: CityInfo[];
@@ -45,25 +62,25 @@ export type ScheduleOperationDetails<T> = {
 
 export type QueueItem = {
   id: string;
-  itemType: 'recruiter' | 'builder';
+  itemType: QueueItemType;
   itemDetails: QueueItemDetails
+  // TODO: potentially add priority there
 }
+
 
 export type CitySchedule = {
   city: CityInfo;
   queue: QueueItem[];
-  currentAction?: 'recruiter' | 'builder' | null;
-  timeoutId?: NodeJS.Timeout | null;
-  scheduleDate?: Date | null;
-  timeoutData?: {
-    timeoutId: NodeJS.Timeout;
-    executionTime: number;
-    purpose: TimeoutPurpose;
-  } | null;
+  currentAction?: QueueItemType | null;
+  timeoutData: {
+    timeoutId?: NodeJS.Timeout;
+    executionTime?: number;
+    purpose?: TimeoutPurpose;
+  };
 }
 
 
-export default class MasterQueue implements IService {
+export default class MasterQueue extends EventEmitter implements Service {
   private static readonly TABLE_CONTAINER_ID = 'master-queue-table-container';
   private static readonly TABLE_ID = 'master-queue-table';
   private static readonly TABLE_EMPTY_ID = 'master-queue-table-empty';
@@ -85,6 +102,7 @@ export default class MasterQueue implements IService {
   private resourcesWhiteList: CityInfo[] = [];
 
   private constructor() {
+    super();
     this.queue = [];
   }
 
@@ -254,7 +272,7 @@ export default class MasterQueue implements IService {
     this.citySwitchManager.addListener('cityChange', listener);
   }
 
-  public addToQueue(city: CityInfo, itemType: 'recruiter' | 'builder', queueItem: QueueItemDetails) {
+  public addToQueue(city: CityInfo, itemType: QueueItemType, queueItem: QueueItemDetails) {
     let citySchedule = this.queue.find(schedule => schedule.city.name === city.name);
     if (!citySchedule) {
       citySchedule = {
@@ -262,8 +280,9 @@ export default class MasterQueue implements IService {
         queue: [{
           id: crypto.randomUUID(),
           itemType: itemType,
-          itemDetails: queueItem
+          itemDetails: queueItem,
         }],
+        timeoutData: {}
       }
       this.queue.push(citySchedule);
     } else {
@@ -280,7 +299,7 @@ export default class MasterQueue implements IService {
       this.rehydrateTable();
     }
     this.persistSchedule();
-
+    this.emit('masterQueueChanged', this.queue);
     return citySchedule;
   }
 
@@ -299,7 +318,7 @@ export default class MasterQueue implements IService {
     })
   }
 
-  public clearCitySchedule(city: CityInfo) {
+  public clearScheduleActionForCity(city: CityInfo) {
     this.queue = this.queue.filter(citySchedule => {
       if (citySchedule.city.name === city.name) {
         this.clearCityScheduleAction(citySchedule);
@@ -312,10 +331,10 @@ export default class MasterQueue implements IService {
 
   private clearCityScheduleAction(citySchedule: CitySchedule) {
     citySchedule.currentAction = null;
-    citySchedule.scheduleDate = null;
-    clearTimeout(citySchedule.timeoutId ?? undefined);
-    clearInterval(citySchedule.timeoutId ?? undefined);
-    citySchedule.timeoutId = null;
+    (citySchedule.timeoutData ??= {}).executionTime = undefined;
+    clearTimeout(citySchedule.timeoutData.timeoutId);
+    clearInterval(citySchedule.timeoutData.timeoutId);
+    citySchedule.timeoutData.timeoutId = undefined;
   }
 
   public async rerunAllSchedules() {
@@ -328,7 +347,7 @@ export default class MasterQueue implements IService {
   }
 
   private runScheduleIfNotRunning(citySchedule: CitySchedule) {
-    if (citySchedule.currentAction || citySchedule.timeoutId) return;
+    if (citySchedule.currentAction || citySchedule.timeoutData.timeoutId) return;
     this.runNextAction(citySchedule);
   }
 
@@ -394,11 +413,18 @@ export default class MasterQueue implements IService {
     if (this.isTableOpened()) {
       this.rehydrateTable();
     }
+    this.emit('masterQueueChanged', this.queue);
   }
 
+  /**
+   * Special method (like "shiftQueueCleanAndPersist" but without persist and UI refresh) used on item deletion 
+   * to first perform queue modifications and only then persist and rehydrate ui manually.
+   * @param schedule 
+   */
   private shiftQueueAndClearCallbacks(schedule: CitySchedule) {
     schedule.queue.shift();
     this.clearCityScheduleAction(schedule);
+    this.emit('masterQueueChanged', this.queue);
   }
 
   /**
@@ -498,12 +524,6 @@ export default class MasterQueue implements IService {
       }
       await operationCallback();
     }, timeToExecution);
-
-
-    // NOTE: to be deleted later when migrated to new timeout system
-    citySchedule.timeoutId = timeoutId;
-    citySchedule.scheduleDate = new Date(Date.now() + timeToExecution);
-    // END NOTE
 
     // TODO: ensure its cleared on timeout clear
     citySchedule.timeoutData = {
@@ -636,7 +656,7 @@ export default class MasterQueue implements IService {
       // && jeżeli jest więcej elementów w kolejce
       if (citySchedule.queue.length > 1) {
         // && jeżeli jest timeout (czyli manager wykonuje jakąś scheudowaną operację)
-        if (citySchedule?.timeoutId) {
+        if (citySchedule?.timeoutData.timeoutId) {
           // jeżeli użytkownik nie potwierdził usunięcia elementu
           if (!this.simpleConfirmationDialog('Czy na pewno chcesz usunąć pierwszy element z kolejki? Spowoduje to przejście do następnego elementu.')) {
             return;
@@ -702,6 +722,7 @@ export default class MasterQueue implements IService {
     if (schedule) {
       const parsedQueue: CitySchedule[] = JSON.parse(schedule);
       const hydratedQueue = this.hydrateSchedule(parsedQueue);
+      console.log('loaded master-queue schedule:', parsedQueue);
       this.queue = hydratedQueue;
     } else {
       this.queue = [];
@@ -729,6 +750,8 @@ export default class MasterQueue implements IService {
             break;
         }
       });
+      // during persistance it's not saved, but is required for proper functioning, so assign
+      citySchedule.timeoutData = {};
       return citySchedule;
     }).filter(Boolean) as CitySchedule[];
   }
@@ -933,7 +956,7 @@ export default class MasterQueue implements IService {
       }
     })
     deleteThisButton.addEventListener('click', () => {
-      this.clearCitySchedule(citySchedule.city);
+      this.clearScheduleActionForCity(citySchedule.city);
       this.rerenderAllUIQueues();
       if (this.isTableOpened()) {
         this.rehydrateTable();
@@ -976,7 +999,7 @@ export default class MasterQueue implements IService {
   }
 
   public getMasterQueueScheduleTimes() {
-    return this.queue.map(citySchedule => citySchedule.scheduleDate).filter(Boolean).map(date => date!.getTime());
+    return this.queue.map(citySchedule => citySchedule.timeoutData.executionTime).filter(Boolean) as number[]
   }
 
   public handleMasterQueueConfigChange(configChange: TConfigChanges['masterQueue']) {

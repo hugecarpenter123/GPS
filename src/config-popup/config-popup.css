@@ -27,22 +27,21 @@
   padding: 16px;
 }
 
-.input-wrapper {
+#config-popup-container .input-wrapper {
   display: grid;
   grid-template-columns: auto 1fr;
   justify-items: start;
   column-gap: 8px;
   row-gap: 8px;
   align-items: center;
-  margin-top: 16px;
   text-align: start;
 }
 
-.input-wrapper label {
+#config-popup-container .input-wrapper label {
   background-color: none;
 }
 
-.expandable-section {
+#config-popup-container .expandable-section {
   grid-column-start: 2;
 }
 
@@ -60,10 +59,10 @@
   margin-bottom: 8px;
 }
 
-.label-chevron {
+#config-popup-container .label-chevron {
   display: flex;
   align-items: center;
-  gap:8px
+  gap: 8px
 }
 
 
@@ -89,7 +88,7 @@
 }
 
 
-.show-trigger {
+#config-popup-container .show-trigger {
   display: none;
 }
 
@@ -131,35 +130,35 @@
   text-shadow: 0px 1px 1px rgba(165, 125, 11, 1);
 }
 
-.section-header {
+#config-popup-container .section-header {
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: 5px;
 }
 
-.section-content {
+#config-popup-container .section-content {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.isle-container {
+#config-popup-container .isle-container {
   display: flex;
   margin-left: 16px !important;
   gap: 4px;
   margin-top: 4px !important;
 }
 
-.arrow-down {
+#config-popup-container .arrow-down {
   cursor: pointer;
 }
 
-.hidden {
+#config-popup-container .hidden {
   display: none !important;
 }
 
-.rotate {
+#config-popup-container .rotate {
   transform: rotate(180deg);
 }
 

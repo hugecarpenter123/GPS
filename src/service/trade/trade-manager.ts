@@ -1,5 +1,5 @@
 import { InfoError } from "../../utility/info-error";
-import { addDelay, getTimeInFuture, shuffle, textToMs, waitUntil } from "../../utility/plain-utility";
+import { addDelay, getTimeInFuture, shuffle, textToMs, waitWhile } from "../../utility/plain-utility";
 import { performComplexClick, triggerHover, waitForElementInterval, waitForElementsInterval } from "../../utility/ui-utility";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
 import ResourceManager from "../resources/resource-manager";
@@ -105,11 +105,11 @@ export default class TradeManager {
     } while (!(await waitForElementInterval('#trading', { interval: 333, retries: 5 }).catch(() => false)) && counter < 5)
     if (counter >= 5) throw new InfoError('Couldn\'t click trading option', {})
     document.querySelector<HTMLElement>('#trading')!.click();
-    await waitUntil(() => !document.querySelector<HTMLElement>('#trade'), { delay: 333, maxIterations: 5 });
+    await waitWhile(() => !document.querySelector<HTMLElement>('#trade'), { delay: 333, maxIterations: 5 });
   }
 
   private async closeTradeMode() {
-    await waitUntil(() => {
+    await waitWhile(() => {
       const closeBtn = document.querySelector('.ui-dialog-titlebar-close');
       return !closeBtn || !(closeBtn.parentElement?.nextSibling as HTMLElement)?.querySelector('#trade');
     }, { delay: 400, maxIterations: 3, onError: () => {/* do nothing */ } });
@@ -209,7 +209,7 @@ export default class TradeManager {
       // przejdź do miasta z którego się przesyła surowce
       // console.log('switching to without jumping:', supplierCity.name);
       await supplierCity.switchAction(false);
-      // upewnia się że miasto zostało przełączone przez porównanie czasu dostawy
+      // upewnia się że miasto zostało przełączone przez porównanie czasu dostawy (potencjalna wada jeżeli oba mają taki sam czas dostawy)
       let currentWayDurationText: string | undefined | null = null;
       let counter = 0;
       do {

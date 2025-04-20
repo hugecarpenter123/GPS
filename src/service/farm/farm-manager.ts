@@ -1,7 +1,7 @@
 import EventEmitter from "events";
 import gpsConfig, { FarmTimeInterval } from "../../../gps.config";
 import ConfigManager from "../../utility/config-manager";
-import { addDelay, calculateTimeToNextOccurrence, doUntil, formatDateToSimpleString, getBrowserStateSnapshot, getElementStateSnapshot, getRandomMs, textToMs, waitUntil } from "../../utility/plain-utility";
+import { addDelay, calculateTimeToNextOccurrence, doWhile, formatDateToSimpleString, getBrowserStateSnapshot, getElementStateSnapshot, getRandomMs, textToMs, waitWhile } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
 import { performComplexClick, waitForElement, waitForElementFromNode, waitForElementInterval, waitForElements, waitForElementsInterval } from "../../utility/ui-utility";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
@@ -85,7 +85,7 @@ export default class FarmManager extends EventEmitter {
       // opening farm overview
       document.querySelector<HTMLElement>('[name="farm_town_overview"]')!.click();
       this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
-      await waitUntil(() => !document.querySelector<HTMLElement>('#fto_town_list'), { delay: 200, maxIterations: 5 });
+      await waitWhile(() => !document.querySelector<HTMLElement>('#fto_town_list'), { delay: 200, maxIterations: 5 });
       // end of opening farm overview
 
       // checking if there is a cooldown
@@ -290,7 +290,7 @@ export default class FarmManager extends EventEmitter {
       this.mountMessageDialogsObservers(city);
 
       let masterWindow: HTMLDivElement | null = null;
-      await doUntil(
+      await doWhile(
         () => !(masterWindow = document.querySelector('body > .window_curtain >.classic_window.farm_town')),
         async () => {
           await performComplexClick(document.querySelector<HTMLElement>('a.owned.farm_town[data-same_island="true"]')!);
@@ -307,7 +307,7 @@ export default class FarmManager extends EventEmitter {
         if (previousVillageName === currentVillageName) {
           // await masterWindow!.querySelector<HTMLElement>('.village_info .btn_next')?.click();
           await waitForElementInterval('.village_info .btn_next', { retries: 10, interval: 200, fromNode: masterWindow! }).then(el => { console.log('\t-clicked next'); el.click() });
-          await waitUntil(() => {
+          await waitWhile(() => {
             const nextVillageName = masterWindow!.querySelector<HTMLElement>('.village_name')?.textContent;
             return !nextVillageName?.length || (previousVillageName === nextVillageName);
           }, { delay: 200, maxIterations: 10 });
@@ -329,7 +329,7 @@ export default class FarmManager extends EventEmitter {
           console.log('\t-village is not owned, skipping');
           continue;
         }
-        await waitUntil(() => !document.querySelector('.actions_locked_banner.cooldown'), { delay: 200, maxIterations: 10 });
+        await waitWhile(() => !document.querySelector('.actions_locked_banner.cooldown'), { delay: 200, maxIterations: 10 });
         farmedVillageCounter++;
       }
 

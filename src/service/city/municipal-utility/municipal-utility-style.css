@@ -1,0 +1,154 @@
+#municipal-utility-trigger {
+  bottom: 135px;
+  left: 131px;
+  border-radius: 50%;
+  position: absolute;
+  z-index: 1000;
+  height: 45px;
+  width: 45px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  outline: 2px solid #443300;
+  box-shadow:
+    0 0 0 2px #faebd7,
+    0 0 0 4px #443300;
+  background: url(https://gppl.innogamescdn.com/images/game/place/party.jpg);
+  background-position: center;
+  background-size: contain;
+  color: white;
+  font-family: 'Times New Roman', serif;
+  text-shadow:
+    -1px -1px 0 #443300,
+    1px -1px 0 #443300,
+    -1px 1px 0 #443300,
+    1px 1px 0 #443300;
+  cursor: pointer;
+  transition: all 0.1s ease-in-out;
+}
+
+#municipal-utility-trigger:hover {
+  box-shadow:
+    0 0 0 2px #faebd7,
+    0 0 0 4px #443300,
+    0 0 15px rgba(68, 51, 0, 0.5);
+  text-shadow:
+    -1px -1px 0 #443300,
+    1px -1px 0 #443300,
+    -1px 1px 0 #443300,
+    1px 1px 0 #443300,
+    0 0 10px rgba(255, 255, 255, 0.7);
+}
+
+#municipal-utility-window {
+  --vertical-space: 8px;
+  --bg: #faebd7;
+  --bg-dark: #443300;
+  --border: #d1bf91;
+
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  z-index: 2000 !important;
+
+
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  max-width: 400px;
+  width: 100%;
+  border: 1px solid var(--border);
+  background-color: var(--bg);
+  padding: 8px;
+  border-radius: 4px;
+}
+
+#municipal-utility-window nav {
+  position: sticky;
+  cursor: move;
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
+  margin: -9px -9px 0 -9px;
+  height: 24px;
+  left: 0;
+  right: 0;
+  background-color: var(--bg-dark);
+  top: 0;
+  display: flex;
+  justify-content: end;
+}
+
+#municipal-utility-close-button {
+  /* nothing */
+}
+
+#municipal-utility-window h1 {
+  margin: 0;
+  line-height: 1.2em;
+}
+
+#municipal-utility-window [data-cultural-event] {
+  cursor: pointer;
+}
+
+#municipal-utility-window .selected {
+  outline: 2.5px solid tomato;
+  outline-offset: 1px;
+  outline-width: 2px;
+  outline-color: tomato;
+  outline-style: solid;
+}
+
+#municipal-utility-window .img-panel {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+#municipal-utility-window .select-wrapper {
+  display: flex;
+  gap: 4px;
+  align-items: start;
+}
+
+#municipal-utility-window label {
+  font-weight: 500;
+  line-height: 1;
+  user-select: none;
+}
+
+#municipal-utility-window button {
+  cursor: pointer;
+}
+
+#municipal-utility-window .reset {
+  background-color: tomato;
+  color: white;
+  margin-left: 4px;
+  border: 2px solid rgb(238, 70, 40);
+  transition: all 0.1s ease-in-out;
+}
+
+#municipal-utility-window .reset:hover {
+  background-color: rgb(238, 70, 40);
+  border-color: rgb(218, 50, 20);
+}
+
+#municipal-utility-window .top-separated {
+  border-top: 1px solid var(--border);
+  padding-top: var(--vertical-space);
+}
+
+#municipal-utility-window .input-wrapper {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+#municipal-utility-city-select option[data-running="true"] {
+  background-color: var(--border);
+}

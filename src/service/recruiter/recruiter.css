@@ -225,3 +225,8 @@
   padding: 4px 8px;
   cursor: pointer;
 }
+
+#recruiter-dialog.hidden,
+#recruiter-dialog .hidden {
+  display: none;
+}

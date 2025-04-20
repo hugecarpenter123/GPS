@@ -1,10 +1,10 @@
 import MasterQueue, { ScheduleOperationDetails } from "../master-queue/master-queue";
 import ConfigManager from "../../utility/config-manager";
 import { InfoError } from "../../utility/info-error";
-import { addDelay, textToMs, waitUntil } from "../../utility/plain-utility";
+import { addDelay, textToMs, waitWhile } from "../../utility/plain-utility";
 import Lock from "../../utility/ui-lock";
 import { waitForElementInterval } from "../../utility/ui-utility";
-import CharmsUtility, { CityCharm } from "../charms/charms-utility";
+import CharmsUtility, { CharmDetails } from "../charms/charms-utility";
 import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
 import GeneralInfo from "../master/ui/general-info";
 import ResourceManager from "../resources/resource-manager";
@@ -65,8 +65,8 @@ export type RecruiterQueueItem = {
   amount: number;
   amountLeft: number;
   charms?: {
-    required: CityCharm[];
-    optional: CityCharm[];
+    required: CharmDetails[];
+    optional: CharmDetails[];
   }
 }
 
@@ -809,7 +809,7 @@ export default class Recruiter {
     });
     console.log('closeAllRecruitmentBuildingDialogs');
     let closeBtns: NodeListOf<HTMLElement> | null = null;
-    await waitUntil(
+    await waitWhile(
       () => !(closeBtns = document.querySelectorAll('.ui-dialog-titlebar-close')).length || !(Array.from(closeBtns).some(btn => (btn.parentElement?.nextSibling as HTMLElement)?.querySelector('#unit_order'))),
       { onError: () => {/* do nothing */ }, maxIterations: 3, delay: 400 }
     );
@@ -857,13 +857,13 @@ export default class Recruiter {
   }
 
   private async untilEmptySlotsAreEqual(number: number) {
-    await waitUntil(() => document.querySelectorAll(`[role="dialog"] .various_orders_background .empty_slot`).length !== number)
+    await waitWhile(() => document.querySelectorAll(`[role="dialog"] .various_orders_background .empty_slot`).length !== number)
   }
 
   private async goToRecruitmentBuilding(buildingType: 'barracks' | 'docks') {
     document.querySelector<HTMLElement>('[name="city_overview"]')?.click();
     await waitForElementInterval(`[data-building="${buildingType}"]`).then(el => el.click());
-    await waitUntil(() => !!document.querySelector<HTMLElement>(`#unit_order.${buildingType}_building`));
+    await waitWhile(() => !!document.querySelector<HTMLElement>(`#unit_order.${buildingType}_building`));
   }
 
   /**

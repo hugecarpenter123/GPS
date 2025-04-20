@@ -14,7 +14,7 @@
   display: block;
 }
 
-.info-title {
+#info-container .info-title {
   font-weight: bold;
 }
 
@@ -39,7 +39,7 @@
   display: block;
 }
 
-.error-title {
+#error-container .error-title {
   font-weight: bold;
 }
 

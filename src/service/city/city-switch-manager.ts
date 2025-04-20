@@ -1,6 +1,6 @@
 import EventEmitter from "events";
 import { performComplexClick, waitForElement, waitForElementInterval, waitForElements } from "../../utility/ui-utility";
-import { addDelay, doUntil, waitUntil } from "../../utility/plain-utility";
+import { addDelay, doWhile, waitWhile } from "../../utility/plain-utility";
 import GeneralInfo from "../master/ui/general-info";
 
 export type CityInfo = {
@@ -128,7 +128,7 @@ export default class CitySwitchManager extends EventEmitter {
     let townListElement = document.querySelector('.group_towns');
     while (!townListElement || Array.from(townListElement?.querySelectorAll('.town_name') ?? []).length < 1) {
       document.querySelector<HTMLElement>('.town_groups_dropdown.btn_toggle_town_groups_menu')?.click();
-      await waitUntil(() => !(townListElement = document.querySelector('.group_towns')), { delay: 200, maxIterations: 10, onError: () => { } });
+      await waitWhile(() => !(townListElement = document.querySelector('.group_towns')), { delay: 200, maxIterations: 10, onError: () => { } });
     }
   }
 
@@ -156,11 +156,11 @@ export default class CitySwitchManager extends EventEmitter {
 
           (targetTown as HTMLElement).click();
 
-          await waitUntil(() => masterTownName!.textContent !== cityName, { delay: 150, maxIterations: 10 });
+          await waitWhile(() => masterTownName!.textContent !== cityName, { delay: 150, maxIterations: 10 });
         }
         if (jumpToTown) {
           document.querySelector<HTMLElement>('.btn_jump_to_town.circle_button.jump_to_town')!.click();
-          await waitUntil(() => !document.querySelector(`#town_${cityId}`), { delay: 200, maxIterations: 10 });
+          await waitWhile(() => !document.querySelector(`#town_${cityId}`), { delay: 200, maxIterations: 10 });
         }
       } catch (e) {
         console.warn('switchAction.catch:', e);
@@ -227,7 +227,7 @@ export default class CitySwitchManager extends EventEmitter {
       document.querySelector<HTMLElement>('.btn_jump_to_town.circle_button.jump_to_town')!.click();
     }
     if (this.cityList.length > 1) {
-      await waitUntil(() => document.querySelector('div.town_name')!.textContent! === currentCityName, { delay: 100, maxIterations: 10 });
+      await waitWhile(() => document.querySelector('div.town_name')!.textContent! === currentCityName, { delay: 100, maxIterations: 10 });
     } else {
       await addDelay(100);
     }
@@ -240,7 +240,7 @@ export default class CitySwitchManager extends EventEmitter {
       document.querySelector<HTMLElement>('.btn_jump_to_town.circle_button.jump_to_town')!.click();
     }
     if (this.cityList.length > 1) {
-      await waitUntil(() => document.querySelector('div.town_name')!.textContent! === currentCityName, { delay: 100, maxIterations: 10 });
+      await waitWhile(() => document.querySelector('div.town_name')!.textContent! === currentCityName, { delay: 100, maxIterations: 10 });
     } else {
       await addDelay(100);
     }

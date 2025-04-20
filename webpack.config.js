@@ -7,7 +7,7 @@ module.exports = {
   module: {
     rules: [
       {
-        test: /\.ts$/,
+        test: /\.tsx?$/,
         use: 'ts-loader',
         exclude: /node_modules/,
       },
@@ -18,36 +18,21 @@ module.exports = {
       },
       {
         test: /\.css$/i,
-        rules: [
-          {
-            test: /\.css$/i,
-            use: 'raw-loader',
-          },
-        ],
+        use: 'raw-loader',
       },
       {
         test: /\.html$/i,
         use: 'raw-loader',
-      },
-      // {
-      //   test: /\.css$/i,
-      //   // use: ['style-loader', 'css-loader'],
-      //   use: [
-      //     'style-loader',
-      //     {
-      //       loader: 'css-loader',
-      //       options: {
-      //         modules: true,
-      //         importLoaders: 1,
-      //       },
-      //     },
-      //   ],
-      // }
+      }
     ],
   },
   resolve: {
+    extensions: ['.ts', '.tsx', '.js', '.jsx'],
+    alias: {
+      'react': 'preact/compat',
+      'react-dom': 'preact/compat'
+    },
     fullySpecified: false,
-    extensions: ['.ts', '.js', '.json', '.css'],
     fallback: {
       events: require.resolve("events/"),
     },
