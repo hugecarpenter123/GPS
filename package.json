@@ -6,16 +6,19 @@
   "scripts": {
     "build": "webpack",
     "build:readable": "webpack --mode development --devtool source-map",
-    "start": "webpack serve --mode development"
+    "start": "webpack serve --mode development",
+    "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,scss}\"",
+    "format:check": "prettier --check \"src/**/*.{js,jsx,ts,tsx,json,css,scss}\""
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@types/node": "^22.0.2",
+    "@types/node": "^22.14.1",
     "@types/webpack-env": "^1.18.5",
     "css-loader": "^7.1.2",
     "json-loader": "^0.5.7",
+    "prettier": "^3.5.3",
     "raw-loader": "^4.0.2",
     "style-loader": "^4.0.0",
     "ts-loader": "^9.5.1",

@@ -1,0 +1,92 @@
+<div id="scheduler-inner-container" style="margin-top: 8px; display: flex; align-items: center; gap: 8px">
+  <div style="display: flex; flex-direction: column">
+    <div style="display: flex">
+      <div>
+        <input type="radio" checked name="scheduler-datetime-type" value="raw" id="scheduler-raw-radio" />
+        <label for="scheduler-raw-radio">Raw</label>
+      </div>
+      <div>
+        <input type="radio" name="scheduler-datetime-type" value="sync" id="scheduler-sync-radio" />
+        <label for="scheduler-sync-radio">Sync</label>
+      </div>
+    </div>
+    <div id="scheduler-raw-container">
+      <input id="scheduler-date" type="date" />
+      <input id="scheduler-time" type="text" size="5" placeholder="hh:mm:ss" />
+    </div>
+    <div id="scheduler-sync-container">
+      <select id="scheduler-sync" style="width: 90px">
+        <option value="" disabled selected>sync with:</option>
+        <option value="someid" style="width: max-content">20:24:25 - 15.Hubabuba ⚔️ AX.blabla</option>
+      </select>
+      <label for="scheduler-sync-deviation">+</label>
+      <input id="scheduler-sync-deviation" type="number" style="width: 5ch" value="0" />
+      <label for="scheduler-sync-deviation">s</label>
+    </div>
+  </div>
+  <div style="display: flex; flex-direction: column; align-items: flex-start">
+    <div>
+      <input type="radio" checked name="scheduler-precise" value="true" id="scheduler-precise-true-radio" />
+      <label for="scheduler-precise-true-radio">Precise</label>
+    </div>
+    <div>
+      <input type="radio" name="scheduler-precise" value="false" id="scheduler-precise-false-radio" />
+      <label for="scheduler-precise-false-radio">Normal</label>
+    </div>
+  </div>
+  <div
+    id="scheduler-tolerance-wrapper"
+    style="display: flex; flex-direction: column; align-items: center; width: fit-content"
+  >
+    <label for="scheduler-tolerance">tolerance [s]</label>
+    <input id="scheduler-tolerance" type="number" style="width: 6ch" min="-10" max="10" value="3" />
+  </div>
+  <div
+    id="scheduler-failure-tolerance-wrapper"
+    style="display: flex; flex-direction: column; align-items: center; width: fit-content"
+  >
+    <label for="scheduler-failure-tolerance">failure tolerance [s]</label>
+    <input id="scheduler-failure-tolerance" type="number" style="width: 6ch" min="0" max="20" value="10" />
+  </div>
+  <button type="button" id="scheduler-submit" style="cursor: pointer">Schedule</button>
+  <p id="scheduler-error" style="color: red; font-size: 0.8em; margin: 4px; padding: 0px; font-weight: bold"></p>
+  <p id="scheduler-info" style="color: green; font-size: 0.8em; margin: 4px; padding: 0px; font-weight: bold"></p>
+  <script>
+    document.getElementById('scheduler-date').valueAsDate = new Date();
+    const schedulerRawContainer = document.getElementById('scheduler-raw-container');
+    const schedulerSyncContainer = document.getElementById('scheduler-sync-container');
+
+    const schedulerRawRadio = document.getElementById('scheduler-raw-radio');
+    const schedulerSyncRadio = document.getElementById('scheduler-sync-radio');
+
+    const schedulerPreciseTrueRadio = document.getElementById('scheduler-precise-true-radio');
+    const schedulerPreciseFalseRadio = document.getElementById('scheduler-precise-false-radio');
+
+    const schedulerToleranceWrapper = document.getElementById('scheduler-tolerance-wrapper');
+    const schedulerFailureToleranceWrapper = document.getElementById('scheduler-failure-tolerance-wrapper');
+
+    // Ustawienie początkowej widoczności
+    schedulerRawContainer.style.display = 'block';
+    schedulerSyncContainer.style.display = 'none';
+
+    // Dodanie event listenerów
+    schedulerRawRadio.addEventListener('change', () => {
+      schedulerRawContainer.style.display = 'block';
+      schedulerSyncContainer.style.display = 'none';
+    });
+
+    schedulerSyncRadio.addEventListener('change', () => {
+      schedulerRawContainer.style.display = 'none';
+      schedulerSyncContainer.style.display = 'block';
+    });
+
+    schedulerPreciseTrueRadio.addEventListener('change', e => {
+      schedulerToleranceWrapper.style.display = 'flex';
+      schedulerFailureToleranceWrapper.style.display = 'flex';
+    });
+    schedulerPreciseFalseRadio.addEventListener('change', e => {
+      schedulerToleranceWrapper.style.display = 'none';
+      schedulerFailureToleranceWrapper.style.display = 'none';
+    });
+  </script>
+</div>

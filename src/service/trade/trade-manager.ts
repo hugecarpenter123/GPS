@@ -1,26 +1,31 @@
-import { InfoError } from "../../utility/info-error";
-import { addDelay, getTimeInFuture, shuffle, textToMs, waitWhile } from "../../utility/plain-utility";
-import { performComplexClick, triggerHover, waitForElementInterval, waitForElementsInterval } from "../../utility/ui-utility";
-import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
-import ResourceManager from "../resources/resource-manager";
+import { InfoError } from '../../utility/info-error';
+import { addDelay, getTimeInFuture, shuffle, textToMs, waitWhile } from '../../utility/plain-utility';
+import {
+  performComplexClick,
+  triggerHover,
+  waitForElementInterval,
+  waitForElementsInterval,
+} from '../../utility/ui-utility';
+import CitySwitchManager, { CityInfo } from '../city/city-switch-manager';
+import ResourceManager from '../resources/resource-manager';
 
 type CityTradeItem = Record<string, number>;
 type CityTradeMap = Record<string, CityTradeItem[]>;
 /**
  * RequiredResourcesInfo is split into target and toStack because, during evaluation how many resources needs to be stacked
- * Trade movements may not be taken into consideration and most of the resources (or all) are already on the way. Without it, trader would 
+ * Trade movements may not be taken into consideration and most of the resources (or all) are already on the way. Without it, trader would
  * have to fetch all resources no matter already existing trade movements.
  */
 type TargetResourcesInfo = {
   wood: number;
   iron: number;
   stone: number;
-}
+};
 type StackResourcesResult = {
   fullyStacked: boolean;
   timeMs: number;
   resources?: TargetResourcesInfo;
-}
+};
 
 export default class TradeManager {
   private static instance: TradeManager;
@@ -28,7 +33,7 @@ export default class TradeManager {
   private tradeMap: CityTradeMap = {};
   private resourceManager!: ResourceManager;
 
-  private constructor() { }
+  private constructor() {}
 
   public static async getInstance(): Promise<TradeManager> {
     if (!TradeManager.instance) {
@@ -41,10 +46,12 @@ export default class TradeManager {
 
   private async initTradeMap(forCities?: CityInfo[], initial?: CityTradeMap) {
     const cityList = forCities ?? this.citySwitchManager.getCityList();
-    this.tradeMap = initial ?? cityList.reduce((acc, city) => {
-      acc[city.name] = [];
-      return acc;
-    }, {} as CityTradeMap);
+    this.tradeMap =
+      initial ??
+      cityList.reduce((acc, city) => {
+        acc[city.name] = [];
+        return acc;
+      }, {} as CityTradeMap);
 
     for (const city of cityList) {
       const alreadyAddedCities = this.tradeMap[city.name]?.map(obj => Object.keys(obj)[0]) || [];
@@ -66,7 +73,10 @@ export default class TradeManager {
     } else {
       const cityList = this.citySwitchManager.getCityList();
       const loadedCityList = Object.keys(tradeMap);
-      if (loadedCityList.length !== cityList.length || loadedCityList.some(city => !cityList.map(c => c.name).includes(city))) {
+      if (
+        loadedCityList.length !== cityList.length ||
+        loadedCityList.some(city => !cityList.map(c => c.name).includes(city))
+      ) {
         // jeżeli załadowana mapa miast nie zawiera wszystkich miast z prawdziwej listy miast to
         // 1. jeżeli dlugość jest ta sama, ale są inne miasta, to usuń dodatkowe miastas i wykonaj mapowanie dla innych
         // 2. jeżeli prawdziwa lista miast jest krótsza, to znajdź dodatkowe miasta i usuń je
@@ -101,18 +111,32 @@ export default class TradeManager {
     do {
       counter++;
       await fromCity.switchAction(false);
-      await performComplexClick(document.querySelector<HTMLElement>(`#town_${city.cityId}`)).catch(() => { console.log(`no town ${city.cityId} found`) });
-    } while (!(await waitForElementInterval('#trading', { interval: 333, retries: 5 }).catch(() => false)) && counter < 5)
-    if (counter >= 5) throw new InfoError('Couldn\'t click trading option', {})
+      await performComplexClick(document.querySelector<HTMLElement>(`#town_${city.cityId}`)).catch(() => {
+        console.log(`no town ${city.cityId} found`);
+      });
+    } while (
+      !(await waitForElementInterval('#trading', { interval: 333, retries: 5 }).catch(() => false)) &&
+      counter < 5
+    );
+    if (counter >= 5) throw new InfoError("Couldn't click trading option", {});
     document.querySelector<HTMLElement>('#trading')!.click();
     await waitWhile(() => !document.querySelector<HTMLElement>('#trade'), { delay: 333, maxIterations: 5 });
   }
 
   private async closeTradeMode() {
-    await waitWhile(() => {
-      const closeBtn = document.querySelector('.ui-dialog-titlebar-close');
-      return !closeBtn || !(closeBtn.parentElement?.nextSibling as HTMLElement)?.querySelector('#trade');
-    }, { delay: 400, maxIterations: 3, onError: () => {/* do nothing */ } });
+    await waitWhile(
+      () => {
+        const closeBtn = document.querySelector('.ui-dialog-titlebar-close');
+        return !closeBtn || !(closeBtn.parentElement?.nextSibling as HTMLElement)?.querySelector('#trade');
+      },
+      {
+        delay: 400,
+        maxIterations: 3,
+        onError: () => {
+          /* do nothing */
+        },
+      },
+    );
     (document.querySelector('.ui-dialog-titlebar-close') as HTMLElement)?.click();
   }
 
@@ -122,8 +146,9 @@ export default class TradeManager {
   }
 
   private async getLongestShipmentTime(orDefault: number = 60000): Promise<number> {
-    const supplyingTradeItems = Array.from(await waitForElementsInterval('.item.trade.option', { interval: 333, retries: 3 }).catch(() => []))
-      .filter(el => el.querySelector('.returning'));
+    const supplyingTradeItems = Array.from(
+      await waitForElementsInterval('.item.trade.option', { interval: 333, retries: 3 }).catch(() => []),
+    ).filter(el => el.querySelector('.returning'));
     const shipmentTimes = supplyingTradeItems.map(el => {
       const time = el.querySelector<HTMLElement>('.time')?.textContent;
       return time?.match(/\d+:\d+:\d+/)?.[0] ? textToMs(time) : 0;
@@ -138,13 +163,18 @@ export default class TradeManager {
    * @returns Object specyfing if resources are fully stacked, time in ms to last shipment (+3s) or -1 if not stacked fully.
    * @requires Lock
    */
-  public async stackResources(targetResources: TargetResourcesInfo, city: CityInfo, fromCities: CityInfo[], maxShipmentTime: number): Promise<StackResourcesResult> {
+  public async stackResources(
+    targetResources: TargetResourcesInfo,
+    city: CityInfo,
+    fromCities: CityInfo[],
+    maxShipmentTime: number,
+  ): Promise<StackResourcesResult> {
     // TODO: it is being called even if there are no cities to trade with, check if flow will work if return value is false
     if (!fromCities.length) {
       return {
         fullyStacked: false,
-        timeMs: -1
-      }
+        timeMs: -1,
+      };
     }
 
     // TODO: it must be resolved, because shipment time may be higher than maxShipmentTime (RARE CASE)
@@ -161,12 +191,16 @@ export default class TradeManager {
 
     // check if resources are alredy non its way
     let [woodRealState, stoneRealState, ironRealState] =
-      Array.from(document.querySelectorAll('.amounts'))
-        ?.map(el => el.textContent?.match(/\d+ +\/ +\d+/)?.[0]?.split('/')?.map(v => Number(v))) ?? [];
+      Array.from(document.querySelectorAll('.amounts'))?.map(el =>
+        el.textContent
+          ?.match(/\d+ +\/ +\d+/)?.[0]
+          ?.split('/')
+          ?.map(v => Number(v)),
+      ) ?? [];
 
     let counter = 0;
     while (woodRealState?.length !== 2 || stoneRealState?.length !== 2 || ironRealState?.length !== 2) {
-      // check if window has data in it 
+      // check if window has data in it
       // counter++;
       // if (counter > 4) {
       //   shuffledFromCities.splice(0, 1);
@@ -176,27 +210,35 @@ export default class TradeManager {
       //  END check
       await addDelay(400);
       [woodRealState, stoneRealState, ironRealState] =
-        Array.from(document.querySelectorAll('.amounts'))
-          ?.map(el => el.textContent?.match(/\d+ +\/ +\d+/)?.[0]?.split('/')?.map(v => Number(v))) ?? [];
+        Array.from(document.querySelectorAll('.amounts'))?.map(el =>
+          el.textContent
+            ?.match(/\d+ +\/ +\d+/)?.[0]
+            ?.split('/')
+            ?.map(v => Number(v)),
+        ) ?? [];
     }
 
     console.log('targetResources:', targetResources);
     console.log('realState:', [woodRealState, stoneRealState, ironRealState]);
 
-    if (woodRealState![0] >= targetResources.wood && stoneRealState![0] >= targetResources.stone && ironRealState![0] >= targetResources.iron) {
+    if (
+      woodRealState![0] >= targetResources.wood &&
+      stoneRealState![0] >= targetResources.stone &&
+      ironRealState![0] >= targetResources.iron
+    ) {
       await this.closeTradeMode();
       console.log('fully stacked, on', getTimeInFuture(longestShipmentTime), `(${longestShipmentTime}ms)`);
       return {
         fullyStacked: true,
         // TODO: unsafe because shipment time may be higher than maxShipmentTime (RARE CASE)
-        timeMs: longestShipmentTime + 3000
-      }
+        timeMs: longestShipmentTime + 3000,
+      };
     }
     // END check if resources are alredy non its way
     const stillNeededResources = {
       wood: targetResources.wood - woodRealState![0] > 0 ? targetResources.wood - woodRealState![0] : 0,
       stone: targetResources.stone - stoneRealState![0] > 0 ? targetResources.stone - stoneRealState![0] : 0,
-      iron: targetResources.iron - ironRealState![0] > 0 ? targetResources.iron - ironRealState![0] : 0
+      iron: targetResources.iron - ironRealState![0] > 0 ? targetResources.iron - ironRealState![0] : 0,
     };
 
     let prevWayDurationText = '-1';
@@ -240,35 +282,44 @@ export default class TradeManager {
       const resources = await this.resourceManager.getResourcesInfo();
       // console.log('resources:', resources);
       // dowiedz się jaki jest max trade capaacity
-      currentTradeCapacity = await waitForElementInterval('#big_progressbar .curr', { interval: 200, retries: 10 }).then(el => Number(el.textContent));
+      currentTradeCapacity = await waitForElementInterval('#big_progressbar .curr', {
+        interval: 200,
+        retries: 10,
+      }).then(el => Number(el.textContent));
       // console.log('currentTradeCapacity:', currentTradeCapacity);
 
       // zczytaj wartości z progress barów na temat tego co jest w mieście i co do niego już idzie i nadpisz wartości
       const [woodRealState, stoneRealState, ironRealState] =
-        Array.from(document.querySelectorAll('.amounts'))
-          ?.map(el => el.textContent?.match(/\d+ +\/ +\d+/)?.[0]?.split('/')?.map(v => Number(v))) ?? [];
+        Array.from(document.querySelectorAll('.amounts'))?.map(el =>
+          el.textContent
+            ?.match(/\d+ +\/ +\d+/)?.[0]
+            ?.split('/')
+            ?.map(v => Number(v)),
+        ) ?? [];
 
       // minimalnie 100 surowców (wymóg gry)
       if (stillNeededResources.iron !== 0) {
-        stillNeededResources.iron = ironRealState![0] + stillNeededResources.iron >= Math.floor(0.9 * ironRealState![1])
-          ? Math.max(100, Math.floor(ironRealState![1] * 0.9) - ironRealState![0])
-          : Math.max(100, stillNeededResources.iron);
+        stillNeededResources.iron =
+          ironRealState![0] + stillNeededResources.iron >= Math.floor(0.9 * ironRealState![1])
+            ? Math.max(100, Math.floor(ironRealState![1] * 0.9) - ironRealState![0])
+            : Math.max(100, stillNeededResources.iron);
       }
 
       if (stillNeededResources.stone !== 0) {
-        stillNeededResources.stone = stoneRealState![0] + stillNeededResources.stone >= Math.floor(0.9 * stoneRealState![1])
-          ? Math.max(100, Math.floor(stoneRealState![1] * 0.9) - stoneRealState![0])
-          : Math.max(100, stillNeededResources.stone);
+        stillNeededResources.stone =
+          stoneRealState![0] + stillNeededResources.stone >= Math.floor(0.9 * stoneRealState![1])
+            ? Math.max(100, Math.floor(stoneRealState![1] * 0.9) - stoneRealState![0])
+            : Math.max(100, stillNeededResources.stone);
       }
 
       if (stillNeededResources.wood !== 0) {
-        stillNeededResources.wood = woodRealState![0] + stillNeededResources.wood >= Math.floor(0.9 * woodRealState![1])
-          ? Math.max(100, Math.floor(woodRealState![1] * 0.9) - woodRealState![0])
-          : Math.max(100, stillNeededResources.wood);
+        stillNeededResources.wood =
+          woodRealState![0] + stillNeededResources.wood >= Math.floor(0.9 * woodRealState![1])
+            ? Math.max(100, Math.floor(woodRealState![1] * 0.9) - woodRealState![0])
+            : Math.max(100, stillNeededResources.wood);
       }
 
       // console.log('stillNeededResources after checking:', stillNeededResources);
-
 
       if (stillNeededResources.wood > 0 && currentTradeCapacity >= 100 && resources.wood.amount >= 100) {
         const woodInput = await waitForElementInterval('#trade_type_wood input', { interval: 333, retries: 4 });
@@ -281,7 +332,7 @@ export default class TradeManager {
         // console.log('remainning capacity:', currentTradeCapacity);
       }
       if (stillNeededResources.iron > 0 && currentTradeCapacity >= 100 && resources.iron.amount >= 100) {
-        const ironInput = await waitForElementInterval('#trade_type_iron input', { interval: 333, retries: 4 })
+        const ironInput = await waitForElementInterval('#trade_type_iron input', { interval: 333, retries: 4 });
         const ironAmountToSend = Math.min(stillNeededResources.iron, resources.iron.amount, currentTradeCapacity);
         // console.log('setting min iron value out of:', [stillNeededResources.iron, resources.iron.amount, currentTradeCapacity]);
         (ironInput as HTMLInputElement).value = ironAmountToSend.toString();
@@ -291,7 +342,7 @@ export default class TradeManager {
         // console.log('remainning capacity:', currentTradeCapacity);
       }
       if (stillNeededResources.stone > 0 && currentTradeCapacity >= 100 && resources.stone.amount >= 100) {
-        const stoneInput = await waitForElementInterval('#trade_type_stone input', { interval: 333, retries: 4 })
+        const stoneInput = await waitForElementInterval('#trade_type_stone input', { interval: 333, retries: 4 });
         const stoneAmountToSend = Math.min(stillNeededResources.stone, resources.stone.amount, currentTradeCapacity);
         // console.log('setting min stone value out of:', [stillNeededResources.stone, resources.stone.amount, currentTradeCapacity]);
         (stoneInput as HTMLInputElement).value = stoneAmountToSend.toString();
@@ -314,25 +365,28 @@ export default class TradeManager {
       return {
         fullyStacked: false,
         timeMs: highestTime === -1 ? -1 : highestTime + 3000,
-        resources: stillNeededResources
-      }
+        resources: stillNeededResources,
+      };
     }
     // return time in ms to last shipment
     console.log('fully stacked, timeMs:', highestTime);
     return {
       fullyStacked: true,
       timeMs: highestTime === -1 ? -1 : highestTime + 3000,
-    }
+    };
   }
 
-  private async getIncomingResourcesInfo(within: number): Promise<{ resources: { wood: number, stone: number, iron: number }, lastShipmentTime: number }> {
+  private async getIncomingResourcesInfo(
+    within: number,
+  ): Promise<{ resources: { wood: number; stone: number; iron: number }; lastShipmentTime: number }> {
     let lastShipmentTime = -1;
     const result = { wood: 0, stone: 0, iron: 0 };
-    const supplyingTradeItems = Array.from(await waitForElementsInterval('.item.trade.option', { interval: 333, retries: 2 }).catch(() => []))
-      .filter(el => el.querySelector('.returning'));
+    const supplyingTradeItems = Array.from(
+      await waitForElementsInterval('.item.trade.option', { interval: 333, retries: 2 }).catch(() => []),
+    ).filter(el => el.querySelector('.returning'));
     for (const item of supplyingTradeItems) {
       // get info el
-      const infoEl = document.querySelector<HTMLElement>('#popup_content div')
+      const infoEl = document.querySelector<HTMLElement>('#popup_content div');
       // clean its content to be sure always new values are read via hover
       if (infoEl) infoEl.textContent = '';
       // get shipment time
@@ -347,15 +401,23 @@ export default class TradeManager {
         triggerHover(item);
         await addDelay(250);
         const infoEl = document.querySelector<HTMLElement>('#popup_content div');
-        wood = Number(infoEl?.querySelector<HTMLImageElement>('img[src$="game/res/wood.png"]')?.nextSibling?.textContent?.trim());
-        stone = Number(infoEl?.querySelector<HTMLImageElement>('img[src$="game/res/stone.png"]')?.nextSibling?.textContent?.trim());
-        iron = Number(infoEl?.querySelector<HTMLImageElement>('img[src$="game/res/iron.png"]')?.nextSibling?.textContent?.trim());
-      } while (!document.querySelector<HTMLElement>('#popup_content div')?.textContent || [wood, stone, iron].every(v => isNaN(v)));
+        wood = Number(
+          infoEl?.querySelector<HTMLImageElement>('img[src$="game/res/wood.png"]')?.nextSibling?.textContent?.trim(),
+        );
+        stone = Number(
+          infoEl?.querySelector<HTMLImageElement>('img[src$="game/res/stone.png"]')?.nextSibling?.textContent?.trim(),
+        );
+        iron = Number(
+          infoEl?.querySelector<HTMLImageElement>('img[src$="game/res/iron.png"]')?.nextSibling?.textContent?.trim(),
+        );
+      } while (
+        !document.querySelector<HTMLElement>('#popup_content div')?.textContent ||
+        [wood, stone, iron].every(v => isNaN(v))
+      );
       result.wood += wood || 0;
       result.stone += stone || 0;
       result.iron += iron || 0;
     }
     return { resources: result, lastShipmentTime };
   }
-
 }
