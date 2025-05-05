@@ -9,20 +9,20 @@ Serwisy powinny udostępniać:
   --pask poziomu?
 */
 
-import gpsConfig from "../../../gps.config";
-import { TConfigChanges } from "../../config-popup/config-popup";
-import ConfigManager from "../../utility/config-manager";
-import ResourceLock from "../../utility/resource-lock";
-import { Building } from "../city/builder/buildings";
-import CityBuilder, { BuilderQueueItem } from "../city/builder/city-builder";
-import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
-import Recruiter, { RecruiterQueueItem } from "../recruiter/recruiter";
+import gpsConfig from '../../../gps.config';
+import { TConfigChanges } from '../../config-popup/config-popup';
+import ConfigManager from '../../utility/config-manager';
+import ResourceLock from '../../utility/resource-lock';
+import { Building } from '../city/builder/buildings';
+import CityBuilder, { BuilderQueueItem } from '../city/builder/city-builder';
+import CitySwitchManager, { CityInfo } from '../city/city-switch-manager';
+import Recruiter, { RecruiterQueueItem } from '../recruiter/recruiter';
 import masterQueueCss from './master-queue.css';
 
 import masterQueueTableCss from './master-queue-table.css';
 import masterQueueTableHtml from './master-queue-table.prod.html';
-import Service from "../../utility/service";
-import EventEmitter from "events";
+import Service from '../../utility/Service';
+import EventEmitter from 'events';
 
 export enum QueuePriority {
   High = 'high',
@@ -33,16 +33,16 @@ export enum QueuePriority {
 export type QueueItemType = 'recruiter' | 'builder' | 'municipal utility';
 
 export interface BaseQueueItemDetails {
-  priority?: QueuePriority
-  maxShipmentTime: number,
-  supplierCities: CityInfo[]
+  priority?: QueuePriority;
+  maxShipmentTime: number;
+  supplierCities: CityInfo[];
 }
 
 type QueueItemDetails2<T> = T & BaseQueueItemDetails;
 
 type QueueItemDetails = (RecruiterQueueItem | BuilderQueueItem) & {
   supplierCities: CityInfo[];
-  maxShipmentTime: number
+  maxShipmentTime: number;
 };
 
 export type TimeoutPurpose = 'slot' | 'resources' | 'charms' | 'other';
@@ -56,17 +56,17 @@ export type ScheduleOperationDetails<T> = {
   setScheduleTimeout: (
     operationCallback: () => Promise<void> | void,
     timeToExecution: number,
-    purpose: TimeoutPurpose) => void;
+    purpose: TimeoutPurpose,
+  ) => void;
   shiftQueueAndNext: () => void;
-}
+};
 
 export type QueueItem = {
   id: string;
   itemType: QueueItemType;
-  itemDetails: QueueItemDetails
+  itemDetails: QueueItemDetails;
   // TODO: potentially add priority there
-}
-
+};
 
 export type CitySchedule = {
   city: CityInfo;
@@ -77,8 +77,7 @@ export type CitySchedule = {
     executionTime?: number;
     purpose?: TimeoutPurpose;
   };
-}
-
+};
 
 export default class MasterQueue extends EventEmitter implements Service {
   private static readonly TABLE_CONTAINER_ID = 'master-queue-table-container';
@@ -139,7 +138,6 @@ export default class MasterQueue extends EventEmitter implements Service {
     document.head.appendChild(tableStyle);
   }
 
-
   private addTable() {
     const tableWrapper = document.createElement('div');
     document.body.appendChild(tableWrapper);
@@ -148,14 +146,16 @@ export default class MasterQueue extends EventEmitter implements Service {
     const table = document.getElementById(MasterQueue.TABLE_ID)!;
     const tableFooter = document.querySelector<HTMLElement>(`#${MasterQueue.TABLE_FOOTER_ID}`)!;
     this.getNavigation('master', tableFooter);
-    document.querySelector<HTMLButtonElement>(`#${MasterQueue.TABLE_TOGGLE_BUTTON_ID}`)!.addEventListener('click', () => {
-      if (tableContainer.hidden) {
-        this.rehydrateTable();
-        tableContainer.hidden = false;
-      } else {
-        tableContainer.hidden = true;
-      }
-    });
+    document
+      .querySelector<HTMLButtonElement>(`#${MasterQueue.TABLE_TOGGLE_BUTTON_ID}`)!
+      .addEventListener('click', () => {
+        if (tableContainer.hidden) {
+          this.rehydrateTable();
+          tableContainer.hidden = false;
+        } else {
+          tableContainer.hidden = true;
+        }
+      });
     document.getElementById(MasterQueue.TABLE_CLOSE_BUTTON_ID)!.addEventListener('click', () => {
       tableContainer.hidden = true;
     });
@@ -238,7 +238,6 @@ export default class MasterQueue extends EventEmitter implements Service {
     toggleButton.hidden = !value;
   }
 
-
   public async stop() {
     this.RUN = false;
     if (this.resourceLockChangeListener) {
@@ -250,7 +249,7 @@ export default class MasterQueue extends EventEmitter implements Service {
     this.showToggleButton(false);
     this.queue.forEach(citySchedule => {
       this.clearCityScheduleAction(citySchedule);
-    })
+    });
   }
 
   private addResourceLockChangeListener() {
@@ -258,7 +257,7 @@ export default class MasterQueue extends EventEmitter implements Service {
       console.log('resource-lock-change:', city);
       this.reevaluateProviderCities();
       this.persistSchedule();
-    }
+    };
     this.resourceLockChangeListener = listener;
     this.resourceLock.addListener('resource-lock-change', listener);
   }
@@ -267,7 +266,7 @@ export default class MasterQueue extends EventEmitter implements Service {
     const listener = (city: CityInfo) => {
       const citySchedule = this.queue.find(schedule => schedule.city.name === city.name);
       this.rerenderAllUIQueues(citySchedule);
-    }
+    };
     this.cityChangeListener = listener;
     this.citySwitchManager.addListener('cityChange', listener);
   }
@@ -277,19 +276,21 @@ export default class MasterQueue extends EventEmitter implements Service {
     if (!citySchedule) {
       citySchedule = {
         city,
-        queue: [{
-          id: crypto.randomUUID(),
-          itemType: itemType,
-          itemDetails: queueItem,
-        }],
-        timeoutData: {}
-      }
+        queue: [
+          {
+            id: crypto.randomUUID(),
+            itemType: itemType,
+            itemDetails: queueItem,
+          },
+        ],
+        timeoutData: {},
+      };
       this.queue.push(citySchedule);
     } else {
       citySchedule.queue.push({
         id: crypto.randomUUID(),
         itemType: itemType,
-        itemDetails: queueItem
+        itemDetails: queueItem,
       });
     }
 
@@ -315,7 +316,7 @@ export default class MasterQueue extends EventEmitter implements Service {
       this.clearCityScheduleAction(citySchedule);
       // run next action
       this.runNextAction(citySchedule);
-    })
+    });
   }
 
   public clearScheduleActionForCity(city: CityInfo) {
@@ -374,33 +375,49 @@ export default class MasterQueue extends EventEmitter implements Service {
      * @param setScheduleTimeout - callback który ustawia timeout i datę następnego wywołania, jeżeli item ma timeout
      */
     if (citySchedule.currentAction === 'builder') {
-      await this.builder.execute(
-        {
-          id: nextQueueItem.id,
-          city: citySchedule.city,
-          queueItem: nextQueueItem.itemDetails as BuilderQueueItem,
-          onFinishCallback: () => { this.shiftQueueAndRunNext(citySchedule) },
-          setScheduleTimeout: (operationCallback: () => Promise<void> | void, timeToExecution: number, purpose: TimeoutPurpose) => { this.setScheduleTimeout(citySchedule, operationCallback, timeToExecution, purpose) },
-          shiftQueueAndNext: () => { this.shiftQueueAndRunNext(citySchedule) }
-        } as ScheduleOperationDetails<BuilderQueueItem>
-      );
+      await this.builder.execute({
+        id: nextQueueItem.id,
+        city: citySchedule.city,
+        queueItem: nextQueueItem.itemDetails as BuilderQueueItem,
+        onFinishCallback: () => {
+          this.shiftQueueAndRunNext(citySchedule);
+        },
+        setScheduleTimeout: (
+          operationCallback: () => Promise<void> | void,
+          timeToExecution: number,
+          purpose: TimeoutPurpose,
+        ) => {
+          this.setScheduleTimeout(citySchedule, operationCallback, timeToExecution, purpose);
+        },
+        shiftQueueAndNext: () => {
+          this.shiftQueueAndRunNext(citySchedule);
+        },
+      } as ScheduleOperationDetails<BuilderQueueItem>);
     } else if (citySchedule.currentAction === 'recruiter') {
-      await this.recruiter.execute(
-        {
-          id: nextQueueItem.id,
-          city: citySchedule.city,
-          queueItem: nextQueueItem.itemDetails as RecruiterQueueItem,
-          onFinishCallback: () => { this.shiftQueueAndRunNext(citySchedule) },
-          setScheduleTimeout: (operationCallback: () => Promise<void> | void, timeToExecution: number, purpose: TimeoutPurpose) => { this.setScheduleTimeout(citySchedule, operationCallback, timeToExecution, purpose) },
-          shiftQueueAndNext: () => { this.shiftQueueAndRunNext(citySchedule) }
-        } as ScheduleOperationDetails<RecruiterQueueItem>
-      );
+      await this.recruiter.execute({
+        id: nextQueueItem.id,
+        city: citySchedule.city,
+        queueItem: nextQueueItem.itemDetails as RecruiterQueueItem,
+        onFinishCallback: () => {
+          this.shiftQueueAndRunNext(citySchedule);
+        },
+        setScheduleTimeout: (
+          operationCallback: () => Promise<void> | void,
+          timeToExecution: number,
+          purpose: TimeoutPurpose,
+        ) => {
+          this.setScheduleTimeout(citySchedule, operationCallback, timeToExecution, purpose);
+        },
+        shiftQueueAndNext: () => {
+          this.shiftQueueAndRunNext(citySchedule);
+        },
+      } as ScheduleOperationDetails<RecruiterQueueItem>);
     }
     // END run next action
   }
 
   /**
-   * Shifts queue, clears timeout and resets current action and schedule date. 
+   * Shifts queue, clears timeout and resets current action and schedule date.
    * Reevaluates provider cities if autoRevalidate is enabled.
    * @param schedule - city schedule to shift
    */
@@ -417,9 +434,9 @@ export default class MasterQueue extends EventEmitter implements Service {
   }
 
   /**
-   * Special method (like "shiftQueueCleanAndPersist" but without persist and UI refresh) used on item deletion 
+   * Special method (like "shiftQueueCleanAndPersist" but without persist and UI refresh) used on item deletion
    * to first perform queue modifications and only then persist and rehydrate ui manually.
-   * @param schedule 
+   * @param schedule
    */
   private shiftQueueAndClearCallbacks(schedule: CitySchedule) {
     schedule.queue.shift();
@@ -439,9 +456,11 @@ export default class MasterQueue extends EventEmitter implements Service {
         statusCell.classList.remove('idle', 'running');
         statusCell.classList.add(status);
         statusCell.textContent = status.charAt(0).toUpperCase() + status.slice(1);
-      })
+      });
     } else {
-      const statusCell = table.querySelector<HTMLDivElement>(`div.tr[data-city="${citySchedule.city.name}"] .master-queue-state`);
+      const statusCell = table.querySelector<HTMLDivElement>(
+        `div.tr[data-city="${citySchedule.city.name}"] .master-queue-state`,
+      );
       console.log('row:', statusCell);
       if (statusCell) {
         statusCell.classList.remove('idle', 'running');
@@ -463,7 +482,9 @@ export default class MasterQueue extends EventEmitter implements Service {
   private reevaluateProviderCities(schedule?: CitySchedule) {
     if (this.config.masterQueue.autoReevaluate) {
       // domyślnie miasta które są zakolejkowane są wyłączane z grupy dostawców, chyba że są w białej liście np. bo chwilowo nie mogą utylizować surowców
-      const queuedCityNames = this.queue.filter(citySchedule => citySchedule.queue.length > 0).map(citySchedule => citySchedule.city.name);
+      const queuedCityNames = this.queue
+        .filter(citySchedule => citySchedule.queue.length > 0)
+        .map(citySchedule => citySchedule.city.name);
       const whiteListCityNames = this.resourcesWhiteList.map(city => city.name);
       const lockedCityNames = this.resourceLock.getLockList().map(city => city.name);
 
@@ -471,26 +492,26 @@ export default class MasterQueue extends EventEmitter implements Service {
         // miasta które są zakolejkowane ale nie są w białej liście
         ...queuedCityNames.filter(queuedCity => !whiteListCityNames.includes(queuedCity)),
         // miasta które są zablokowane (mają większy priorytet niż white list)
-        ...lockedCityNames
+        ...lockedCityNames,
       ]);
 
       const allCities = this.citySwitchManager.getCityList();
       const providerCities = allCities.filter(city => !consumerCityNames.has(city.name));
 
       // jeżeli w kolejce jest 0 lub 1 elementów, to znaczy że to potencjalnie punkt krytyczny gdy trzeba reewaluować dostawców wszystkich elementów
-      if (schedule && !([0, 1].includes(schedule.queue.length))) {
+      if (schedule && ![0, 1].includes(schedule.queue.length)) {
         // reevaluate only current city schedule, because newly added items may have empty array of supplierCities
         schedule.queue.forEach(item => {
           item.itemDetails.supplierCities = providerCities;
-        })
+        });
         return;
-      };
+      }
 
       this.queue.forEach(citySchedule => {
         citySchedule.queue.forEach(item => {
           item.itemDetails.supplierCities = providerCities;
-        })
-      })
+        });
+      });
     }
   }
 
@@ -505,11 +526,13 @@ export default class MasterQueue extends EventEmitter implements Service {
     citySchedule: CitySchedule,
     operationCallback: () => Promise<void> | void,
     timeToExecution: number,
-    purpose: TimeoutPurpose
+    purpose: TimeoutPurpose,
   ) {
     if (purpose === 'slot' || purpose === 'charms') {
       if (timeToExecution > 1000 * 60 * 30) {
-        console.log(`${citySchedule.city.name}: ${citySchedule.queue[0].itemType} awaits for ${purpose}, adding to suppliers list`);
+        console.log(
+          `${citySchedule.city.name}: ${citySchedule.queue[0].itemType} awaits for ${purpose}, adding to suppliers list`,
+        );
         this.addCityToSuppliersList(citySchedule.city);
         this.reevaluateProviderCities();
       }
@@ -529,8 +552,8 @@ export default class MasterQueue extends EventEmitter implements Service {
     citySchedule.timeoutData = {
       timeoutId,
       executionTime: Date.now() + timeToExecution,
-      purpose
-    }
+      purpose,
+    };
   }
 
   public getBusyCities() {
@@ -538,7 +561,12 @@ export default class MasterQueue extends EventEmitter implements Service {
   }
 
   public getCityRecruiterSchedule(city: CityInfo): RecruiterQueueItem[] {
-    return this.queue.find(citySchedule => citySchedule.city.name === city.name)?.queue.filter(item => item.itemType === 'recruiter').map(item => item.itemDetails) as RecruiterQueueItem[] ?? [];
+    return (
+      (this.queue
+        .find(citySchedule => citySchedule.city.name === city.name)
+        ?.queue.filter(item => item.itemType === 'recruiter')
+        .map(item => item.itemDetails) as RecruiterQueueItem[]) ?? []
+    );
   }
 
   public hasCitySchedule(city: CityInfo) {
@@ -575,11 +603,10 @@ export default class MasterQueue extends EventEmitter implements Service {
    * @param arg - city schedule/city info corresponding to the queue to rerender
    */
   public rerenderAllUIQueues(arg?: CitySchedule | CityInfo) {
-    const citySchedule = arg ?
-      Object.keys(arg)
-        .includes('name')
+    const citySchedule = arg
+      ? Object.keys(arg).includes('name')
         ? this.getCitySchedule(arg as CityInfo)
-        : arg as CitySchedule
+        : (arg as CitySchedule)
       : this.getCitySchedule(this.citySwitchManager.getCurrentCity()!);
 
     document.querySelectorAll('.master-queue').forEach(el => {
@@ -587,11 +614,11 @@ export default class MasterQueue extends EventEmitter implements Service {
       if (citySchedule) {
         this.createUIQueueItems(el as HTMLElement, citySchedule);
       }
-    })
+    });
   }
 
   /**
-   * Creates UI elements for given city schedule with complete delete buttons functionality 
+   * Creates UI elements for given city schedule with complete delete buttons functionality
    * and appends them to provided container.
    * @param container - container to append queue items to
    * @param schedule - city schedule to create queue items for
@@ -609,35 +636,39 @@ export default class MasterQueue extends EventEmitter implements Service {
         <div class="master-queue-item-level-bar">
           ${item.itemType === 'builder' ? (item.itemDetails as BuilderQueueItem).toLvl : ''}
         </div>
-        <div class="master-queue-item-image ${item.itemType === 'recruiter'
-          ? `${(item.itemDetails as RecruiterQueueItem).unitContextInfo.unitImageClass}`
-          : ''}" 
-          style="${item.itemType === 'builder'
-          ? `background-image: ${(item.itemDetails as BuilderQueueItem).building.backgroundImageProp};`
-          : ''}"
+        <div class="master-queue-item-image ${
+          item.itemType === 'recruiter'
+            ? `${(item.itemDetails as RecruiterQueueItem).unitContextInfo.unitImageClass}`
+            : ''
+        }" 
+          style="${
+            item.itemType === 'builder'
+              ? `background-image: ${(item.itemDetails as BuilderQueueItem).building.backgroundImageProp};`
+              : ''
+          }"
         >
         </div>
         <div class="master-queue-item-info">
           <span class="desc1">
           ${(() => {
-          switch (item.itemType) {
-            case 'recruiter':
-              return (item.itemDetails as RecruiterQueueItem).unitContextInfo.unitImageClass.split(' ')[1];
-            case 'builder':
-              return (item.itemDetails as BuilderQueueItem).building.name;
-            default:
-              return null;
-          }
-        })()}
+            switch (item.itemType) {
+              case 'recruiter':
+                return (item.itemDetails as RecruiterQueueItem).unitContextInfo.unitImageClass.split(' ')[1];
+              case 'builder':
+                return (item.itemDetails as BuilderQueueItem).building.name;
+              default:
+                return null;
+            }
+          })()}
           </span>
           ${(() => {
-          switch (item.itemType) {
-            case 'recruiter':
-              return `<span class="desc2">${(item.itemDetails as RecruiterQueueItem).amountLeft + 'x ' + (item.itemDetails as RecruiterQueueItem).amountType}</span>`;
-            default:
-              return '';
-          }
-        })()}
+            switch (item.itemType) {
+              case 'recruiter':
+                return `<span class="desc2">${(item.itemDetails as RecruiterQueueItem).amountLeft + 'x ' + (item.itemDetails as RecruiterQueueItem).amountType}</span>`;
+              default:
+                return '';
+            }
+          })()}
         </div>
       `;
 
@@ -658,7 +689,11 @@ export default class MasterQueue extends EventEmitter implements Service {
         // && jeżeli jest timeout (czyli manager wykonuje jakąś scheudowaną operację)
         if (citySchedule?.timeoutData.timeoutId) {
           // jeżeli użytkownik nie potwierdził usunięcia elementu
-          if (!this.simpleConfirmationDialog('Czy na pewno chcesz usunąć pierwszy element z kolejki? Spowoduje to przejście do następnego elementu.')) {
+          if (
+            !this.simpleConfirmationDialog(
+              'Czy na pewno chcesz usunąć pierwszy element z kolejki? Spowoduje to przejście do następnego elementu.',
+            )
+          ) {
             return;
           }
           this.shiftQueueAndClearCallbacks(citySchedule);
@@ -683,7 +718,11 @@ export default class MasterQueue extends EventEmitter implements Service {
         const itemsToRevalidate = citySchedule.queue
           .filter((item, index) => index >= queueIndex && item.itemType === 'builder')
           .map(item => item.itemDetails as BuilderQueueItem);
-        this.builder.revalidateQueueItemLevels((item.itemDetails as BuilderQueueItem).building, queueIndex, itemsToRevalidate);
+        this.builder.revalidateQueueItemLevels(
+          (item.itemDetails as BuilderQueueItem).building,
+          queueIndex,
+          itemsToRevalidate,
+        );
         break;
       case 'recruiter':
         // nothing to do here, just semantics
@@ -703,18 +742,22 @@ export default class MasterQueue extends EventEmitter implements Service {
   }
 
   private persistSchedule() {
-    localStorage.setItem(MasterQueue.LOCAL_STORAGE_KEY, JSON.stringify(
-      this.queue.filter(citySchedule => citySchedule.queue.length > 0)
-        .map(citySchedule => ({
-          city: citySchedule.city,
-          queue: citySchedule.queue
-        }))
-    ));
+    localStorage.setItem(
+      MasterQueue.LOCAL_STORAGE_KEY,
+      JSON.stringify(
+        this.queue
+          .filter(citySchedule => citySchedule.queue.length > 0)
+          .map(citySchedule => ({
+            city: citySchedule.city,
+            queue: citySchedule.queue,
+          })),
+      ),
+    );
   }
 
   private isTableOpened = () => {
     return document.getElementById(MasterQueue.TABLE_ID)?.hidden === false;
-  }
+  };
 
   // TODO: hydrate schedule from local storage and add load method in ~constructor
   private loadSchedule() {
@@ -730,32 +773,32 @@ export default class MasterQueue extends EventEmitter implements Service {
   }
 
   private hydrateSchedule(schedule: CitySchedule[]) {
-    return schedule.map(citySchedule => {
-      const city = this.citySwitchManager.getCityByName(citySchedule.city.name);
-      if (!city) return null;
+    return schedule
+      .map(citySchedule => {
+        const city = this.citySwitchManager.getCityByName(citySchedule.city.name);
+        if (!city) return null;
 
-      citySchedule.city = city;
-      citySchedule.queue.forEach(queueItem => {
+        citySchedule.city = city;
+        citySchedule.queue.forEach(queueItem => {
+          queueItem.itemDetails.supplierCities = queueItem.itemDetails.supplierCities
+            .map(city => this.citySwitchManager.getCityByName(city.name) ?? null)
+            .filter(Boolean) as CityInfo[];
 
-        queueItem.itemDetails.supplierCities = queueItem.itemDetails.supplierCities
-          .map(city => this.citySwitchManager.getCityByName(city.name) ?? null)
-          .filter(Boolean) as CityInfo[];
-
-        switch (queueItem.itemType) {
-          case 'recruiter':
-            // NOTE: for semantics
-            break;
-          case 'builder':
-            // TODO: implement later additional hydration
-            break;
-        }
-      });
-      // during persistance it's not saved, but is required for proper functioning, so assign
-      citySchedule.timeoutData = {};
-      return citySchedule;
-    }).filter(Boolean) as CitySchedule[];
+          switch (queueItem.itemType) {
+            case 'recruiter':
+              // NOTE: for semantics
+              break;
+            case 'builder':
+              // TODO: implement later additional hydration
+              break;
+          }
+        });
+        // during persistance it's not saved, but is required for proper functioning, so assign
+        citySchedule.timeoutData = {};
+        return citySchedule;
+      })
+      .filter(Boolean) as CitySchedule[];
   }
-
 
   private simpleConfirmationDialog(message: string) {
     return window.confirm(message);
@@ -770,19 +813,25 @@ export default class MasterQueue extends EventEmitter implements Service {
           builderItem.toLvl--;
         }
       }
-    })
+    });
   }
 
   public getBuilderScheduleForCity(city: CityInfo): BuilderQueueItem[] {
-    return this.queue.find(citySchedule => citySchedule.city.name === city.name)?.queue
-      .filter(item => item.itemType === 'builder')
-      .map(item => item.itemDetails) as BuilderQueueItem[]
-      ?? [];
+    return (
+      (this.queue
+        .find(citySchedule => citySchedule.city.name === city.name)
+        ?.queue.filter(item => item.itemType === 'builder')
+        .map(item => item.itemDetails) as BuilderQueueItem[]) ?? []
+    );
   }
 
   public getNavigation(type: 'master', container?: HTMLElement): HTMLElement;
   public getNavigation(type: 'city' | 'all', arg1: CitySchedule | CityInfo, container?: HTMLElement): void;
-  public getNavigation(type: 'master' | 'city' | 'all', arg1?: HTMLElement | CitySchedule | CityInfo, arg2?: HTMLElement): HTMLElement | void {
+  public getNavigation(
+    type: 'master' | 'city' | 'all',
+    arg1?: HTMLElement | CitySchedule | CityInfo,
+    arg2?: HTMLElement,
+  ): HTMLElement | void {
     const div = document.createElement('div');
     div.classList.add('master-queue-navigation');
 
@@ -791,24 +840,23 @@ export default class MasterQueue extends EventEmitter implements Service {
       if (arg1 instanceof HTMLElement) {
         Object.values(navigation).forEach(button => {
           arg1.appendChild(button);
-        })
+        });
       } else {
         Object.values(navigation).forEach(button => {
           div.appendChild(button);
-        })
+        });
         return div;
       }
     } else if (type === 'city') {
-
       const navigation = this.getQueueNavigationButtons(arg1 as CitySchedule | CityInfo);
       if (arg2 instanceof HTMLElement) {
         Object.values(navigation).forEach(button => {
           arg2.appendChild(button);
-        })
+        });
       } else {
         Object.values(navigation).forEach(button => {
           div.appendChild(button);
-        })
+        });
         return div;
       }
     } else if (type === 'all') {
@@ -818,17 +866,17 @@ export default class MasterQueue extends EventEmitter implements Service {
       if (arg2 instanceof HTMLElement) {
         Object.values(queueNavigation).forEach(button => {
           arg2.appendChild(button);
-        })
+        });
         Object.values(masterNavigation).forEach(button => {
           arg2.appendChild(button);
-        })
+        });
       } else {
         Object.values(queueNavigation).forEach(button => {
           div.appendChild(button);
-        })
+        });
         Object.values(masterNavigation).forEach(button => {
           div.appendChild(button);
-        })
+        });
         return div;
       }
     }
@@ -838,15 +886,15 @@ export default class MasterQueue extends EventEmitter implements Service {
     this.queue.forEach(citySchedule => {
       this.clearCityScheduleAction(citySchedule);
       citySchedule.queue = [];
-    })
+    });
     this.persistSchedule();
   }
 
   public getMasterNavigationButtons(): {
-    runAllButton: HTMLButtonElement,
-    resetAllButton: HTMLButtonElement,
-    deleteAllButton: HTMLButtonElement,
-    pauseAllButton: HTMLButtonElement,
+    runAllButton: HTMLButtonElement;
+    resetAllButton: HTMLButtonElement;
+    deleteAllButton: HTMLButtonElement;
+    pauseAllButton: HTMLButtonElement;
   } {
     const runAllButton = document.createElement('button');
     const resetAllButton = document.createElement('button');
@@ -870,41 +918,41 @@ export default class MasterQueue extends EventEmitter implements Service {
       if (this.isTableOpened()) {
         // this.rehydrateTable();
       }
-    })
+    });
     resetAllButton.addEventListener('click', () => {
       this.rerunAllSchedules();
       if (this.isTableOpened()) {
         // this.rehydrateTable();
         this.setUITableStatuses('running');
       }
-    })
+    });
     deleteAllButton.addEventListener('click', () => {
       this.clearAllSchedules();
       if (this.isTableOpened()) {
         this.rehydrateTable();
       }
-    })
+    });
     pauseAllButton.addEventListener('click', () => {
       this.pauseAllSchedules();
       if (this.isTableOpened()) {
         // this.rehydrateTable();
         this.setUITableStatuses('idle');
       }
-    })
+    });
 
     return {
       runAllButton,
       resetAllButton,
       deleteAllButton,
       pauseAllButton,
-    }
+    };
   }
 
   public getQueueNavigationButtons(queueIdentifier: CityInfo | CitySchedule): {
-    runThisButton: HTMLButtonElement,
-    restartThisButton: HTMLButtonElement,
-    pauseThisButton: HTMLButtonElement,
-    deleteThisButton: HTMLButtonElement,
+    runThisButton: HTMLButtonElement;
+    restartThisButton: HTMLButtonElement;
+    pauseThisButton: HTMLButtonElement;
+    deleteThisButton: HTMLButtonElement;
   } {
     const runThisButton = document.createElement('button');
     const restartThisButton = document.createElement('button');
@@ -927,13 +975,13 @@ export default class MasterQueue extends EventEmitter implements Service {
 
     runThisButton.addEventListener('click', () => {
       if (citySchedule && !citySchedule.currentAction) {
-        this.runNextAction(citySchedule)
-      };
+        this.runNextAction(citySchedule);
+      }
       if (this.isTableOpened()) {
         this.setUITableStatuses('running', citySchedule);
         // this.rehydrateTable();
       }
-    })
+    });
     restartThisButton.addEventListener('click', () => {
       if (citySchedule) {
         this.clearCityScheduleAction(citySchedule);
@@ -943,7 +991,7 @@ export default class MasterQueue extends EventEmitter implements Service {
           this.setUITableStatuses('running', citySchedule);
         }
       }
-    })
+    });
     pauseThisButton.addEventListener('click', () => {
       console.log('pauseThisButton clicked, schedule:', citySchedule);
       if (citySchedule) {
@@ -954,52 +1002,54 @@ export default class MasterQueue extends EventEmitter implements Service {
           this.setUITableStatuses('idle', citySchedule);
         }
       }
-    })
+    });
     deleteThisButton.addEventListener('click', () => {
       this.clearScheduleActionForCity(citySchedule.city);
       this.rerenderAllUIQueues();
       if (this.isTableOpened()) {
         this.rehydrateTable();
       }
-    })
+    });
 
     return {
       runThisButton,
       restartThisButton,
       pauseThisButton,
       deleteThisButton,
-    }
+    };
   }
 
   private pauseAllSchedules() {
     this.queue.forEach(citySchedule => {
       this.clearCityScheduleAction(citySchedule);
-    })
+    });
   }
 
   private simpleScheduleLoadConfirmationDialog(cityScheduleList: CitySchedule[]) {
     let message = `Czy chcesz kontynuować poprzednią sesje rekrutacji?`;
     cityScheduleList.forEach(citySchedule => {
       if (citySchedule.queue.length) {
-        message += `\n${citySchedule.city.name}:\n${citySchedule.queue.map(q => {
-          switch (q.itemType) {
-            case 'recruiter':
-              const queueItem = q.itemDetails as RecruiterQueueItem;
-              const unitName = queueItem.unitContextInfo.unitSelector.split('.').at(-1);
-              return `\t${unitName} x ${queueItem.amountLeft} ${queueItem.amountType === 'slots' ? 'slotów' : 'jednostek'}`
-            case 'builder':
-              const builderItem = q.itemDetails as BuilderQueueItem;
-              return `\t${builderItem.building.name} -> ${builderItem.toLvl}`
-          }
-        }).join('\n')}`;
+        message += `\n${citySchedule.city.name}:\n${citySchedule.queue
+          .map(q => {
+            switch (q.itemType) {
+              case 'recruiter':
+                const queueItem = q.itemDetails as RecruiterQueueItem;
+                const unitName = queueItem.unitContextInfo.unitSelector.split('.').at(-1);
+                return `\t${unitName} x ${queueItem.amountLeft} ${queueItem.amountType === 'slots' ? 'slotów' : 'jednostek'}`;
+              case 'builder':
+                const builderItem = q.itemDetails as BuilderQueueItem;
+                return `\t${builderItem.building.name} -> ${builderItem.toLvl}`;
+            }
+          })
+          .join('\n')}`;
       }
-    })
+    });
     const confirm = window.confirm(message);
     return confirm;
   }
 
   public getMasterQueueScheduleTimes() {
-    return this.queue.map(citySchedule => citySchedule.timeoutData.executionTime).filter(Boolean) as number[]
+    return this.queue.map(citySchedule => citySchedule.timeoutData.executionTime).filter(Boolean) as number[];
   }
 
   public handleMasterQueueConfigChange(configChange: TConfigChanges['masterQueue']) {
@@ -1010,7 +1060,7 @@ export default class MasterQueue extends EventEmitter implements Service {
 
   /**
    * Removes item from queue by id. If item was first in queue its scheduled operatin will be canceled.
-   * CAUTION: It will not autimatically 
+   * CAUTION: It will not autimatically
    * @param city - city to remove item from
    * @param id - id of the item to remove
    */
@@ -1026,7 +1076,11 @@ export default class MasterQueue extends EventEmitter implements Service {
     this.persistSchedule();
   }
 
-  public unshiftAndRun(city: CityInfo, itemType: 'recruiter' | 'builder', itemDetails: RecruiterQueueItem | BuilderQueueItem) {
+  public unshiftAndRun(
+    city: CityInfo,
+    itemType: 'recruiter' | 'builder',
+    itemDetails: RecruiterQueueItem | BuilderQueueItem,
+  ) {
     let citySchedule = this.queue.find(schedule => schedule.city.name === city.name);
     if (!citySchedule) {
       citySchedule = this.addToQueue(city, itemType, itemDetails);
@@ -1036,7 +1090,7 @@ export default class MasterQueue extends EventEmitter implements Service {
       citySchedule.queue.unshift({
         id: crypto.randomUUID(),
         itemType,
-        itemDetails
+        itemDetails,
       });
     }
     this.persistSchedule();
@@ -1048,12 +1102,12 @@ export default class MasterQueue extends EventEmitter implements Service {
     this.reevaluateProviderCities();
   }
 
-
   private async decideIfCityShouldBeSupplier(citySchedule: CitySchedule) {
     const nextItem = citySchedule.queue[0];
-    const { isRealQueueFull, timeToFreeSlot } = nextItem.itemType === 'builder'
-      ? await this.builder.isRealQueueFull(citySchedule.city)
-      : await this.recruiter.isRealQueueFull((nextItem.itemDetails as RecruiterQueueItem).type, citySchedule.city);
+    const { isRealQueueFull, timeToFreeSlot } =
+      nextItem.itemType === 'builder'
+        ? await this.builder.isRealQueueFull(citySchedule.city)
+        : await this.recruiter.isRealQueueFull((nextItem.itemDetails as RecruiterQueueItem).type, citySchedule.city);
 
     // oznacza, że nastepny element musi czekać na zwolnienie miejsca w kolejce - więc może udostępnić swoje zasoby w tym czasie
     if (isRealQueueFull) {

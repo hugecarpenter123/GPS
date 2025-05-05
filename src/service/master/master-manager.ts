@@ -1,19 +1,19 @@
-import { FarmTimeInterval, TConfig } from "../../../gps.config";
-import ConfigPopup, { TConfigChanges } from "../../config-popup/config-popup";
-import ConfigManager from "../../utility/config-manager";
-import { addDelay, getCookie, hasAnyValue, setCookie } from "../../utility/plain-utility";
-import CityBuilder from "../city/builder/city-builder";
-import CitySwitchManager from "../city/city-switch-manager";
-import FarmManager from "../farm/farm-manager";
-import MasterQueue from "../master-queue/master-queue";
-import Recruiter from "../recruiter/recruiter";
-import Scheduler from "../scheduler/Scheduler";
-import GeneralInfo from "./ui/general-info";
+import { FarmTimeInterval, TConfig } from '../../../gps.config';
+import ConfigPopup, { TConfigChanges } from '../../config-popup/config-popup';
+import ConfigManager from '../../utility/config-manager';
+import { addDelay, getCookie, hasAnyValue, setCookie } from '../../utility/plain-utility';
+import CityBuilder from '../city/builder/city-builder';
+import CitySwitchManager from '../city/city-switch-manager';
+import FarmManager from '../farm/farm-manager';
+import MasterQueue from '../master-queue/master-queue';
+import Recruiter from '../recruiter/recruiter';
+import Scheduler from '../scheduler/Scheduler';
+import GeneralInfo from './ui/general-info';
 
 export type Managers = 'farmManager' | 'scheduler' | 'builder' | 'recruiter' | 'masterQueue';
 
 export default class MasterManager {
-  private static instance: MasterManager
+  private static instance: MasterManager;
   private config!: TConfig;
   private farmManager!: FarmManager;
   private switchManager!: CitySwitchManager;
@@ -27,12 +27,12 @@ export default class MasterManager {
   private pausedManagersSnapshot: {
     [key in Managers]: boolean;
   } = {
-      farmManager: false,
-      scheduler: false,
-      builder: false,
-      recruiter: false,
-      masterQueue: false,
-    };
+    farmManager: false,
+    scheduler: false,
+    builder: false,
+    recruiter: false,
+    masterQueue: false,
+  };
   private constructor() {
     // Private constructor to prevent direct instantiation
   }
@@ -56,30 +56,36 @@ export default class MasterManager {
   }
 
   private initRefreshUtility(timeout?: number) {
-    setTimeout(async () => {
-      const scheduler = await Scheduler.getInstance();
-      const canRefresh = !scheduler.isRunning() || scheduler.canSafelyRefresh();
+    setTimeout(
+      async () => {
+        const scheduler = await Scheduler.getInstance();
+        const canRefresh = !scheduler.isRunning() || scheduler.canSafelyRefresh();
 
-      if (canRefresh) {
-        console.log('canRefresh, will refresh', canRefresh);
-        console.log('timeout ?? this.config.general.applicationRefreshInterval', timeout ?? this.config.general.applicationRefreshInterval);
-        console.log('this.config.general.applicationRefreshInterval', this.config.general.applicationRefreshInterval);
-        this.config.general.forcedRefresh = true;
-        ConfigManager.getInstance().persistConfig();
-        await addDelay(10000);
-        window.location.reload();
-      } else {
-        console.log('canRefresh', canRefresh);
-        this.initRefreshUtility(5 * 1000 * 60);
-      }
-    }, timeout ?? (this.config.general.applicationRefreshInterval + (Math.floor(Math.random() * 121) - 60)) * 1000);
+        if (canRefresh) {
+          console.log('canRefresh, will refresh', canRefresh);
+          console.log(
+            'timeout ?? this.config.general.applicationRefreshInterval',
+            timeout ?? this.config.general.applicationRefreshInterval,
+          );
+          console.log('this.config.general.applicationRefreshInterval', this.config.general.applicationRefreshInterval);
+          this.config.general.forcedRefresh = true;
+          ConfigManager.getInstance().persistConfig();
+          await addDelay(10000);
+          window.location.reload();
+        } else {
+          console.log('canRefresh', canRefresh);
+          this.initRefreshUtility(5 * 1000 * 60);
+        }
+      },
+      timeout ?? (this.config.general.applicationRefreshInterval + (Math.floor(Math.random() * 121) - 60)) * 1000,
+    );
   }
 
   // id="recaptcha_window"
   // document.querySelector('[class="recaptcha-checkbox-border"]')
   // document.querySelector('#recaptcha_window [class="caption js-caption"]').click()
   private initCaptchaPrevention() {
-    new MutationObserver(async (mutations) => {
+    new MutationObserver(async mutations => {
       for (const mutation of mutations) {
         if (mutation.type === 'childList') {
           const recaptchaWindow = document.querySelector('#recaptcha_window');
@@ -91,7 +97,9 @@ export default class MasterManager {
             if (checkbox) {
               await addDelay(4000);
               checkbox.click();
-              const caption = recaptchaWindow.querySelector<HTMLElement>('#recaptcha_window [class="caption js-caption"]');
+              const caption = recaptchaWindow.querySelector<HTMLElement>(
+                '#recaptcha_window [class="caption js-caption"]',
+              );
               if (caption) {
                 await addDelay(4000);
                 caption.click();
@@ -104,7 +112,9 @@ export default class MasterManager {
             if (checkbox) {
               await addDelay(2000);
               checkbox.click();
-              const caption = captchaCurtain.querySelector<HTMLElement>('#captcha_curtain [class="caption js-caption"]');
+              const caption = captchaCurtain.querySelector<HTMLElement>(
+                '#captcha_curtain [class="caption js-caption"]',
+              );
               if (caption) {
                 await addDelay(2000);
                 caption.click();
@@ -117,48 +127,60 @@ export default class MasterManager {
   }
 
   private async runManagersFromConfig(configChanges?: TConfigChanges): Promise<void> {
+    console.log('runManagersFromConfig', configChanges);
     if (this.configMenuWindow.isMasterQueueChecked()) {
       if (!this.masterQueue.isRunning()) {
-        console.log('MasterQueue will be started...')
+        console.log('MasterQueue will be started...');
         this.masterQueue.start();
       }
     } else {
       if (this.masterQueue.isRunning()) {
-        console.log('MasterQueue will be stopped...')
+        console.log('MasterQueue will be stopped...');
         this.masterQueue.stop();
       }
     }
     if (this.configMenuWindow.isBuilderChecked()) {
       if (!this.builder.isRunning()) {
-        console.log('Builder will be started...')
+        console.log('Builder will be started...');
         this.builder.start();
       }
     } else {
       if (this.builder.isRunning()) {
-        console.log('Builder will be stopped...')
+        console.log('Builder will be stopped...');
         this.builder.stop();
       }
     }
     if (this.configMenuWindow.isFarmChecked()) {
       if (!this.farmManager.isRunning()) {
-        console.log('FarmManager will be started...')
+        console.log('FarmManager will be started...');
         await this.farmManager.start();
       }
     } else {
       if (this.farmManager.isRunning()) {
-        console.log('FarmManager will be stopped...')
+        console.log('FarmManager will be stopped...');
         this.farmManager.stop();
       }
     }
     if (this.configMenuWindow.isRecruiterChecked()) {
       if (!this.recruiter.isRunning()) {
-        console.log('Recruiter will be started...')
+        console.log('Recruiter will be started...');
         this.recruiter.start();
       }
     } else {
       if (this.recruiter.isRunning()) {
-        console.log('Recruiter will be stopped...')
+        console.log('Recruiter will be stopped...');
         this.recruiter.stop();
+      }
+    }
+    if (this.configMenuWindow.isSchedulerChecked()) {
+      if (!this.scheduler.isRunning()) {
+        console.log('Scheduler will be started...');
+        this.scheduler.start();
+      }
+    } else {
+      if (this.scheduler.isRunning()) {
+        console.log('Scheduler will be stopped...');
+        this.scheduler.stop();
       }
     }
 
@@ -176,7 +198,7 @@ export default class MasterManager {
     this.configMenuWindow = new ConfigPopup();
     this.configMenuWindow.addListener('managersChange', async (configChanges: TConfigChanges) => {
       await this.runManagersFromConfig(configChanges);
-    })
+    });
     await this.configMenuWindow.render();
 
     if (this.config.general.forcedRefresh || getCookie('forceRestart')) {
@@ -225,10 +247,12 @@ export default class MasterManager {
     console.log('pauseRunningManagers', this.pausedManagersSnapshot);
     if (!except.includes('farmManager') && this.farmManager.isRunning()) {
       const farmTimes = this.farmManager.getFarmScheduleTimes();
-      const farmTimesCollides = farmTimes.some(farmingTime =>
-        farmingTime &&
-        farmingTime.getTime() <= actionTime &&
-        Math.abs((farmingTime.getTime() - actionTime)) <= 1000 * 20);
+      const farmTimesCollides = farmTimes.some(
+        farmingTime =>
+          farmingTime &&
+          farmingTime.getTime() <= actionTime &&
+          Math.abs(farmingTime.getTime() - actionTime) <= 1000 * 20,
+      );
       if (farmTimesCollides) {
         this.farmManager.stop();
         this.pausedManagersSnapshot.farmManager = true;
@@ -237,10 +261,12 @@ export default class MasterManager {
     // NOTE: remake as masterqueue holds now all operations
     if (!except.includes('masterQueue') && this.masterQueue.isRunning()) {
       const masterQueueTimes = this.masterQueue.getMasterQueueScheduleTimes();
-      const masterQueueTimesCollide = masterQueueTimes.some((masterQueueScheduleTime: number) =>
-        masterQueueScheduleTime &&
-        masterQueueScheduleTime <= actionTime &&
-        Math.abs((masterQueueScheduleTime - actionTime)) <= 1000 * 30);
+      const masterQueueTimesCollide = masterQueueTimes.some(
+        (masterQueueScheduleTime: number) =>
+          masterQueueScheduleTime &&
+          masterQueueScheduleTime <= actionTime &&
+          Math.abs(masterQueueScheduleTime - actionTime) <= 1000 * 30,
+      );
       if (masterQueueTimesCollide) {
         this.masterQueue.stop();
         this.pausedManagersSnapshot.masterQueue = true;
@@ -256,10 +282,12 @@ export default class MasterManager {
     }
     if (!except.includes('builder') && this.builder.isRunning()) {
       const builderTimes = this.builder.getBuilderScheduleTimes();
-      const builderTimesCollides = builderTimes.some(builderTime =>
-        builderTime &&
-        builderTime.getTime() <= actionTime &&
-        Math.abs((builderTime.getTime() - actionTime)) <= 1000 * 20);
+      const builderTimesCollides = builderTimes.some(
+        builderTime =>
+          builderTime &&
+          builderTime.getTime() <= actionTime &&
+          Math.abs(builderTime.getTime() - actionTime) <= 1000 * 20,
+      );
       if (builderTimesCollides) {
         this.builder.stop();
         this.pausedManagersSnapshot.builder = true;
@@ -284,7 +312,7 @@ export default class MasterManager {
           break;
         case 'scheduler':
           if (isPaused && !except.includes('scheduler')) {
-            this.scheduler.run();
+            this.scheduler.start();
           }
           break;
         case 'builder':
@@ -300,7 +328,7 @@ export default class MasterManager {
       }
     });
 
-    Object.keys(this.pausedManagersSnapshot).forEach((key) => {
+    Object.keys(this.pausedManagersSnapshot).forEach(key => {
       if (except.includes(key as Managers)) {
         this.pausedManagersSnapshot[key as Managers] = false;
       }

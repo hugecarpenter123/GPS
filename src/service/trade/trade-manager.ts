@@ -1,5 +1,5 @@
 import { InfoError } from '../../utility/info-error';
-import { addDelay, getTimeInFuture, shuffle, textToMs, waitWhile } from '../../utility/plain-utility';
+import { addDelay, msToFutureHHMMSS, shuffle, HHMMSS_toMS, waitWhile } from '../../utility/plain-utility';
 import {
   performComplexClick,
   triggerHover,
@@ -142,7 +142,7 @@ export default class TradeManager {
 
   private getTradeTime(): number {
     const tradeTimeText = document.querySelector<HTMLElement>('#duration_container .way_duration')?.textContent;
-    return textToMs(tradeTimeText!.slice(1));
+    return HHMMSS_toMS(tradeTimeText!.slice(1));
   }
 
   private async getLongestShipmentTime(orDefault: number = 60000): Promise<number> {
@@ -151,7 +151,7 @@ export default class TradeManager {
     ).filter(el => el.querySelector('.returning'));
     const shipmentTimes = supplyingTradeItems.map(el => {
       const time = el.querySelector<HTMLElement>('.time')?.textContent;
-      return time?.match(/\d+:\d+:\d+/)?.[0] ? textToMs(time) : 0;
+      return time?.match(/\d+:\d+:\d+/)?.[0] ? HHMMSS_toMS(time) : 0;
     });
     console.log('shipmentTimes:', shipmentTimes);
     return Math.max(...shipmentTimes) || orDefault;
@@ -227,7 +227,7 @@ export default class TradeManager {
       ironRealState![0] >= targetResources.iron
     ) {
       await this.closeTradeMode();
-      console.log('fully stacked, on', getTimeInFuture(longestShipmentTime), `(${longestShipmentTime}ms)`);
+      console.log('fully stacked, on', msToFutureHHMMSS(longestShipmentTime), `(${longestShipmentTime}ms)`);
       return {
         fullyStacked: true,
         // TODO: unsafe because shipment time may be higher than maxShipmentTime (RARE CASE)
@@ -273,7 +273,7 @@ export default class TradeManager {
       prevWayDurationText = currentWayDurationText!;
       console.log('currentWayDurationText:', currentWayDurationText);
 
-      currentShipmentTimeMS = textToMs(currentWayDurationText!.slice(1));
+      currentShipmentTimeMS = HHMMSS_toMS(currentWayDurationText!.slice(1));
       // console.log('currentShipmentTimeMS:', currentShipmentTimeMS);
       // console.log('maxShipmentTime:', maxShipmentTime);
       if (currentShipmentTimeMS > maxShipmentTime) continue;
@@ -390,7 +390,7 @@ export default class TradeManager {
       // clean its content to be sure always new values are read via hover
       if (infoEl) infoEl.textContent = '';
       // get shipment time
-      const currShipmentTime = textToMs(item.querySelector<HTMLElement>('.time')?.textContent!);
+      const currShipmentTime = HHMMSS_toMS(item.querySelector<HTMLElement>('.time')?.textContent!);
       if (currShipmentTime > within) continue;
       if (currShipmentTime > lastShipmentTime) lastShipmentTime = currShipmentTime;
 

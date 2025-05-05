@@ -1,4 +1,4 @@
-import { CityInfo } from "./src/service/city/city-switch-manager";
+import { CityInfo } from './src/service/city/city-switch-manager';
 
 export enum FarmTimeInterval {
   FirstOption = 5 * 60 * 1000,
@@ -21,7 +21,7 @@ const config = {
     farmingCities: [] as CityInfo[],
   },
   general: {
-    timeDifference: (11 * 1000) + 500,
+    timeDifference: 11 * 1000 + 500,
     antyTimingMs: 10000,
     applicationRefreshInterval: 32 * 60 * 1000, // 32 minutes
     forcedRefresh: false,
@@ -29,11 +29,14 @@ const config = {
     builder: true,
     guard: false,
     masterQueue: true,
-    recruiter: false,
+    recruiter: true,
+    scheduler: true,
   },
   builder: {
     minimumTracking: true,
   },
-}
+  scheduler: {},
+};
+
 export type TConfig = typeof config;
 export default config;

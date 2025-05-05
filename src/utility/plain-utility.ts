@@ -3,36 +3,38 @@
  * @param text string in format 00:02:38
  * @returns miliseconds
  */
-export const textToMs = (text: string): number => {
+export const HHMMSS_toMS = (text: string): number => {
   const timeArray = text.split(':').map(el => parseInt(el));
-  const timeout = (timeArray[0] * 1000 * 60 * 60) + (timeArray[1] * 1000 * 60) + (timeArray[2] * 1000);
+  const timeout = timeArray[0] * 1000 * 60 * 60 + timeArray[1] * 1000 * 60 + timeArray[2] * 1000;
   return timeout;
-}
+};
 
 export const isVisible = (element: HTMLElement) => {
   return element.offsetParent;
-}
+};
 
 export const addDelay = (time: number = 1000): Promise<void> => {
   return new Promise(resolve => setTimeout(resolve, time));
-}
+};
 
-export const getTimeInFuture = (timeMs: number): string => {
+export const msToFutureHHMMSS = (timeMs: number): string => {
   const now = new Date();
   const futureDate = new Date(now.getTime() + timeMs);
   return `${futureDate.getHours().toString().padStart(2, '0')}:${futureDate.getMinutes().toString().padStart(2, '0')}:${futureDate.getSeconds().toString().padStart(2, '0')}`;
-}
+};
 
-export const formatDateToSimpleString = (date: Date): string => {
+export const dateToHHMMSS = (date: Date): string => {
   return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
-}
+};
 
-export const msToTimeString = (ms: number): string => {
-  const hours = Math.floor(ms / (1000 * 60 * 60));
-  const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
-  const seconds = Math.floor((ms % (1000 * 60)) / 1000);
+export const msToHHMMSS = (ms: number): string => {
+  let remaining = Math.floor(ms / 1000);
+  const hours = Math.floor(remaining / 3600) % 24;
+  remaining %= 3600;
+  const minutes = Math.floor(remaining / 60);
+  const seconds = remaining % 60;
   return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-}
+};
 
 export function getRandomInt(max: number) {
   return Math.floor(Math.random() * max);
@@ -40,7 +42,7 @@ export function getRandomInt(max: number) {
 
 export const areGridsEqual = (grid1: [number, number], grid2: [number, number]): boolean => {
   return grid1[0] === grid2[0] && grid1[1] === grid2[1];
-}
+};
 
 export function areArraysContentsEqual(arr1: string[], arr2: string[]): boolean {
   if (arr1.length !== arr2.length) return false;
@@ -59,16 +61,21 @@ export function shuffleArray(array: any[]) {
 
 export function isMobile(): boolean {
   if ((navigator as any).userAgentData) {
-    return (navigator as any).userAgentData.mobile
+    return (navigator as any).userAgentData.mobile;
   } else {
-    if (navigator.userAgent.match(/iPhone/i) || navigator.userAgent.match(/iPad/i) || navigator.userAgent.match(/Android/i)) return true;
+    if (
+      navigator.userAgent.match(/iPhone/i) ||
+      navigator.userAgent.match(/iPad/i) ||
+      navigator.userAgent.match(/Android/i)
+    )
+      return true;
     return false;
   }
 }
 
 export const getRandomMs = (min: number, max: number): number => {
   return Math.floor(Math.random() * (max - min + 1) + min);
-}
+};
 
 export function calculateTimeToNextOccurrence(timeString: string): number {
   console.log('timeString to calculate: ', timeString);
@@ -97,13 +104,17 @@ export function getCookie(name: string) {
   return null;
 }
 
-export function setCookie(name: string, value: any, options: { expires?: Date, path?: string, domain?: string, secure?: boolean, sameSite?: string } = {}) {
+export function setCookie(
+  name: string,
+  value: any,
+  options: { expires?: Date; path?: string; domain?: string; secure?: boolean; sameSite?: string } = {},
+) {
   const {
     expires = new Date(Date.now() + 24 * 60 * 60 * 1000),
     path = '/',
     domain = '.grepolis.com',
     secure = false,
-    sameSite = 'Lax'
+    sameSite = 'Lax',
   } = options;
   let cookieString = `${name}=${encodeURIComponent(JSON.stringify(value))}; path=${path}; SameSite=${sameSite}`;
 
@@ -122,25 +133,26 @@ export function setCookie(name: string, value: any, options: { expires?: Date, p
 
 export const getCopyOf = (obj: any): any => {
   return JSON.parse(JSON.stringify(obj));
-}
+};
 
 export const getBrowserStateSnapshot = (): any => {
   return {
     documentVisibility: document.visibilityState,
     windowFocus: document.hasFocus(),
     windowSize: { width: window.innerWidth, height: window.innerHeight },
-  }
-}
+  };
+};
 
 export const getElementStateSnapshot = (element: HTMLElement): any => {
   return {
     elementVisibility: element.offsetParent !== null,
     elementPosition: element.getBoundingClientRect(),
     elementZIndex: window.getComputedStyle(element).zIndex,
-    elementInViewport: element.getBoundingClientRect().top >= 0 && element.getBoundingClientRect().bottom <= window.innerHeight,
-    elementClickable: !!element.onclick
-  }
-}
+    elementInViewport:
+      element.getBoundingClientRect().top >= 0 && element.getBoundingClientRect().bottom <= window.innerHeight,
+    elementClickable: !!element.onclick,
+  };
+};
 
 export function shuffle(array: any[]) {
   for (let i = array.length - 1; i > 0; i--) {
@@ -150,12 +162,16 @@ export function shuffle(array: any[]) {
   return array;
 }
 
-export async function doWhile(condition: () => Promise<boolean> | boolean, action: (() => Promise<void> | void) | null, config: { delay?: number, maxIterations?: number, onError?: () => any } = {}) {
+export async function doWhile(
+  condition: () => Promise<boolean> | boolean,
+  action: (() => Promise<void> | void) | null,
+  config: { delay?: number; maxIterations?: number; onError?: () => any } = {},
+) {
   const defaultConfig = { delay: 333, maxIterations: 6 };
   const finalConfig = {
     delay: config.delay !== undefined ? config.delay : defaultConfig.delay,
     maxIterations: config.maxIterations !== undefined ? config.maxIterations : defaultConfig.maxIterations,
-    onError: config.onError
+    onError: config.onError,
   };
 
   let counter = 0;
@@ -171,12 +187,15 @@ export async function doWhile(condition: () => Promise<boolean> | boolean, actio
   }
 }
 
-export function waitWhile(condition: () => Promise<boolean> | boolean, config: { delay?: number, maxIterations?: number, onError?: () => any } = {}) {
+export function waitWhile(
+  condition: () => Promise<boolean> | boolean,
+  config: { delay?: number; maxIterations?: number; onError?: () => any } = {},
+) {
   const defaultConfig = { delay: 333, maxIterations: 6 };
   const finalConfig = {
     delay: config.delay !== undefined ? config.delay : defaultConfig.delay,
     maxIterations: config.maxIterations !== undefined ? config.maxIterations : defaultConfig.maxIterations,
-    onError: config.onError
+    onError: config.onError,
   };
   return doWhile(condition, null, finalConfig);
 }
@@ -190,22 +209,22 @@ export const hasAnyValue = (obj: { [key: string]: any }, targetValue: any): bool
     }
   }
   return false;
-}
+};
 
 export const transportationTime = (x1: number, y1: number, x2: number, y2: number): number => {
   const distance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
   const timeMsPerPixel = 830;
   const transportTime = distance * timeMsPerPixel;
   return transportTime;
-}
+};
 
 export const parseStylePositionToGrids = (stylePosition: string): [number, number] => {
   // "left: 68941px; top: 66576px;"
   const x = Number(stylePosition.match(/left: (\d+)/)?.[1]);
   const y = Number(stylePosition.match(/top: (\d+)/)?.[1]);
-  if (!x || !y) throw new Error('Couldn\'t parse grids');
-  return [x, y]
-}
+  if (!x || !y) throw new Error("Couldn't parse grids");
+  return [x, y];
+};
 
 // const calculateTimePerPixel = (style1, style2, realTimeText) => {
 //   const transportationTimeMs = textToMs(realTimeText);
@@ -215,3 +234,23 @@ export const parseStylePositionToGrids = (stylePosition: string): [number, numbe
 //   const timePerPixel = transportationTimeMs / distance;
 //   return timePerPixel;
 // }
+
+export function getDaysAhead(target: Date, now: Date = new Date()): number {
+  // Tworzymy nowe daty tylko z rokiem, miesiącem i dniem (godzina 0:00:00)
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const end = new Date(target.getFullYear(), target.getMonth(), target.getDate());
+  // Różnica w milisekundach, dzielimy przez liczbę ms w dniu
+  return Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+export function getTopmostAncestorByClass(element: HTMLElement, className: string) {
+  let result = null;
+  let current = element.parentElement;
+  while (current) {
+    if (current.classList.contains(className)) {
+      result = current;
+    }
+    current = current.parentElement;
+  }
+  return result;
+}

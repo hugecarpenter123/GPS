@@ -1,5 +1,5 @@
-import { Managers } from "../service/master/master-manager";
-import { formatDateToSimpleString, getCopyOf } from "./plain-utility";
+import { Managers } from '../service/master/master-manager';
+import { dateToHHMMSS, getCopyOf } from './plain-utility';
 
 type LockTakerInfo = {
   method?: string;
@@ -9,7 +9,7 @@ type LockTakerInfo = {
   manager?: Managers;
   city?: string;
   releasedAt?: Date;
-}
+};
 
 export default class Lock {
   public static readonly LOCK_TIMEOUT: number = 1000 * 60 * 5;
@@ -20,7 +20,7 @@ export default class Lock {
   private isLocked: LockTakerInfo | false = false;
   private queue: (() => void)[] = [];
 
-  private constructor() { }
+  private constructor() {}
 
   public static getInstance(): Lock {
     if (!this.instance) {
@@ -36,8 +36,10 @@ export default class Lock {
    */
   private setLockCheckInterval() {
     this.lockCheckInterval = setInterval(() => {
-      if (this.isLocked && (Date.now() - this.isLocked.requestedAt.getTime() > Lock.LOCK_TIMEOUT)) {
-        console.warn(`Lock: lock is taken for too long by ${this.isLocked.manager} "${this.isLocked.method}", releasing...`);
+      if (this.isLocked && Date.now() - this.isLocked.requestedAt.getTime() > Lock.LOCK_TIMEOUT) {
+        console.warn(
+          `Lock: lock is taken for too long by ${this.isLocked.manager} "${this.isLocked.method}", releasing...`,
+        );
         // TODO: or consider restarting all managers
         this.release();
       }
@@ -49,34 +51,38 @@ export default class Lock {
    * If lock is taken, it adds the lock taker to the queue.
    * @param lockTakerInfo - optional lock taker name
    */
-  public async acquire(lockTakerInfo?: { method?: string, manager?: Managers }): Promise<void> {
+  public async acquire(lockTakerInfo?: { method?: string; manager?: Managers }): Promise<void> {
     const lockTaker: LockTakerInfo = {
       method: lockTakerInfo?.method,
       requestedAt: new Date(),
       forced: false,
       manager: lockTakerInfo?.manager,
-    }
+    };
 
     if (!this.isLocked) {
       lockTaker.acquiredAt = new Date();
       this.isLocked = lockTaker;
       console.log(`Lock: acquire`, this.mapToLogObj(this.isLocked));
     } else {
-      console.log(`\t-lock is taken, add`, this.mapToLogObj(lockTaker), 'to queue:', getCopyOf(this.lockQueueInfo))
+      console.log(
+        `\t-lock is taken by ${this.mapToLogObj(this.isLocked)}, add`,
+        this.mapToLogObj(lockTaker),
+        'to queue:',
+        getCopyOf(this.lockQueueInfo),
+      );
       this.lockQueueInfo.push(lockTaker);
-      await new Promise<void>((resolve) => {
+      await new Promise<void>(resolve => {
         this.queue.push(resolve);
       });
     }
-
   }
 
   /**
-   * Method forcefully unshifts the lock taker to the queue and releases currently taken lock. 
+   * Method forcefully unshifts the lock taker to the queue and releases currently taken lock.
    * Doesn't remove existing queue.
-   * @param lockTakerInfo 
+   * @param lockTakerInfo
    */
-  public async forceAcquire(lockTakerInfo: { method?: string, manager?: Managers }): Promise<void> {
+  public async forceAcquire(lockTakerInfo: { method?: string; manager?: Managers }): Promise<void> {
     const lockTaker: LockTakerInfo = {
       method: lockTakerInfo.method,
       requestedAt: new Date(),
@@ -85,7 +91,12 @@ export default class Lock {
     };
 
     if (this.isLocked) {
-      console.log(`Lock: forceAcquire by`, this.mapToLogObj(lockTaker), 'on current lock:', this.mapToLogObj(this.isLocked as LockTakerInfo));
+      console.log(
+        `Lock: forceAcquire by`,
+        this.mapToLogObj(lockTaker),
+        'on current lock:',
+        this.mapToLogObj(this.isLocked as LockTakerInfo),
+      );
       await new Promise<void>(resolve => {
         this.lockQueueInfo.unshift(lockTaker);
         this.queue.unshift(resolve);
@@ -103,6 +114,7 @@ export default class Lock {
    * Method releases the lock and calls the next waiting task in the queue
    */
   public release(): void {
+    console.log('release called at', new Date().toLocaleString().split(', ')[1]);
     // Release the next waiting task in the queue
     if (this.queue.length > 0) {
       const nextResolve = this.queue.shift();
@@ -111,14 +123,21 @@ export default class Lock {
         (this.isLocked as LockTakerInfo).releasedAt = new Date();
         console.log('Lock: release:', this.mapToLogObj(this.isLocked as LockTakerInfo));
 
-        this.isLocked = this.lockQueueInfo.shift() ?? {} as LockTakerInfo;
+        this.isLocked = this.lockQueueInfo.shift() ?? ({} as LockTakerInfo);
         this.isLocked.acquiredAt = new Date();
         console.log('\t-next element in the queue takes the lock:', this.mapToLogObj(this.isLocked as LockTakerInfo));
         nextResolve();
       }
     } else {
-      (this.isLocked as LockTakerInfo).releasedAt = new Date();
-      console.log(`Lock: release: `, this.mapToLogObj(this.isLocked as LockTakerInfo));
+      if (typeof this.isLocked !== 'boolean') {
+        this.isLocked.releasedAt = new Date();
+        console.log(`Lock: release: `, this.mapToLogObj(this.isLocked as LockTakerInfo));
+      } else {
+        console.warn(
+          'for some reason lock is already boolean, released at:',
+          new Date().toLocaleString().split(', ')[1],
+        );
+      }
       this.isLocked = false;
     }
   }

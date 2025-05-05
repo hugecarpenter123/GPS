@@ -1,18 +1,17 @@
-import { addDelay, textToMs, waitWhile } from "../../utility/plain-utility";
-import { waitForElement } from "../../utility/ui-utility";
+import { HHMMSS_toMS, waitWhile } from '../../utility/plain-utility';
 
-const baseCityIconClasses = 'power_icon30x30 new_ui_power_icon animated_power_icon animated_power_icon_30x30'
-const baseAttackIconClasses = 'power_icon45x45 new_ui_power_icon animated_power_icon animated_power_icon_45x45'
+const baseCityIconClasses = 'power_icon30x30 new_ui_power_icon animated_power_icon animated_power_icon_30x30';
+const baseAttackIconClasses = 'power_icon45x45 new_ui_power_icon animated_power_icon animated_power_icon_45x45';
 
 export type CharmDetails = {
   dataPowerId: string;
   classes: string;
-}
+};
 
 type OptionalCharmsArg = {
   required?: CharmDetails[];
   optional?: CharmDetails[];
-}
+};
 
 export default class CharmsUtility {
   public static cityCharms: CharmDetails[] = [
@@ -31,7 +30,7 @@ export default class CharmsUtility {
     { dataPowerId: 'hymn_to_aphrodite', classes: baseCityIconClasses + ' ' + 'hymn_to_aphrodite' },
     { dataPowerId: 'ares_sacrifice', classes: baseCityIconClasses + ' ' + 'ares_sacrifice' },
     { dataPowerId: 'spartan_training', classes: baseCityIconClasses + ' ' + 'spartan_training' },
-  ]
+  ];
 
   public static attackCharms: CharmDetails[] = [
     { dataPowerId: 'fair_wind', classes: baseAttackIconClasses + ' ' + 'fair_wind' },
@@ -41,14 +40,14 @@ export default class CharmsUtility {
     { dataPowerId: 'effort_of_the_huntress', classes: baseAttackIconClasses + ' ' + 'effort_of_the_huntress' },
     { dataPowerId: 'ares_army', classes: baseAttackIconClasses + ' ' + 'ares_army' },
     { dataPowerId: 'bloodlust', classes: baseAttackIconClasses + ' ' + 'bloodlust' },
-  ]
+  ];
 
   public static getCurrentCityWorkingCharms(): CharmDetails[] {
-    const castedPowersArea = document.querySelector('.casted_powers_area')
+    const castedPowersArea = document.querySelector('.casted_powers_area');
     const workingCharms = Array.from(castedPowersArea?.querySelectorAll('.casted_power.power_icon16x16') ?? [])
       .map(el => {
         const charm = el.classList[2];
-        return this.cityCharms.find(c => c.dataPowerId === charm) as CharmDetails
+        return this.cityCharms.find(c => c.dataPowerId === charm) as CharmDetails;
       })
       .filter(c => c !== undefined);
     return workingCharms;
@@ -59,8 +58,17 @@ export default class CharmsUtility {
       const powerElement = document.querySelector<HTMLDivElement>(`[data-power_id="${charm.dataPowerId}"]`);
       if (powerElement) {
         powerElement.click();
-        await waitWhile(() => !document.querySelector<HTMLDivElement>(`[data-power_id="${charm.dataPowerId}"]`)?.classList.contains('active_animation'),
-          { delay: 333, maxIterations: 4, onError: () => console.warn('CharmUtility: charm not activated after clicking!:', charm) });
+        await waitWhile(
+          () =>
+            !document
+              .querySelector<HTMLDivElement>(`[data-power_id="${charm.dataPowerId}"]`)
+              ?.classList.contains('active_animation'),
+          {
+            delay: 333,
+            maxIterations: 4,
+            onError: () => console.warn('CharmUtility: charm not activated after clicking!:', charm),
+          },
+        );
       } else {
         console.warn('CharmUtility: charm not found:', charm);
       }
@@ -72,14 +80,14 @@ export default class CharmsUtility {
       { dataPowerId: 'call_of_the_ocean', classes: baseCityIconClasses + ' ' + 'call_of_the_ocean' },
       { dataPowerId: 'fertility_improvement', classes: baseCityIconClasses + ' ' + 'fertility_improvement' },
       { dataPowerId: 'spartan_training', classes: baseCityIconClasses + ' ' + 'spartan_training' },
-    ]
+    ];
   }
 
   /**
    * Casts the charms if not casted. Returns true if all charms can be casted (and casts them) or are already casted.
    * Else returns false and does not cast any charms unless required is set to false then casts all that are possible.
-   * @param charms 
-   * @param required 
+   * @param charms
+   * @param required
    * @returns true if all charms can be casted or are already casted
    */
   private static async castCharmsIfNotCasted(charms: CharmDetails[], required: boolean = true): Promise<boolean> {
@@ -87,7 +95,7 @@ export default class CharmsUtility {
     const castedCharms = this.getCurrentCityWorkingCharms();
     console.log('castedCharms in the city:', castedCharms);
     const castedCharmsIds = castedCharms.map(c => c.dataPowerId);
-    const charmsToCast = charms.filter((c) => !castedCharmsIds.includes(c.dataPowerId));
+    const charmsToCast = charms.filter(c => !castedCharmsIds.includes(c.dataPowerId));
     console.log('remaining charms to cast:', charmsToCast);
 
     if (required) {
@@ -108,7 +116,7 @@ export default class CharmsUtility {
 
   /**
    * Casts the required charms if not casted and then casts the optional charms if not casted but only if all required ones were casted (or already set)
-   * @param cityCharms 
+   * @param cityCharms
    * @returns true if all required charms were casted (or already set)
    */
   public static async castCharms(cityCharms: OptionalCharmsArg): Promise<boolean> {
@@ -126,11 +134,13 @@ export default class CharmsUtility {
 
   /**
    * Checks if the charm can be casted
-   * @param charm 
+   * @param charm
    * @returns true if the charm can be casted
    */
   private static canCastCharm(charm: CharmDetails): boolean {
-    return !document.querySelector<HTMLDivElement>(`[data-power_id="${charm.dataPowerId}"]`)?.classList.contains('disabled');
+    return !document
+      .querySelector<HTMLDivElement>(`[data-power_id="${charm.dataPowerId}"]`)
+      ?.classList.contains('disabled');
   }
 
   public static getCharmByPowerId(powerId: string): CharmDetails | undefined {
@@ -139,14 +149,16 @@ export default class CharmsUtility {
 
   public static areCharmsCastedOrAvailable(charms: CharmDetails[]) {
     const workingCharms = this.getCurrentCityWorkingCharms();
-    return charms.every((charm) => workingCharms.includes(charm) || this.canCastCharm(charm))
+    return charms.every(charm => workingCharms.includes(charm) || this.canCastCharm(charm));
   }
 
   public static getCharmsCastingTime(charms: CharmDetails[]): Map<string, number> {
-    return new Map(charms.map(charm => {
-      const powerElement = document.querySelector<HTMLDivElement>(`[data-power_id="${charm.dataPowerId}"]`);
-      const counter = powerElement?.querySelector('[name="counter"]')?.textContent;
-      return [charm.dataPowerId, counter ? textToMs(counter) : 0]
-    }))
+    return new Map(
+      charms.map(charm => {
+        const powerElement = document.querySelector<HTMLDivElement>(`[data-power_id="${charm.dataPowerId}"]`);
+        const counter = powerElement?.querySelector('[name="counter"]')?.textContent;
+        return [charm.dataPowerId, counter ? HHMMSS_toMS(counter) : 0];
+      }),
+    );
   }
 }
