@@ -1,6 +1,6 @@
 import EventEmitter from 'events';
 import { addDelay, waitWhile } from '../../utility/plain-utility';
-import { waitForElement, waitForElements } from '../../utility/ui-utility';
+import { waitForElement, waitForElementInterval, waitForElements } from '../../utility/ui-utility';
 import GeneralInfo from '../master/ui/general-info';
 
 export type CityInfo = {
@@ -24,7 +24,7 @@ export default class CitySwitchManager extends EventEmitter {
     if (!CitySwitchManager.instance) {
       CitySwitchManager.instance = new CitySwitchManager();
       CitySwitchManager.instance.generalInfo = GeneralInfo.getInstance();
-      CitySwitchManager.instance.cityList = await CitySwitchManager.instance.initCityList();
+      await CitySwitchManager.instance.initCityList();
       CitySwitchManager.instance.mountObserver();
     }
     return CitySwitchManager.instance;
@@ -43,59 +43,38 @@ export default class CitySwitchManager extends EventEmitter {
     });
   }
 
-  /**
-   * Method parses list of city, and creates shortcut access.
-   */
-  private async initCityList(): Promise<CityInfo[]> {
-    this.generalInfo.showInfo('City Switch Manager:', 'Inicjalizacja listy miast');
+  private async initCityListWithCurator() {
+    document.querySelector<HTMLDivElement>('.toolbar_button.premium')?.click();
+    await waitForElementInterval('#town_overviews-towns_overview').then(el => el.click());
+    const cityListEl = await waitForElementInterval('#table_scroll_content');
+    const cityList: CityInfo[] = Array.from(cityListEl.querySelectorAll('li')).map(li => {
+      const name = li.querySelector<HTMLDataListElement>('.gp_town_link')?.innerText;
+      if (!name) throw new Error('City name not found');
+      const cityIdMatch = li.id.match(/\d+/);
+      if (!cityIdMatch) throw new Error('City ID not found');
+      const cityId = cityIdMatch[0];
+      const isleId = li
+        .querySelector<HTMLSpanElement>(`#town_${cityId}_coords span`)
+        ?.innerText.replace(/\s+/g, '')
+        .replace(',', '_');
+      if (!isleId) throw new Error('Isle ID not found');
+      return {
+        name,
+        cityId,
+        isleId,
+        switchAction: this.switchActionForCity(name, cityId),
+      };
+    });
 
-    // gets dropdown trigger that contains city info
-    const dropdownTrigger = await waitForElement('.town_groups_dropdown.btn_toggle_town_groups_menu');
-    dropdownTrigger.click();
-    let townListElement;
-    while (!(townListElement = await waitForElement('.group_towns', 1000).catch(() => null))) {
-      document.querySelector<HTMLElement>('.btn_toggle_town_groups_menu')!.click();
-      await addDelay(100);
-    }
-    // gets all spans with city names
-    const townList = townListElement.querySelectorAll('span.town_name');
-    // maps it into {name, cityId} for comparison purposes
-    const DOMCityListInfo = Array.from(townList).map(el => ({
-      name: el.textContent!,
-      cityId: el.parentElement!.getAttribute('data-townid'),
-    }));
+    document.querySelector<HTMLElement>('.ui-dialog-titlebar-close')?.click();
 
-    // gets item from localstorage
-    const storageCityList = localStorage.getItem(CitySwitchManager.LOCAL_STORAGE_CITY_LIST_KEY);
-    // if exists checks its compatibility with the real DOM element
-    if (storageCityList) {
-      const storageCityListParsed: CityInfo[] = JSON.parse(storageCityList);
-      if (storageCityListParsed.length !== townList.length) {
-        /* continue */
-      } else {
-        let matchFlag = true;
-        for (const storageCity of storageCityListParsed) {
-          if (
-            !DOMCityListInfo.find(
-              DOMCityInfo => DOMCityInfo.name === storageCity.name && DOMCityInfo.cityId === storageCity.cityId,
-            )
-          ) {
-            matchFlag = false;
-            break;
-          }
-        }
-        if (matchFlag) {
-          // If all are matched, don't go through all cities on the UI, return cached version
-          this.generalInfo.hideInfo();
-          return this.hydrateCityList(storageCityListParsed);
-        }
-      }
-    }
+    return cityList;
+  }
 
+  private async initCityListRaw(townList: NodeListOf<HTMLElement>) {
     const cityList: CityInfo[] = [];
 
     for (const town of townList) {
-      console.log('initCityList.town:', town);
       const cityId = town.parentElement!.getAttribute('data-townid');
       await this.openTownList();
       // for (const el of townList) {
@@ -123,7 +102,7 @@ export default class CitySwitchManager extends EventEmitter {
         switchAction: this.switchActionForCity(name, cityId!),
       });
     }
-    console.log('CitySwitchManager.cityList.initialized:', cityList);
+    console.log('CitySwitchManager: city list initialized:', cityList);
     await this.goBackToFirstTown();
     this.generalInfo.hideInfo();
     localStorage.setItem(CitySwitchManager.LOCAL_STORAGE_CITY_LIST_KEY, JSON.stringify(cityList));
@@ -133,6 +112,75 @@ export default class CitySwitchManager extends EventEmitter {
     }
 
     return cityList;
+  }
+
+  /**
+   * Method parses list of city, and creates shortcut access.
+   */
+  private async initCityList() {
+    this.generalInfo.showInfo('City Switch Manager:', 'City list initialization');
+
+    // gets dropdown trigger that contains city info
+    const dropdownTrigger = await waitForElement('.town_groups_dropdown.btn_toggle_town_groups_menu');
+    dropdownTrigger.click();
+    let townListElement;
+    while (!(townListElement = await waitForElement('.group_towns', 1000).catch(() => null))) {
+      document.querySelector<HTMLElement>('.btn_toggle_town_groups_menu')!.click();
+      await addDelay(100);
+    }
+    // gets all spans with city names
+    const townList = townListElement.querySelectorAll<HTMLElement>('span.town_name');
+    // maps it into {name, cityId} for comparison purposes
+    const DOMCityListInfo = Array.from(townList).map(el => ({
+      name: el.textContent!,
+      cityId: el.parentElement!.getAttribute('data-townid'),
+    }));
+
+    // gets item from localstorage
+    const storageCityList = localStorage.getItem(CitySwitchManager.LOCAL_STORAGE_CITY_LIST_KEY);
+    // if exists checks its compatibility with the real DOM element
+    if (storageCityList) {
+      const storageCityListParsed: CityInfo[] = JSON.parse(storageCityList);
+      if (storageCityListParsed.length !== townList.length) {
+        /* continue */
+      } else {
+        console.log('storageCityListParsed', storageCityListParsed);
+        let matchFlag = true;
+        for (const storageCity of storageCityListParsed) {
+          if (
+            !DOMCityListInfo.find(
+              DOMCityInfo => DOMCityInfo.name === storageCity.name && DOMCityInfo.cityId === storageCity.cityId,
+            )
+          ) {
+            console.log(`storageCity: ${JSON.stringify(storageCity)} didn't match, reinitialize.`);
+            matchFlag = false;
+            break;
+          }
+        }
+        if (matchFlag) {
+          console.log('all matched');
+          // If all are matched, don't go through all cities on the UI, return cached version
+          this.generalInfo.hideInfo();
+          return this.hydrateCityList(storageCityListParsed);
+        }
+      }
+    }
+
+    let cityList: CityInfo[];
+
+    if (await this.isCuratorActive()) {
+      cityList = await this.initCityListWithCurator();
+    } else {
+      cityList = await this.initCityListRaw(townList);
+    }
+
+    this.cityList = cityList;
+    this.persist();
+    this.generalInfo.hideInfo();
+  }
+
+  private async isCuratorActive() {
+    return !!(await waitForElementInterval('.advisor_frame.curator')).querySelector('.curator_active');
   }
 
   private async openTownList() {
@@ -157,6 +205,10 @@ export default class CitySwitchManager extends EventEmitter {
       cityInfo.switchAction = this.switchActionForCity(cityInfo.name, cityInfo.cityId!);
     }
     return storageCityList;
+  }
+
+  private persist() {
+    localStorage.setItem(CitySwitchManager.LOCAL_STORAGE_CITY_LIST_KEY, JSON.stringify(this.cityList));
   }
 
   private switchActionForCity = (cityName: string, cityId: string) => {

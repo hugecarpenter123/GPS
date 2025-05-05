@@ -1,4 +1,4 @@
-import { addDelay, msToFutureHHMMSS, HHMMSS_toMS } from '../../../utility/plain-utility';
+import { addDelay, msToFutureHHMMSS, HHMMSS_toMS, waitWhile } from '../../../utility/plain-utility';
 import Lock from '../../../utility/ui-lock';
 import {
   cancelHover,
@@ -83,23 +83,26 @@ export default class CityBuilder {
     }
     return CityBuilder.instance;
   }
-  private renderUI() {
+  private async renderUI() {
     const container = document.createElement('div');
     container.innerHTML = builderHtml;
     document.body.appendChild(container);
     this.addBuildingButtons();
     this.initProviderCities();
-    this.accustomHtmlToMasterQueue();
+    await this.accustomHtmlToMasterQueue();
     this.initToggleButton();
   }
 
   /**
-   * Should be called only once on init.
+   * Should be called only once on init. Tempoarily async as it has bad architecture at the moment.
    */
-  private accustomHtmlToMasterQueue() {
+  private async accustomHtmlToMasterQueue() {
     // NOTE: hydrate builder navigation with master-queue navigation
     const buttonsSection = document.querySelector<HTMLElement>('#builder-navigation')!;
     const currentCity = this.citySwitchManager.getCurrentCity()!;
+
+    // workaround for bad architecture
+    await waitWhile(() => !this.masterQueue.isInitialized());
     this.masterQueue.getNavigation('city', currentCity, buttonsSection);
 
     // NOTE: "master-queue" class must be added for master-queue to handle queue display

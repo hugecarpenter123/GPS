@@ -138,6 +138,10 @@ export default class MasterQueue extends EventEmitter implements Service {
     document.head.appendChild(tableStyle);
   }
 
+  public isInitialized() {
+    return this.initialized;
+  }
+
   private addTable() {
     const tableWrapper = document.createElement('div');
     document.body.appendChild(tableWrapper);
@@ -969,6 +973,8 @@ export default class MasterQueue extends EventEmitter implements Service {
     pauseThisButton.classList.add('pause-this-button');
     deleteThisButton.classList.add('clear-this-button');
 
+    console.log('queueIdentifier:', queueIdentifier);
+    console.log('this.queue:', this.queue);
     const citySchedule = Object.keys(queueIdentifier).includes('city')
       ? (queueIdentifier as CitySchedule)
       : this.queue.find(schedule => schedule.city.name === (queueIdentifier as CityInfo).name)!;
