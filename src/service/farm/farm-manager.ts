@@ -1,11 +1,12 @@
 import EventEmitter from 'events';
 import gpsConfig, { FarmTimeInterval } from '../../../gps.config';
 import ConfigManager from '../../utility/config-manager';
+import { InfoError } from '../../utility/info-error';
 import {
   addDelay,
   calculateTimeToNextOccurrence,
-  doWhile,
   dateToHHMMSS,
+  doWhile,
   getBrowserStateSnapshot,
   getElementStateSnapshot,
   getRandomMs,
@@ -23,7 +24,6 @@ import {
 } from '../../utility/ui-utility';
 import CitySwitchManager, { CityInfo } from '../city/city-switch-manager';
 import GeneralInfo from '../master/ui/general-info';
-import { InfoError } from '../../utility/info-error';
 
 type ScheduleItem = {
   scheduledDate: Date;

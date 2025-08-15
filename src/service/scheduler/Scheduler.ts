@@ -2,6 +2,7 @@
  * Scheduler catch block: Latest operation not found - error stopped sync execution
  */
 
+import { it, SuiteContext } from 'node:test';
 import { TConfig } from '../../../gps.config';
 import { TConfigChanges } from '../../config-popup/config-popup';
 import ConfigManager from '../../utility/config-manager';
@@ -14,7 +15,6 @@ import CharmsUtility, { CharmDetails } from '../charms/charms-utility';
 import CitySwitchManager, { CityInfo } from '../city/city-switch-manager';
 import MasterManager from '../master/master-manager';
 import GeneralInfo from '../master/ui/general-info';
-
 import { SchedulerTableUtility, useSchedulerTable } from './scheduler-table-ui';
 import { SchedulerUIExtensionUIUtility, useSchedulerUIExtensionUI } from './scheduler-ui-extension';
 
@@ -24,16 +24,33 @@ export enum OperationType {
   Withdraw = 'Withdraw',
 }
 
-export type AttackStrategy = any;
+export type AttackStrategy = 'regular' | 'breach';
 
-export type rework_ScheduleItem = {
+export type ScheduleItemEditData = {
+  operationType: OperationType;
+  attackStrategy?: AttackStrategy;
+  power: CharmDetails | null;
+  includeHero: boolean;
+  armyDetails: { name: string; value: string }[];
+  targetTime: number | null;
+  synchronizedWith?: {
+    scheduleId: string;
+    deviation: number; // [ms]
+  };
+  precision?: {
+    tolerance: number; // [ms]
+    allowedToleranceIfFailed?: number; // [ms]
+  };
+};
+
+export type ScheduleItem = {
   id: string;
   operationType: OperationType;
   attackStrategy?: AttackStrategy;
   sourceCity: CityInfo;
   power: CharmDetails | null;
   includeHero: boolean;
-  armyDetails: any;
+  armyDetails: { name: string; value: string }[];
   targetCityDetails: {
     name: string;
     coords: [string, string];
@@ -61,7 +78,7 @@ export type rework_ScheduleItem = {
   };
   movementId: string | null;
   actionTimeout: NodeJS.Timeout | null;
-  dependantSchduleItems: { scheduleId: string; deviation: number }[];
+  dependentScheduleItems: { scheduleId: string; deviation: number }[];
 };
 
 type DisplayFormattedSchedulerItem = {
@@ -99,10 +116,10 @@ type DisplayFormattedSchedulerItem = {
     allowedToleranceIfFailed?: number;
   };
   movementId: string | null;
-  dependantSchduleItems: { scheduleId: string; deviation: number }[];
+  dependentScheduleItems: { scheduleId: string; deviation: number }[];
 };
 
-type rework_PreregisteredScheduleItem = Omit<rework_ScheduleItem, 'timeDetails'> & {
+type PreregisteredScheduleItem = Omit<ScheduleItem, 'timeDetails'> & {
   timeDetails: {
     targetTime: number | null;
     movementDuration: number;
@@ -124,7 +141,7 @@ export type SchedulerUIExtensionSubmitDetails = {
 };
 
 export type SchedulerExecute = (
-  item: rework_ScheduleItem,
+  item: ScheduleItem,
   utils: {
     successCallback: (landedTime: number, movementId: string) => void;
     failureCallback: (reason?: string) => void;
@@ -136,7 +153,7 @@ export interface SchedulerExecutor {
   execute: SchedulerExecute;
 }
 
-export default class Scheduler implements Service {
+export default class Scheduler implements Service<'scheduler'> {
   public static readonly MIN_PRECEDENCE_TIME_MS = 10 * 1000;
   public static readonly TURN_OFF_MANAGERS_TIME_MS = 15 * 1000;
   public static readonly TIME_TO_RESTORE_MANAGERS_AFTER_ACTION = 1000 * 60; // 1min
@@ -148,8 +165,8 @@ export default class Scheduler implements Service {
   private masterManager!: MasterManager;
   private config!: TConfig;
   private citySwitchManager!: CitySwitchManager;
-  private rework_schedule: rework_ScheduleItem[] = [];
-  private landedSchedules: rework_ScheduleItem[] = [];
+  private schedule: ScheduleItem[] = [];
+  private landedSchedules: ScheduleItem[] = [];
   private RUN: boolean = false;
   private armyMovement!: ArmyMovement;
   private schedulerUIExtensionUI!: SchedulerUIExtensionUIUtility;
@@ -183,10 +200,11 @@ export default class Scheduler implements Service {
       this.mountCityDialogObserver();
       this.loadScheduleFromStorage();
       this.schedulerTableUI.mount({
-        scheduleList: this.rework_schedule,
-        onCancel: (item: rework_ScheduleItem) => this.removeScheduleItem(item),
+        scheduleList: this.schedule,
+        onCancel: (item: ScheduleItem) => this.removeScheduleItem(item),
+        onEdit: (item, data) => this.editScheduleItem(item, data),
       });
-      this.rework_schedule.forEach(s => this.activateSchedule(s));
+      this.schedule.forEach(s => this.activateSchedule(s));
     }
   }
   public async stop() {
@@ -203,17 +221,20 @@ export default class Scheduler implements Service {
   public isRunning(): boolean {
     return this.RUN;
   }
-  // TODO:
-  getScheduledActionTimes: (() => number[]) | undefined;
-  // TODO:
-  onConfigChange: ((configChanges: Partial<TConfigChanges>) => void) | undefined;
+
+  // TODO: better action times with span
+  public getScheduledActionTimes = () => {
+    return this.schedule.map(s => [s.timeDetails.exclusionTime, s.timeDetails.exclusionDuration]) as [number, number][];
+  };
+
+  public onConfigChange = (configChanges: TConfigChanges['scheduler']) => {};
   // END service implementation --------
 
   private stopAllSchedules() {
-    this.rework_schedule.forEach(e => clearTimeout(e.actionTimeout ?? undefined));
+    this.schedule.forEach(e => clearTimeout(e.actionTimeout ?? undefined));
   }
 
-  private stopSchedule(item: rework_ScheduleItem) {
+  private stopSchedule(item: ScheduleItem) {
     console.log('stopSchedule.item:', item);
     clearTimeout(item?.actionTimeout ?? undefined);
   }
@@ -226,7 +247,7 @@ export default class Scheduler implements Service {
    * -wykonanie operacji w zależności od tego czy opeacja jest precyzyjna czy nie
    * -zwrócenie info o efekcie pracy: successCallback / failureCallback
    */
-  private async activateSchedule(item: rework_ScheduleItem) {
+  private async activateSchedule(item: ScheduleItem) {
     try {
       await new Promise((res, rej) => {
         item.actionTimeout = setTimeout(
@@ -281,10 +302,8 @@ export default class Scheduler implements Service {
                 }
                 const successCallback = async (landedTime: number, movementId: string) => {
                   item.movementId = movementId;
-                  const dependantSchduleItemIds = item.dependantSchduleItems.map(i => i.scheduleId);
-                  const dependantSchduleItems = this.rework_schedule.filter(e =>
-                    dependantSchduleItemIds.includes(e.id),
-                  );
+                  const dependantSchduleItemIds = item.dependentScheduleItems.map(i => i.scheduleId);
+                  const dependantSchduleItems = this.schedule.filter(e => dependantSchduleItemIds.includes(e.id));
                   console.log('dependant schedule items:', dependantSchduleItems);
                   if (dependantSchduleItemIds.length) {
                     this.hydrateDependantSchedules(dependantSchduleItems, landedTime);
@@ -336,10 +355,10 @@ export default class Scheduler implements Service {
     } catch (e) {
       this.generalInfo.showError('Scheduler: ', `Schedule failed - "${e}"`, 4000);
       console.warn('Scheduler catch block:', e);
-      const dependantSchduleItemIds = item.dependantSchduleItems.map(i => i.scheduleId);
+      const dependantSchduleItemIds = item.dependentScheduleItems.map(i => i.scheduleId);
       // usuń zależne elementy
       if (dependantSchduleItemIds.length) {
-        this.rework_schedule = this.rework_schedule.filter(el => !dependantSchduleItemIds.includes(el.id));
+        this.schedule = this.schedule.filter(el => !dependantSchduleItemIds.includes(el.id));
       }
       // usuń ze schedula
       await this.postActionCleanup(item);
@@ -353,9 +372,9 @@ export default class Scheduler implements Service {
   /**
    * Removes element from scheduler list, updates table ui and persist newest state.
    */
-  private async postActionCleanup(item: rework_ScheduleItem) {
+  private async postActionCleanup(item: ScheduleItem) {
     await this.removeSavedCoords(item.id);
-    this.rework_schedule = this.rework_schedule.filter(i => i !== item);
+    this.schedule = this.schedule.filter(i => i !== item);
     this.updateUITable();
     // this.tryRestoreManagers();
     this.persist();
@@ -363,8 +382,9 @@ export default class Scheduler implements Service {
 
   private updateUITable() {
     this.schedulerTableUI.update({
-      scheduleList: this.rework_schedule,
+      scheduleList: this.schedule,
       onCancel: item => this.removeScheduleItem(item),
+      onEdit: (item, data) => this.editScheduleItem(item, data),
     });
   }
 
@@ -373,16 +393,16 @@ export default class Scheduler implements Service {
    * updates the ui and persists the latest scheduler state.
    * @param item
    */
-  private async removeScheduleItem(item: rework_ScheduleItem) {
+  private async removeScheduleItem(item: ScheduleItem) {
     console.log('removed schedule item', item);
     await this.removeSavedCoords(item.id);
     this.stopSchedule(item);
-    this.rework_schedule = this.rework_schedule.filter(i => i !== item);
+    this.schedule = this.schedule.filter(i => i !== item);
 
-    const dependantSchduleItemIds = item.dependantSchduleItems.map(i => i.scheduleId);
+    const dependantSchduleItemIds = item.dependentScheduleItems.map(i => i.scheduleId);
     // usuń zależne elementy
     if (dependantSchduleItemIds.length) {
-      this.rework_schedule = this.rework_schedule.filter(el => !dependantSchduleItemIds.includes(el.id));
+      this.schedule = this.schedule.filter(el => !dependantSchduleItemIds.includes(el.id));
     }
 
     this.updateUITable();
@@ -391,12 +411,163 @@ export default class Scheduler implements Service {
     this.tryRestoreManagers();
   }
 
-  private hydrateDependantSchedules(items: rework_ScheduleItem[], landedTime: number) {
+  private editScheduleItem(item: ScheduleItem, data: ScheduleItemEditData) {
+    const editedItem = this.cloneScheduleItem(item);
+    editedItem.operationType = data.operationType;
+    editedItem.armyDetails = data.armyDetails;
+    editedItem.attackStrategy = data.attackStrategy;
+    editedItem.includeHero = data.includeHero;
+    editedItem.power = data.power;
+    editedItem.precision = data.precision;
+    editedItem.synchronizedWith = data.synchronizedWith;
+    editedItem.timeDetails.targetTime = data.targetTime;
+
+    console.log('editedItem:', editedItem);
+
+    this.assignTimeDetailsToScheduleItem(editedItem);
+
+    // time details borders changed flag
+    const exclusionTimesChanged =
+      item.timeDetails.exclusionTime !== editedItem.timeDetails.exclusionTime ||
+      item.timeDetails.exclusionDuration !== editedItem.timeDetails.exclusionDuration;
+
+    console.log('exclusionTimesChanged:', exclusionTimesChanged);
+
+    // find all dependent schedules, make clones and assign to them reevaluated time details
+    const nestedDependentScheduleItems = this.getReevaluatedDependentSchedules(editedItem, this.schedule);
+    const nestedDependentScheduleItemIDs = nestedDependentScheduleItems.map(e => e.id);
+
+    console.log('nestedDependentScheduleItems:', nestedDependentScheduleItems);
+
+    // check possibility of adding schedule
+    if (
+      exclusionTimesChanged &&
+      !this.canAddSchedule(editedItem, this.schedule, [item.id, ...nestedDependentScheduleItemIDs])
+    ) {
+      return {
+        success: false,
+        message: "Item's time details are conflicting with existing schedules or are in the past",
+      };
+    }
+
+    // makes copy of existing schedule without edited item and all its nested dependancies
+    const fictionalScheduleListWithoutDependentItems = this.schedule.reduce((acc: ScheduleItem[], iteratedItem) => {
+      if (![item.id, ...nestedDependentScheduleItemIDs].includes(iteratedItem.id)) {
+        const iteratedItemClone = this.cloneScheduleItem(iteratedItem);
+        acc.push(iteratedItemClone);
+      }
+      return acc;
+    }, []);
+
+    console.log('fictionalScheduleListWithoutDependentItems:', fictionalScheduleListWithoutDependentItems);
+
+    // adds validated edited item
+    fictionalScheduleListWithoutDependentItems.push(editedItem);
+
+    // loops over all newly assigned dependent items and checks if hyphotetically they could be added
+    if (nestedDependentScheduleItems.length) {
+      console.log('nestedDependentScheduleItems are not empty');
+      if (
+        !nestedDependentScheduleItems.every(dependentSchedule => {
+          const canAdd = this.canAddSchedule(dependentSchedule, fictionalScheduleListWithoutDependentItems);
+          console.log('canAdd for dependentSchedule:', dependentSchedule.id, canAdd);
+          if (canAdd) {
+            fictionalScheduleListWithoutDependentItems.push(dependentSchedule);
+          }
+          return canAdd;
+        })
+      ) {
+        return {
+          success: false,
+          message: 'Cannot edit schedule because some dependant items are in conflict with other schedules.',
+        };
+      }
+      // validated, remove all old dependent schedules and add reeveluated
+      else {
+        this.schedule = this.schedule
+          .filter(e => !nestedDependentScheduleItemIDs.includes(e.id))
+          .concat(nestedDependentScheduleItems);
+      }
+    }
+
+    // at this point nothing can be unsuccessful
+
+    // Stop existing schedule
+    this.stopSchedule(editedItem);
+
+    // Remove old item and add edited one
+    this.schedule = this.schedule.filter(i => i !== item);
+    this.schedule.push(editedItem);
+
+    // if edited item is synchronized with other schedule than before, clean the old and update the new
+    if (editedItem.synchronizedWith && item.synchronizedWith?.scheduleId !== editedItem.synchronizedWith.scheduleId) {
+      console.log('editedItem has changed item its sychronized with');
+      // referential schedule has been changed, so remove reference from its array (so that id doesn't trigger action after execution)
+      const oldReferentialSchedule = this.schedule.find(s => s.id === item.synchronizedWith?.scheduleId)!;
+      console.log('oldReferentialSchedule:', oldReferentialSchedule);
+
+      oldReferentialSchedule.dependentScheduleItems = oldReferentialSchedule.dependentScheduleItems.filter(
+        e => e.scheduleId !== item.id,
+      );
+
+      const newReferentialSchedule = this.schedule.find(s => s.id === editedItem.synchronizedWith?.scheduleId)!;
+      console.log('newReferentialSchedule:', newReferentialSchedule);
+
+      newReferentialSchedule.dependentScheduleItems.push({
+        scheduleId: editedItem.id,
+        deviation: editedItem.synchronizedWith.deviation,
+      });
+    }
+
+    if (!editedItem.synchronizedWith && editedItem.timeDetails.targetTime) this.activateSchedule(editedItem);
+
+    // Update UI and persist changes
+    this.updateUITable();
+    this.persist();
+    return { success: true };
+  }
+
+  /**
+   * Takes an schedule and allSchedules and recursively stacks all dependent schedules to single array, makes their clone (new reference with same props),
+   * assigns reevaluataed timeDetails and returns ready to concat Array of unique items. Those items are not checked for
+   * their timeline validity.
+   * @returns
+   */
+  private getReevaluatedDependentSchedules(
+    clonedReevaluatedScheduleItem: ScheduleItem,
+    allItems: ScheduleItem[],
+  ): ScheduleItem[] {
+    const allNestedDependentItems = new Array<ScheduleItem>();
+
+    // Funkcja pomocnicza do rekurencyjnego zbierania ID
+    const collectDependentItems = (currentItem: ScheduleItem) => {
+      // Dodaj bezpośrednie zależności
+      for (const dep of currentItem.dependentScheduleItems) {
+        // always reevaluate afresh
+        const allNestedDependentItemIDs = allNestedDependentItems.map(e => e.id);
+
+        const dependentItem = allItems.find(e => e.id === dep.scheduleId)!;
+
+        if (!allNestedDependentItemIDs.includes(dependentItem.id)) {
+          const clonedDependentItem = this.cloneScheduleItem(dependentItem);
+          this.assignTimeDetailsToScheduleItem(clonedDependentItem, currentItem);
+          allNestedDependentItems.push(clonedDependentItem);
+          collectDependentItems(clonedDependentItem);
+        }
+      }
+    };
+
+    collectDependentItems(clonedReevaluatedScheduleItem);
+
+    return allNestedDependentItems;
+  }
+
+  private hydrateDependantSchedules(items: ScheduleItem[], landedTime: number) {
     items.forEach(schedule => {
-      schedule.timeDetails.targetTime = landedTime;
+      schedule.timeDetails.targetTime = landedTime + schedule.synchronizedWith!.deviation;
       // table needs to see it's undefined to fill data for unsynchronized (is's raw at the moment)
       schedule.synchronizedWith = undefined;
-      this.assignTimeDetailsToItem(schedule);
+      this.reevaluateItemTimeDetails(schedule);
       this.updateUITable();
       this.activateSchedule(schedule);
     });
@@ -456,18 +627,18 @@ export default class Scheduler implements Service {
   }
 
   private loadScheduleFromStorage() {
-    const storageScheduler = JSON.parse(localStorage.getItem('scheduler') || '[]') as rework_ScheduleItem[];
+    const storageScheduler = JSON.parse(localStorage.getItem('scheduler') || '[]') as ScheduleItem[];
     console.log('storageScheduler:', storageScheduler);
     const hyratedSchedule = storageScheduler
       .map(preHydratedItem => this.hydrateSchedulerItem(preHydratedItem))
       .filter(e => e !== null);
-    this.rework_schedule = hyratedSchedule;
+    this.schedule = hyratedSchedule;
 
     // hydration may reject some items, but they still are in the storage
     this.persist();
   }
 
-  private hydrateSchedulerItem(schedulerItem: rework_ScheduleItem): rework_ScheduleItem | null {
+  private hydrateSchedulerItem(schedulerItem: ScheduleItem): ScheduleItem | null {
     console.log('hydrate scheduler item called, preHydratedItem:', schedulerItem);
     if (schedulerItem.operationType === OperationType.Attack || schedulerItem.operationType === OperationType.Support) {
       console.log('this.citySwitchManager:', this.citySwitchManager);
@@ -513,12 +684,12 @@ export default class Scheduler implements Service {
    * (LEGIT)
    */
   private tryRestoreManagers(): void {
-    if (this.rework_schedule.length === 0) {
+    if (this.schedule.length === 0) {
       console.log('RESTORE MANAGERS');
       this.masterManager.resumeRunningManagers(['scheduler']);
     } else {
       const now = Date.now();
-      const isTooSoonOrMidTime = this.rework_schedule.some(el => {
+      const isTooSoonOrMidTime = this.schedule.some(el => {
         const elExclusionStartTime = el.timeDetails.exclusionTime;
         const elExclusionEndTime = el.timeDetails.exclusionTime + el.timeDetails.exclusionDuration;
         return (
@@ -559,7 +730,7 @@ export default class Scheduler implements Service {
               const container = document.createElement('div');
               // render
               this.schedulerUIExtensionUI.mount(container, {
-                schedueList: this.rework_schedule,
+                schedueList: this.schedule,
                 onSubmit: async (details: SchedulerUIExtensionSubmitDetails) =>
                   await this.handleScheduleSubmit(details, node as HTMLElement),
               });
@@ -651,13 +822,12 @@ export default class Scheduler implements Service {
       // operation type related
       const operationType =
         node.firstElementChild!.getAttribute('data-type') === 'attack' ? OperationType.Attack : OperationType.Support;
-      const attackStrategy =
-        operationType === OperationType.Attack
-          ? (document.querySelector('.attack_type.checked') as HTMLElement)?.dataset['attack']
-          : undefined;
 
       const allCheckedStrategies = document.querySelectorAll<HTMLElement>('.attack_strategy.checked');
-      const lastCheckedStrategy = Array.from(allCheckedStrategies).at(-1);
+      //  all previous for some reason are 'checked' too
+      const lastCheckedStrategy = Array.from(allCheckedStrategies).at(-1)?.dataset.attack;
+      const attackStrategy =
+        operationType === OperationType.Attack ? (lastCheckedStrategy as AttackStrategy) : undefined;
       // -------------
 
       // power related
@@ -666,6 +836,7 @@ export default class Scheduler implements Service {
       if (!powerElement?.classList.contains('no_power')) {
         powerDataName = powerElement?.classList.item(3);
       }
+      console.log('powerDataName:', powerDataName);
       // -------------
 
       // #schedule-time
@@ -690,12 +861,12 @@ export default class Scheduler implements Service {
 
       const id = new Date().toLocaleString();
 
-      const schedulerItem: rework_PreregisteredScheduleItem = {
+      const schedulerItem: PreregisteredScheduleItem = {
         id: id,
         operationType: operationType,
-        attackStrategy: attackStrategy, // - TODO
+        attackStrategy: attackStrategy,
         sourceCity: sourceCity!,
-        power: powerDataName ? (CharmsUtility.getCharmByPowerId(powerDataName) ?? null) : null, // - TODO
+        power: powerDataName ? (CharmsUtility.getCharmByPowerId(powerDataName) ?? null) : null, // - TODO!!!
         includeHero: !!includeHero,
         armyDetails: inputData,
         targetCityDetails: {
@@ -711,7 +882,7 @@ export default class Scheduler implements Service {
         synchronizedWith: details.syncWith,
         actionTimeout: null,
         movementId: null,
-        dependantSchduleItems: [],
+        dependentScheduleItems: [],
       };
 
       // spróbuj zarejestrować - niepowodzenie rzuca error
@@ -726,7 +897,7 @@ export default class Scheduler implements Service {
   };
 
   private persist() {
-    localStorage.setItem('scheduler', JSON.stringify(this.rework_schedule));
+    localStorage.setItem('scheduler', JSON.stringify(this.schedule));
   }
 
   /**
@@ -776,28 +947,23 @@ export default class Scheduler implements Service {
   }
 
   /**
-   * Calculates timeDetails and adds to the item, checks if item can be added to schedule, saves coords in the ui, sets timeouts if possible,
-   * pushes new item to the schedule, shows info, persists the data and rerenders the table. Throws Error if something was not possible or unsuccessful.
-   * @requires opened city info window (for saveCoords implementation)
-   * @param item
+   * Assigns all time details to given schedule item based on its configuration and optional referential schedule (hypotethical).
+   * For synchronized items, calculates target times based on the referential schedule's timing.
+   * For precise items, includes tolerance windows and antitiming buffers.
+   * For non-precise items, uses exact target time.
+   * @param registeredItem The schedule item to assign time details to
+   * @param referentialSchedule Optional reference schedule item to sync with, else takes from real schedule (default)
    */
-  private async tryRegisterSchedule(item: rework_PreregisteredScheduleItem) {
-    const registeredItem = item as rework_ScheduleItem;
-
+  private assignTimeDetailsToScheduleItem(registeredItem: ScheduleItem, referentialSchedule?: ScheduleItem) {
     // synchronizowany
     if (registeredItem.timeDetails.targetTime === null && !!registeredItem.synchronizedWith) {
-      const referentialSchedule = this.rework_schedule.find(s => s.id === item.synchronizedWith?.scheduleId)!;
-      console.log('referentialScheduleItem:', referentialSchedule);
+      referentialSchedule ||= this.schedule.find(s => s.id === registeredItem.synchronizedWith?.scheduleId)!;
       // precyzyjny
       if (registeredItem.precision) {
         registeredItem.timeDetails.targetTimeStart =
           referentialSchedule.timeDetails.targetTimeStart +
           registeredItem.synchronizedWith.deviation +
           (registeredItem.precision.tolerance < 0 ? registeredItem.precision.tolerance : 0);
-
-        console.log(
-          `referentialSchedule.timeDetails.targetTimeDuration: ${msToHHMMSS(referentialSchedule.timeDetails.targetTimeDuration)} + registeredItem.precision.tolerance: ${msToHHMMSS(registeredItem.precision.tolerance)}`,
-        );
         registeredItem.timeDetails.targetTimeDuration =
           referentialSchedule.timeDetails.targetTimeDuration + Math.abs(registeredItem.precision.tolerance);
         console.log(
@@ -855,17 +1021,6 @@ export default class Scheduler implements Service {
           registeredItem.timeDetails.movementDuration -
           registeredItem.timeDetails.exclusionTime;
       }
-
-      console.log('prechecked registeredItem:', this.displayFormattedSchedulerItem(registeredItem));
-      if (!this.canAddSchedule(registeredItem)) {
-        throw new Error('Cannot add, becasuse schedule item is conflicting');
-      }
-      await this.saveCoords(registeredItem.id, registeredItem.targetCityDetails.selector);
-      referentialSchedule.dependantSchduleItems.push({
-        scheduleId: registeredItem.id,
-        deviation: registeredItem.synchronizedWith.deviation,
-      });
-      this.rework_schedule.push(registeredItem);
     }
     // niesynchronizowany - trzeba dodać timeouty odrazu (bo wiadomo jakie są czasy itp)
     else {
@@ -925,14 +1080,39 @@ export default class Scheduler implements Service {
           registeredItem.timeDetails.movementDuration -
           registeredItem.timeDetails.exclusionTime;
       }
-      console.log('prechecked registeredItem:', this.displayFormattedSchedulerItem(registeredItem));
+      console.log('item with assigned timeDetails:', this.displayFormattedSchedulerItem(registeredItem));
+    }
+  }
 
-      if (!this.canAddSchedule(registeredItem)) {
-        throw new Error('Cannot add, becasuse schedule item is conflicting');
-      }
-      // operacja jest relatywna, czyli wymaga KONKRETNEGO STANU UI - otwartej karty info miasta
-      await this.saveCoords(registeredItem.id, registeredItem.targetCityDetails.selector);
-      this.rework_schedule.push(registeredItem);
+  /**
+   * Calculates timeDetails and adds to the item, checks if item can be added to schedule, saves coords in the ui, sets timeouts if possible,
+   * pushes new item to the schedule, shows info, persists the data and rerenders the table. Throws Error if something was not possible or unsuccessful.
+   * @requires opened city info window (for saveCoords implementation)
+   * @param item
+   */
+  private async tryRegisterSchedule(item: PreregisteredScheduleItem) {
+    const registeredItem = item as ScheduleItem;
+    this.assignTimeDetailsToScheduleItem(registeredItem);
+    console.log('prechecked registeredItem:', this.displayFormattedSchedulerItem(registeredItem));
+    if (!this.canAddSchedule(registeredItem)) {
+      throw new Error('Cannot add, becasuse schedule item is conflicting');
+    }
+
+    await this.saveCoords(registeredItem.id, registeredItem.targetCityDetails.selector);
+
+    // handle synchronized item details
+    if (registeredItem.synchronizedWith) {
+      const referentialSchedule = this.schedule.find(s => s.id === item.synchronizedWith?.scheduleId)!;
+      referentialSchedule.dependentScheduleItems.push({
+        scheduleId: registeredItem.id,
+        deviation: registeredItem.synchronizedWith.deviation,
+      });
+    }
+
+    this.schedule.push(registeredItem);
+
+    // handle not synchronized item
+    if (registeredItem.timeDetails.targetTime) {
       this.activateSchedule(registeredItem);
     }
 
@@ -944,7 +1124,7 @@ export default class Scheduler implements Service {
 
   // TODO
   private recalculateExclusionTimes() {
-    this.rework_schedule.forEach(schedule => {});
+    this.schedule.forEach(schedule => {});
   }
 
   /* TODO: must be optimized in the future
@@ -953,11 +1133,14 @@ export default class Scheduler implements Service {
   /**
    * Says if item is not scheduled in the past and don't conflict with existing schedule items. (LEGIT)
    */
-  private canAddSchedule(newSchedule: rework_ScheduleItem) {
+  private canAddSchedule(newSchedule: ScheduleItem, scheduleList?: ScheduleItem[], omitCheckForIDs: string[] = []) {
     const isInThePast = newSchedule.timeDetails.exclusionTime < Date.now();
     return (
       !isInThePast &&
-      this.rework_schedule.every(existingSchedule => {
+      (scheduleList ?? this.schedule).every(existingSchedule => {
+        // if this is hypotethical check then omit passed schedules
+        if (omitCheckForIDs.includes(existingSchedule.id)) return true;
+
         const existingItemExclusionnStartTime = existingSchedule.timeDetails.exclusionTime;
         const existingItemExclusionEndTime =
           existingSchedule.timeDetails.exclusionTime + existingSchedule.timeDetails.exclusionDuration;
@@ -989,7 +1172,7 @@ export default class Scheduler implements Service {
   /**
    * Calculates and assigns time details to ABSOLUTE-timed schedule (not relative), asesses if managers needs to be switched off as a part of the flow
    */
-  private assignTimeDetailsToItem(item: rework_ScheduleItem) {
+  private reevaluateItemTimeDetails(item: ScheduleItem) {
     // precyzyjny
     if (item.precision) {
       item.timeDetails.targetTimeStart =
@@ -1046,7 +1229,7 @@ export default class Scheduler implements Service {
   }
 
   private getAreManagersActiveAt(time: number) {
-    return this.rework_schedule.every(schedule => {
+    return this.schedule.every(schedule => {
       return (
         schedule.timeDetails.exclusionTime < time &&
         schedule.timeDetails.exclusionTime +
@@ -1060,7 +1243,23 @@ export default class Scheduler implements Service {
   // TODO: rethink when needed
   public canSafelyRefresh = () => false;
 
-  private displayFormattedSchedulerItem(item: rework_ScheduleItem): DisplayFormattedSchedulerItem {
+  private cloneScheduleItem(item: ScheduleItem): ScheduleItem {
+    const { actionTimeout, ...rest } = item;
+    return {
+      ...rest,
+      sourceCity: { ...item.sourceCity },
+      power: item.power ? { ...item.power } : null,
+      armyDetails: item.armyDetails.map(item => ({ ...item })),
+      targetCityDetails: { ...item.targetCityDetails },
+      timeDetails: { ...item.timeDetails },
+      synchronizedWith: item.synchronizedWith ? { ...item.synchronizedWith } : undefined,
+      precision: item.precision ? { ...item.precision } : undefined,
+      actionTimeout: null,
+      dependentScheduleItems: item.dependentScheduleItems.map(item => ({ ...item })),
+    };
+  }
+
+  private displayFormattedSchedulerItem(item: ScheduleItem): DisplayFormattedSchedulerItem {
     const isPrecise = !!item.precision;
     return {
       ...item,

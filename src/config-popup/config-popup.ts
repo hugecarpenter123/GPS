@@ -1,10 +1,9 @@
-import configPopupCss from './config-popup.css';
-import configPopupHtml from './config-popup.html';
-
 import EventEmitter from 'events';
-import ConfigManager from '../utility/config-manager';
 import { FarmTimeInterval, TConfig } from '../../gps.config';
 import CitySwitchManager, { CityInfo } from '../service/city/city-switch-manager';
+import ConfigManager from '../utility/config-manager';
+import configPopupCss from './config-popup.css';
+import configPopupHtml from './config-popup.html';
 
 export type TConfigChanges = {
   masterQueue: {
@@ -25,6 +24,7 @@ export type TConfigChanges = {
   builder: {
     minimumTracking: boolean;
   };
+  recruiter: {};
   scheduler: {};
 };
 
@@ -157,6 +157,7 @@ export default class ConfigPopup extends EventEmitter {
             minimumTracking: this.config.builder.minimumTracking !== this.minimumTracking,
           },
           scheduler: {},
+          recruiter: {},
         };
         // update config related fields and persist them to local storage if changed
         if (this.configChanged(managersConfigChanges)) {
@@ -204,6 +205,9 @@ export default class ConfigPopup extends EventEmitter {
     });
     schedulerCheckbox!.addEventListener('change', () => {
       this.scheduler = (schedulerCheckbox as HTMLInputElement).checked;
+    });
+    masterQueueCheckbox!.addEventListener('change', () => {
+      this.masterQueue = (masterQueueCheckbox as HTMLInputElement).checked;
     });
 
     // farm section

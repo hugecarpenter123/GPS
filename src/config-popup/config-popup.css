@@ -62,9 +62,8 @@
 #config-popup-container .label-chevron {
   display: flex;
   align-items: center;
-  gap: 8px
+  gap: 8px;
 }
-
 
 #button-panel {
   align-self: flex-end;
@@ -86,7 +85,6 @@
   border-radius: 50%;
   box-shadow: none;
 }
-
 
 #config-popup-container .show-trigger {
   display: none;

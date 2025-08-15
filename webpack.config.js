@@ -1,7 +1,6 @@
 const path = require('path');
 
 module.exports = {
-  // mode: 'development',
   mode: 'production',
   entry: './src/main.ts',
   module: {
@@ -14,7 +13,7 @@ module.exports = {
       {
         test: /\.json$/,
         loader: 'json-loader',
-        type: 'javascript/auto'
+        type: 'javascript/auto',
       },
       {
         test: /\.css$/i,
@@ -23,23 +22,29 @@ module.exports = {
       {
         test: /\.html$/i,
         use: 'raw-loader',
-      }
+      },
     ],
   },
   resolve: {
     extensions: ['.ts', '.tsx', '.js', '.jsx'],
     alias: {
-      'react': 'preact/compat',
-      'react-dom': 'preact/compat'
+      react: 'preact/compat',
+      'react-dom': 'preact/compat',
+      '~': path.resolve(__dirname, 'src'),
     },
     fullySpecified: false,
     fallback: {
-      events: require.resolve("events/"),
+      events: require.resolve('events/'),
     },
   },
   output: {
     filename: 'bundle.js',
     path: path.resolve(__dirname, 'dist'),
+  },
+  optimization: {
+    minimize: true,
+    usedExports: true,
+    sideEffects: true,
   },
   devtool: 'source-map',
   devServer: {

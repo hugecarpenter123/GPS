@@ -9,20 +9,19 @@ Serwisy powinny udostępniać:
   --pask poziomu?
 */
 
+import EventEmitter from 'events';
 import gpsConfig from '../../../gps.config';
 import { TConfigChanges } from '../../config-popup/config-popup';
 import ConfigManager from '../../utility/config-manager';
 import ResourceLock from '../../utility/resource-lock';
+import Service from '../../utility/Service';
 import { Building } from '../city/builder/buildings';
 import CityBuilder, { BuilderQueueItem } from '../city/builder/city-builder';
 import CitySwitchManager, { CityInfo } from '../city/city-switch-manager';
 import Recruiter, { RecruiterQueueItem } from '../recruiter/recruiter';
-import masterQueueCss from './master-queue.css';
-
 import masterQueueTableCss from './master-queue-table.css';
 import masterQueueTableHtml from './master-queue-table.prod.html';
-import Service from '../../utility/Service';
-import EventEmitter from 'events';
+import masterQueueCss from './master-queue.css';
 
 export enum QueuePriority {
   High = 'high',
@@ -79,7 +78,7 @@ export type CitySchedule = {
   };
 };
 
-export default class MasterQueue extends EventEmitter implements Service {
+export default class MasterQueue extends EventEmitter implements Service<'masterQueue'> {
   private static readonly TABLE_CONTAINER_ID = 'master-queue-table-container';
   private static readonly TABLE_ID = 'master-queue-table';
   private static readonly TABLE_EMPTY_ID = 'master-queue-table-empty';
@@ -126,6 +125,18 @@ export default class MasterQueue extends EventEmitter implements Service {
     this.addCSS();
     this.addTable();
     this.initialized = true;
+  }
+
+  public getScheduledActionTimes = () => {
+    return this.queue
+      .map(citySchedule => [citySchedule.timeoutData.executionTime, undefined] as [number, number | undefined])
+      .filter(tuple => Boolean(tuple[0]));
+  };
+
+  public onConfigChange(configChanges: Partial<TConfigChanges['masterQueue']>) {
+    if (configChanges.autoReevaluate) {
+      this.reevaluateProviderCities();
+    }
   }
 
   private addCSS() {
@@ -235,6 +246,7 @@ export default class MasterQueue extends EventEmitter implements Service {
     this.addResourceLockChangeListener();
     this.addOncityChangeLister();
     this.showToggleButton(true);
+    await this.rerunAllSchedules();
   }
 
   private showToggleButton(value: boolean) {
@@ -1056,12 +1068,6 @@ export default class MasterQueue extends EventEmitter implements Service {
 
   public getMasterQueueScheduleTimes() {
     return this.queue.map(citySchedule => citySchedule.timeoutData.executionTime).filter(Boolean) as number[];
-  }
-
-  public handleMasterQueueConfigChange(configChange: TConfigChanges['masterQueue']) {
-    if (configChange.autoReevaluate) {
-      this.reevaluateProviderCities();
-    }
   }
 
   /**

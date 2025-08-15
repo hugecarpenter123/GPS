@@ -35,7 +35,6 @@
   top: 0;
 }
 
-
 #master-queue-table-close-icon {
   background-color: red;
   border: none;
@@ -77,7 +76,6 @@
   background-color: var(--master-queue-table-bg);
   position: sticky;
   bottom: 0;
-
 }
 
 #master-queue-table .scrollable-column {
@@ -106,7 +104,6 @@
   align-items: center;
   justify-content: center;
   padding: 0 8px;
-
 }
 
 #master-queue-table .master-queue-actions {
@@ -116,12 +113,10 @@
   flex-grow: 0;
 }
 
-
 #master-queue-table .master-queue-state.running {
   color: green;
   font-weight: bold;
 }
-
 
 #master-queue-table .master-queue-state.idle {
   color: orange;

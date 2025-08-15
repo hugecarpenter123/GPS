@@ -28,9 +28,7 @@ export default class Mutex {
           new Promise<void>((resolve, reject) => {
             this.queue.push({ resolve, reject });
           }),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Mutex lock timeout')), timeoutMs)
-          )
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Mutex lock timeout')), timeoutMs)),
         ]);
       } catch (error) {
         const index = this.queue.findIndex(item => item.reject === error);

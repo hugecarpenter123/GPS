@@ -1,7 +1,8 @@
 import { HHMMSS_toMS, waitWhile } from '../../utility/plain-utility';
 
 const baseCityIconClasses = 'power_icon30x30 new_ui_power_icon animated_power_icon animated_power_icon_30x30';
-const baseAttackIconClasses = 'power_icon45x45 new_ui_power_icon animated_power_icon animated_power_icon_45x45';
+// const baseAttackIconClasses = 'power_icon45x45 new_ui_power_icon animated_power_icon animated_power_icon_45x45';
+const baseAttackIconClasses = 'power_icon45x45 animated_power_icon animated_power_icon_45x45';
 
 export type CharmDetails = {
   dataPowerId: string;
@@ -119,7 +120,7 @@ export default class CharmsUtility {
    * @param cityCharms
    * @returns true if all required charms were casted (or already set)
    */
-  public static async castCharms(cityCharms: OptionalCharmsArg): Promise<boolean> {
+  public static async castCityCharms(cityCharms: OptionalCharmsArg): Promise<boolean> {
     let requiredCasted = false;
     if (cityCharms.required && cityCharms.required.length) {
       requiredCasted = await this.castCharmsIfNotCasted(cityCharms.required, true);
@@ -144,7 +145,9 @@ export default class CharmsUtility {
   }
 
   public static getCharmByPowerId(powerId: string): CharmDetails | undefined {
-    return this.cityCharms.find(c => c.dataPowerId === powerId);
+    return (
+      this.attackCharms.find(c => c.dataPowerId === powerId) || this.cityCharms.find(c => c.dataPowerId === powerId)
+    );
   }
 
   public static areCharmsCastedOrAvailable(charms: CharmDetails[]) {

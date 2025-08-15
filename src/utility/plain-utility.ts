@@ -254,3 +254,10 @@ export function getTopmostAncestorByClass(element: HTMLElement, className: strin
   }
   return result;
 }
+
+export const getMsFromStartOfDay = (unixTimestamp: number) => {
+  const date = new Date(unixTimestamp);
+  const startOfDay = new Date(date);
+  startOfDay.setHours(0, 0, 0, 0);
+  return date.getTime() - startOfDay.getTime();
+};

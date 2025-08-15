@@ -1,9 +1,9 @@
-import { waitForElement } from "../../../utility/ui-utility";
+import { waitForElement } from '../../../utility/ui-utility';
 
 export type Building = {
   backgroundImageProp: string;
   elementSelector: string;
-  currentLvlElSelector: string
+  currentLvlElSelector: string;
   name: string;
   // buildAction: () => Promise<void>;
 };
@@ -17,14 +17,14 @@ const buildActionSafe = async (selector: string) => {
   if (!buildModeButton.classList.contains('active')) {
     buildModeButton.click();
   }
-  await waitForElement(selector).then((element) => element.click());
+  await waitForElement(selector).then(element => element.click());
 };
 
 export const buildingsSelectors = {
   buildButton: `.btn_build.build_button`,
   currentLvl: `[class="twa_content js-content-area"] span:nth-of-type(3)`,
-  disabled: 'disabled'
-}
+  disabled: 'disabled',
+};
 
 // .city_overview_overlay.main .btn_build.build_button
 export const buildings: Record<string, Building> = {
@@ -118,5 +118,5 @@ export const buildings: Record<string, Building> = {
     currentLvlElSelector: '.city_overview_overlay.temple [class="twa_content js-content-area"] span:nth-of-type(3)',
     name: 'Temple',
     // buildAction: () => buildActionSafe('.city_overview_overlay.temple .btn_build.build_button'),
-  }
+  },
 };

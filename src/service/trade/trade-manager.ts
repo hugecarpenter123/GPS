@@ -1,5 +1,5 @@
 import { InfoError } from '../../utility/info-error';
-import { addDelay, msToFutureHHMMSS, shuffle, HHMMSS_toMS, waitWhile } from '../../utility/plain-utility';
+import { addDelay, HHMMSS_toMS, msToFutureHHMMSS, shuffle, waitWhile } from '../../utility/plain-utility';
 import {
   performComplexClick,
   triggerHover,

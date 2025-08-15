@@ -1,10 +1,9 @@
 import { TConfigChanges } from '../config-popup/config-popup';
 
-export default interface Service {
+export default interface Service<K extends keyof TConfigChanges> {
   isRunning: () => boolean;
   start: () => void | Promise<void>;
   stop: () => void | Promise<void>;
-  // TODO: should be required
-  getScheduledActionTimes?: () => number[];
-  onConfigChange?: (configChanges: Partial<TConfigChanges>) => void;
+  getScheduledActionTimes: () => [number, number | undefined][];
+  onConfigChange: (configChanges: Partial<TConfigChanges[K]>) => void;
 }

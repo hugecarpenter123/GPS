@@ -1,4 +1,4 @@
-import { getRandomInt } from "./plain-utility";
+import { getRandomInt } from './plain-utility';
 
 export default class CircularRandomQueue<T> {
   private items: T[];
@@ -32,7 +32,7 @@ export default class CircularRandomQueue<T> {
   private resetQueue = () => {
     this.items = Array.from(this.alreadyDoneitems);
     this.alreadyDoneitems.splice(0, this.alreadyDoneitems.length);
-  }
+  };
 
   getQueue(): T[] {
     return [...this.items];

@@ -48,7 +48,7 @@ export default class MasterManager {
       MasterManager.instance.builder = await CityBuilder.getInstance();
       MasterManager.instance.recruiter = await Recruiter.getInstance();
       MasterManager.instance.masterQueue = await MasterQueue.getInstance();
-      MasterManager.instance.initCaptchaPrevention();
+      // MasterManager.instance.initCaptchaPrevention();
       // MasterManager.instance.initRefreshUtility();
       MasterManager.instance.initConfigDialog();
     }
@@ -128,6 +128,28 @@ export default class MasterManager {
 
   private async runManagersFromConfig(configChanges?: TConfigChanges): Promise<void> {
     console.log('runManagersFromConfig', configChanges);
+    // if config changes are present, perform them before potentially starting the manager
+    if (configChanges) {
+      if (hasAnyValue(configChanges.masterQueue, true)) {
+        this.masterQueue.onConfigChange(configChanges.masterQueue);
+      }
+      if (hasAnyValue(configChanges.builder, true)) {
+        this.builder.onConfigChange(configChanges.builder);
+      }
+    }
+
+    // scheduler first because if it needs to perform anything straight away then it must block the rest
+    if (this.configMenuWindow.isSchedulerChecked()) {
+      if (!this.scheduler.isRunning()) {
+        console.log('Scheduler will be started...');
+        this.scheduler.start();
+      }
+    } else {
+      if (this.scheduler.isRunning()) {
+        console.log('Scheduler will be stopped...');
+        this.scheduler.stop();
+      }
+    }
     if (this.configMenuWindow.isMasterQueueChecked()) {
       if (!this.masterQueue.isRunning()) {
         console.log('MasterQueue will be started...');
@@ -172,26 +194,6 @@ export default class MasterManager {
         this.recruiter.stop();
       }
     }
-    if (this.configMenuWindow.isSchedulerChecked()) {
-      if (!this.scheduler.isRunning()) {
-        console.log('Scheduler will be started...');
-        this.scheduler.start();
-      }
-    } else {
-      if (this.scheduler.isRunning()) {
-        console.log('Scheduler will be stopped...');
-        this.scheduler.stop();
-      }
-    }
-
-    if (configChanges) {
-      if (hasAnyValue(configChanges.masterQueue, true)) {
-        this.masterQueue.handleMasterQueueConfigChange(configChanges.masterQueue);
-      }
-      if (hasAnyValue(configChanges.builder, true)) {
-        this.builder.handleBuilderConfigChange(configChanges.builder);
-      }
-    }
   }
 
   private async initConfigDialog() {
@@ -221,22 +223,27 @@ export default class MasterManager {
   public pauseRunningManagers(except: Managers[]): void {
     console.log('pauseRunningManagers', this.pausedManagersSnapshot);
     if (!except.includes('masterQueue') && this.masterQueue.isRunning()) {
+      console.log('masterQueue will be paused...');
       this.masterQueue.stop();
       this.pausedManagersSnapshot.masterQueue = true;
     }
     if (!except.includes('farmManager') && this.farmManager.isRunning()) {
+      console.log('farmManager will be paused...');
       this.farmManager.stop();
       this.pausedManagersSnapshot.farmManager = true;
     }
     if (!except.includes('scheduler') && this.scheduler.isRunning()) {
+      console.log('scheduler will be paused...');
       this.scheduler.stop();
       this.pausedManagersSnapshot.scheduler = true;
     }
     if (!except.includes('builder') && this.builder.isRunning()) {
+      console.log('builder will be paused...');
       this.builder.stop();
       this.pausedManagersSnapshot.builder = true;
     }
     if (!except.includes('recruiter') && this.recruiter.isRunning()) {
+      console.log('recruiter will be paused...');
       this.recruiter.stop();
       this.pausedManagersSnapshot.recruiter = true;
     }
@@ -302,26 +309,31 @@ export default class MasterManager {
       switch (key) {
         case 'farmManager':
           if (isPaused && !except.includes('farmManager')) {
+            console.log('farmManager will be resumed...');
             this.farmManager.start();
           }
           break;
         case 'recruiter':
           if (isPaused && !except.includes('recruiter')) {
+            console.log('recruiter will be resumed...');
             this.recruiter.start();
           }
           break;
         case 'scheduler':
           if (isPaused && !except.includes('scheduler')) {
+            console.log('scheduler will be resumed...');
             this.scheduler.start();
           }
           break;
         case 'builder':
           if (isPaused && !except.includes('builder')) {
+            console.log('builder will be resumed...');
             this.builder.start();
           }
           break;
         case 'masterQueue':
           if (isPaused && !except.includes('masterQueue')) {
+            console.log('masterQueue will be resumed...');
             this.masterQueue.start();
           }
           break;

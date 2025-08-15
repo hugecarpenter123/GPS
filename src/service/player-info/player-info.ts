@@ -1,16 +1,13 @@
 // TODO: finish later, because it has lower priority now
 
-import GeneralInfo from "../master/ui/general-info";
-
-import Lock from "../../utility/ui-lock";
+import Lock from '../../utility/ui-lock';
+import GeneralInfo from '../master/ui/general-info';
 
 export default class PlayerInfo {
   private static instance: PlayerInfo;
   private generalInfo!: GeneralInfo;
   private lock!: Lock;
-  private constructor() {
-
-  }
+  private constructor() {}
   public static async getInstance(): Promise<PlayerInfo> {
     if (!PlayerInfo.instance) {
       PlayerInfo.instance = new PlayerInfo();
@@ -31,17 +28,15 @@ export default class PlayerInfo {
             }
           }
         }
-      };
+      }
 
       // new MutationObserver(mutationCallback)
       //   .observe(document.body, { childList: true });
-    }
-
-
+    };
   }
 
   private extendUI(node: HTMLElement) {
-    throw new Error("Method not implemented.");
+    throw new Error('Method not implemented.');
   }
 
   private async onFindTimeClicked(node: HTMLElement) {

@@ -54,7 +54,6 @@
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   z-index: 2000 !important;
 
-
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -149,6 +148,6 @@
   align-items: center;
 }
 
-#municipal-utility-city-select option[data-running="true"] {
+#municipal-utility-city-select option[data-running='true'] {
   background-color: var(--border);
 }

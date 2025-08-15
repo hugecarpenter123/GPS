@@ -9,12 +9,11 @@
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
     "moduleResolution": "node",
+    "baseUrl": ".",
+    "paths": {
+      "~/*": ["src/*"]
+    }
   },
-  "include": [
-    "src/**/*.ts",
-    "src/**/*.tsx"
-  ],
-  "exclude": [
-    "node_modules"
-  ]
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules"]
 }

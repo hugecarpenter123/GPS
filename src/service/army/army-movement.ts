@@ -3,6 +3,9 @@
  */
 
 import { link } from 'fs';
+import { createInflate } from 'zlib';
+import config from '../../../gps.config';
+import ConfigManager from '../../utility/config-manager';
 import {
   addDelay,
   doWhile,
@@ -14,15 +17,7 @@ import {
 import { performComplexClick, setInputValue, waitForElement, waitForElementInterval } from '../../utility/ui-utility';
 import { CharmDetails } from '../charms/charms-utility';
 import { CityInfo } from '../city/city-switch-manager';
-import ConfigManager from '../../utility/config-manager';
-import config from '../../../gps.config';
-import { createInflate } from 'zlib';
-import { OperationType, rework_ScheduleItem, SchedulerExecutor } from '../scheduler/Scheduler';
-
-enum AttackType {
-  NORMAL,
-  MUTINY,
-}
+import { AttackStrategy, OperationType, ScheduleItem, SchedulerExecutor } from '../scheduler/Scheduler';
 
 // interface OperationDetails {
 //   id: string;
@@ -170,8 +165,11 @@ export default class ArmyMovement implements SchedulerExecutor {
     inputData: { value: string; name: string }[],
     attachHero?: boolean | null,
     charm?: CharmDetails | null,
+    attackStrategy?: AttackStrategy,
     policy: 'strict' | 'max-available' = 'strict',
   ) {
+    let areUnitsPresentFromStart = true;
+
     console.log('fill inputData');
     for (const data of inputData) {
       if (data.value) {
@@ -185,13 +183,20 @@ export default class ArmyMovement implements SchedulerExecutor {
         console.log('availableUnitsEl:', availableUnitsEl);
         if (policy === 'strict') {
           // czekaj aż będą wszystkie zdefiniowane jednostki dostępne
-          await waitWhile(() => Number(availableUnitsEl?.innerText ?? null) < Number(data.value), {
-            delay: 200,
-            maxIterations: 20,
-            onError() {
-              console.log("Available units count doesn't match the requirements");
+          await doWhile(
+            () => Number(availableUnitsEl?.innerText ?? null) < Number(data.value),
+            // optimization - just report if had to wait for units
+            () => {
+              areUnitsPresentFromStart = false;
             },
-          });
+            {
+              delay: 150,
+              maxIterations: 20,
+              onError() {
+                console.log("Available units count doesn't match the requirements");
+              },
+            },
+          );
           input.value = data.value;
         } else {
           input.value = Math.min(Number(data.value), Number(availableUnitsEl?.innerText)).toString();
@@ -199,16 +204,30 @@ export default class ArmyMovement implements SchedulerExecutor {
       }
     }
 
+    if (attackStrategy === 'breach') {
+      document.querySelector<HTMLElement>('[data-attack="breach"]')?.click();
+    }
+
     if (attachHero) {
       (await waitForElementInterval('.cbx_include_hero')).click();
     }
 
     if (charm) {
+      console.log('scheduled charm:', charm);
       await waitForElementInterval('#spells_1', { timeout: 2000 }).then(el => (el as HTMLElement).click());
-      await waitForElementInterval(`[data-power_id="${charm.dataPowerId}"`, { timeout: 2000 }).then(el =>
+      await waitForElementInterval(`[data-power_id="${charm.dataPowerId}"`, { interval: 100, timeout: 2000 }).then(el =>
         (el as HTMLElement).click(),
       );
+      // await waitWhile(() => !document.querySelector('#spells_1')?.classList.contains(charm.dataPowerId), {
+      //   delay: 100,
+      //   maxIterations: 15,
+      //   onError: () => {
+      //     throw new Error(`Charm "${charm.dataPowerId}" has been selected but not activated.`);
+      //   },
+      // });
     }
+
+    return areUnitsPresentFromStart;
   }
 
   /**
@@ -218,7 +237,7 @@ export default class ArmyMovement implements SchedulerExecutor {
    * @param utils
    */
   public async execute(
-    item: rework_ScheduleItem,
+    item: ScheduleItem,
     utils: {
       successCallback: (landedTime: number, movementId: string) => void;
       failureCallback: (reason?: string) => void;
@@ -228,7 +247,14 @@ export default class ArmyMovement implements SchedulerExecutor {
     // preparation
     await item.sourceCity.switchAction();
     await this.openCityOperationDialog(item.id, item.targetCityDetails.selector, item.operationType);
-    await this.fillInputData(item.armyDetails, item.includeHero, item.power);
+    // await this.fillInputData(item.armyDetails, item.includeHero, item.power);
+
+    await this.fillInputData(
+      item.armyDetails,
+      item.includeHero,
+      !item.precision ? item.power : null,
+      item.attackStrategy,
+    );
     // afterwards it waits for like 4s to hit proper action
 
     if (item.precision) {
@@ -269,8 +295,14 @@ export default class ArmyMovement implements SchedulerExecutor {
               operationsSnapshot = await this.doOperationsSnapshot();
 
               // TODO: here add input policy (but must be specified by user in UI extension)
-              await this.fillInputData(item.armyDetails, item.includeHero, item.power);
-              await addDelay(Math.random() * 300 + 300);
+              // send without hero because of retries
+              const wasImmadiate = await this.fillInputData(
+                item.armyDetails,
+                item.includeHero,
+                null,
+                item.attackStrategy,
+              );
+              if (wasImmadiate) await addDelay(Math.random() * 300 + 300);
               await this.submitOperation(item.operationType, isAttackingAlly);
               totalTtrials++;
               operationDetails = await this.getNewestOperationDetailsOfCity(
@@ -280,6 +312,7 @@ export default class ArmyMovement implements SchedulerExecutor {
               );
             }
             console.log('success, landed time:', operationDetails.landedTime, `after ${totalTtrials} trials`);
+            await this.addPowerToMovement(operationDetails.movementId, item.power);
             utils.successCallback(operationDetails.landedTime, operationDetails.movementId);
           } catch (e) {
             if (e instanceof Error) utils.failureCallback(e.message);
@@ -325,6 +358,25 @@ export default class ArmyMovement implements SchedulerExecutor {
         }, timeToRealExecution),
       );
     }
+  }
+
+  private async addPowerToMovement(movementId: string, power: CharmDetails | null) {
+    console.log('power to be added:', power);
+    if (!power) return;
+
+    await this.openActivityCommandsPanel();
+
+    const movement = document.getElementById(movementId);
+    if (!movement) throw new Error('Movement to add power to not found');
+
+    // cmd_info_box
+    movement.querySelector<HTMLElement>('.cmd_info_box a')?.click();
+    await waitForElementInterval('#command_info-god', { interval: 250, timeout: 2000 }).then(e => e.click());
+    await waitForElementInterval(`[data-power_id="${power.dataPowerId}"`, { interval: 100, timeout: 2000 }).then(el =>
+      (el as HTMLElement).click(),
+    );
+
+    await waitForElementInterval('.cast_spell.confirmation .btn_confirm.button_new').then(e => e.click());
   }
 
   private async cancelMovement(movementId: string) {
@@ -391,7 +443,7 @@ export default class ArmyMovement implements SchedulerExecutor {
           el.click();
         })
         .catch(() => {
-          throw new Error("Expected to confirm attack on an ally, but couldn't do so.");
+          /* nothing */
         });
     } else {
       (await waitForElement('.attack_support_window a .middle')).click();
@@ -448,7 +500,7 @@ export default class ArmyMovement implements SchedulerExecutor {
     snapshot: string[],
     shouldCloseAfterwards: boolean = false,
   ) {
-    this.openActivityCommandsPanel();
+    await this.openActivityCommandsPanel();
 
     let newestOperationLi: HTMLElement | undefined;
     await waitWhile(

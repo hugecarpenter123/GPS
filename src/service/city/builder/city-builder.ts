@@ -1,4 +1,9 @@
-import { addDelay, msToFutureHHMMSS, HHMMSS_toMS, waitWhile } from '../../../utility/plain-utility';
+import { TConfig } from '../../../../gps.config';
+import { TConfigChanges } from '../../../config-popup/config-popup';
+import ConfigManager from '../../../utility/config-manager';
+import { addDelay, HHMMSS_toMS, msToFutureHHMMSS, waitWhile } from '../../../utility/plain-utility';
+import ResourceLock from '../../../utility/resource-lock';
+import Service from '../../../utility/Service';
 import Lock from '../../../utility/ui-lock';
 import {
   cancelHover,
@@ -8,18 +13,14 @@ import {
   waitForElementInterval,
   waitForElements,
 } from '../../../utility/ui-utility';
-import builderCss from './queue.css';
+import MasterQueue, { ScheduleOperationDetails } from '../../master-queue/master-queue';
+import GeneralInfo from '../../master/ui/general-info';
+import ResourceManager from '../../resources/resource-manager';
+import TradeManager from '../../trade/trade-manager';
+import CitySwitchManager, { CityInfo } from '../city-switch-manager';
 import builderHtml from './builder-prod.html';
 import { Building, buildings, buildingsSelectors } from './buildings';
-import ResourceManager from '../../resources/resource-manager';
-import CitySwitchManager, { CityInfo } from '../city-switch-manager';
-import GeneralInfo from '../../master/ui/general-info';
-import { TConfigChanges } from '../../../config-popup/config-popup';
-import ConfigManager from '../../../utility/config-manager';
-import ResourceLock from '../../../utility/resource-lock';
-import MasterQueue, { ScheduleOperationDetails } from '../../master-queue/master-queue';
-import TradeManager from '../../trade/trade-manager';
-import { TConfig } from '../../../../gps.config';
+import builderCss from './queue.css';
 
 export type BuilderQueueItem = {
   building: Building;
@@ -36,7 +37,7 @@ type CitySchedule = {
   operation?: 'build' | 'speedUp' | 'buildCheck' | 'speedUpAndCheck';
 };
 
-export default class CityBuilder {
+export default class CityBuilder implements Service<'builder'> {
   private static readonly queueContainerId = 'additional-queue';
   private static readonly queueItemClass = 'queue-item';
   private static readonly cancelButtonClass = 'cancel';
@@ -66,6 +67,37 @@ export default class CityBuilder {
   private mainQueue: Array<CitySchedule> = [];
 
   private constructor() {}
+
+  public getScheduledActionTimes() {
+    return this.mainQueue.map(s => [s.scheduledDate?.getTime(), undefined]).filter(([t1]) => Boolean(t1)) as [
+      number,
+      undefined,
+    ][];
+  }
+  public onConfigChange(configChanges: Partial<TConfigChanges['builder']>) {
+    const minimumTrackingChanged = configChanges.minimumTracking;
+
+    // minimum tracking change handling
+    if (minimumTrackingChanged) {
+      const minimumTracking = ConfigManager.getInstance().getConfig().builder.minimumTracking;
+      if (minimumTracking === true) {
+        this.mainQueue.forEach(citySchedule => {
+          if (citySchedule.schedule) {
+            clearInterval(citySchedule.schedule);
+            clearTimeout(citySchedule.schedule);
+            citySchedule.schedule = null;
+            citySchedule.scheduledDate = null;
+          }
+        });
+      } else {
+        if (this.RUN) {
+          this.mainQueue.forEach(cityQueue => {
+            if (!cityQueue.schedule) this.setInternalSpeedUpFlow(cityQueue.city);
+          });
+        }
+      }
+    }
+  }
 
   public static async getInstance(): Promise<CityBuilder> {
     if (!CityBuilder.instance) {

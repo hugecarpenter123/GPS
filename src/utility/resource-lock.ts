@@ -1,6 +1,5 @@
-import EventEmitter from "events";
-import { CityInfo } from "../service/city/city-switch-manager";
-
+import EventEmitter from 'events';
+import { CityInfo } from '../service/city/city-switch-manager';
 
 export default class ResourceLock extends EventEmitter {
   private static instance: ResourceLock;

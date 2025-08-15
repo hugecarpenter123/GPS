@@ -1,14 +1,14 @@
-import ConfigManager from "../../utility/config-manager";
-import { addDelay } from "../../utility/plain-utility";
-import Lock from "../../utility/ui-lock";
-import { cancelHover, triggerHover, waitForElement, waitForElementInterval } from "../../utility/ui-utility";
-import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
+import ConfigManager from '../../utility/config-manager';
+import { addDelay } from '../../utility/plain-utility';
+import Lock from '../../utility/ui-lock';
+import { cancelHover, triggerHover, waitForElement, waitForElementInterval } from '../../utility/ui-utility';
+import CitySwitchManager, { CityInfo } from '../city/city-switch-manager';
 
 export interface ResourcesInfo {
-  wood: number,
-  stone: number,
-  iron: number,
-  storageCapacity?: number
+  wood: number;
+  stone: number;
+  iron: number;
+  storageCapacity?: number;
 }
 
 export default class ResourceManager {
@@ -34,19 +34,17 @@ export default class ResourceManager {
     return this.instance;
   }
 
-  public async start() {
-  }
+  public async start() {}
 
-  public stop() {
-  }
+  public stop() {}
 
   public async getStoreCapacity() {
-    const resourceItem = await waitForElement('[data-type="wood"] .amount.ui-game-selectable')
+    const resourceItem = await waitForElement('[data-type="wood"] .amount.ui-game-selectable');
     let maxSizeElement: HTMLDivElement | null = null;
     do {
       triggerHover(resourceItem);
       await addDelay(333);
-    } while (!(maxSizeElement = document.querySelector<HTMLDivElement>('.island_resource_info span:nth-of-type(2)')))
+    } while (!(maxSizeElement = document.querySelector<HTMLDivElement>('.island_resource_info span:nth-of-type(2)')));
     const maxSizeText = maxSizeElement.textContent;
     const storeMaxSize = parseInt(maxSizeText?.match(/\d+/)?.[0] || '0');
     cancelHover(resourceItem);
@@ -54,7 +52,9 @@ export default class ResourceManager {
   }
 
   public getPopulation() {
-    const population = Number(document.querySelector<HTMLDivElement>('[data-type="population"] .amount.ui-game-selectable')!.textContent);
+    const population = Number(
+      document.querySelector<HTMLDivElement>('[data-type="population"] .amount.ui-game-selectable')!.textContent,
+    );
     return population;
   }
 
@@ -62,14 +62,16 @@ export default class ResourceManager {
     const wood = Number((await waitForElement('[data-type="wood"] .amount.ui-game-selectable')).textContent);
     const stone = Number((await waitForElement('[data-type="stone"] .amount.ui-game-selectable')).textContent);
     const iron = Number((await waitForElement('[data-type="iron"] .amount.ui-game-selectable')).textContent);
-    const population = Number((await waitForElement('[data-type="population"] .amount.ui-game-selectable')).textContent);
+    const population = Number(
+      (await waitForElement('[data-type="population"] .amount.ui-game-selectable')).textContent,
+    );
 
-    const resourceItem = await waitForElement('[data-type="wood"] .amount.ui-game-selectable')
+    const resourceItem = await waitForElement('[data-type="wood"] .amount.ui-game-selectable');
     let maxSizeElement: HTMLDivElement | null = null;
     do {
       triggerHover(resourceItem);
       await addDelay(333);
-    } while (!(maxSizeElement = document.querySelector<HTMLDivElement>('.island_resource_info span:nth-of-type(2)')))
+    } while (!(maxSizeElement = document.querySelector<HTMLDivElement>('.island_resource_info span:nth-of-type(2)')));
     const maxSizeText = maxSizeElement.textContent;
     const storeMaxSize = parseInt(maxSizeText?.match(/\d+/)?.[0] || '0');
     cancelHover(resourceItem);
@@ -94,33 +96,45 @@ export default class ResourceManager {
         amount: population,
         isLow: population < this.minPopulationBuffer,
       },
-      storeMaxSize
-    }
+      storeMaxSize,
+    };
 
     return resourcesInfo;
   }
 
   /**
    * Switches to the given city and checks if it meets resources requirements.
-   * @param requiredResources 
-   * @param city 
-   * @returns 
+   * @param requiredResources
+   * @param city
+   * @returns
    */
-  public async hasEnoughResources(requiredResources: { wood: number, stone: number, iron: number }, city?: CityInfo) {
+  public async hasEnoughResources(requiredResources: { wood: number; stone: number; iron: number }, city?: CityInfo) {
     if (city) {
       await city.switchAction();
     }
-    const wood = Number(document.querySelector<HTMLLIElement>('[data-type="wood"] .amount.ui-game-selectable')!.textContent);
-    const stone = Number(document.querySelector<HTMLLIElement>('[data-type="stone"] .amount.ui-game-selectable')!.textContent);
-    const iron = Number(document.querySelector<HTMLLIElement>('[data-type="iron"] .amount.ui-game-selectable')!.textContent);
+    const wood = Number(
+      document.querySelector<HTMLLIElement>('[data-type="wood"] .amount.ui-game-selectable')!.textContent,
+    );
+    const stone = Number(
+      document.querySelector<HTMLLIElement>('[data-type="stone"] .amount.ui-game-selectable')!.textContent,
+    );
+    const iron = Number(
+      document.querySelector<HTMLLIElement>('[data-type="iron"] .amount.ui-game-selectable')!.textContent,
+    );
     return wood >= requiredResources.wood && stone >= requiredResources.stone && iron >= requiredResources.iron;
   }
 
   public async getLackingResources(requiredResources: ResourcesInfo, city?: CityInfo): Promise<ResourcesInfo> {
     if (city) await city.switchAction();
-    const wood = Number(document.querySelector<HTMLLIElement>('[data-type="wood"] .amount.ui-game-selectable')!.textContent);
-    const stone = Number(document.querySelector<HTMLLIElement>('[data-type="stone"] .amount.ui-game-selectable')!.textContent);
-    const iron = Number(document.querySelector<HTMLLIElement>('[data-type="iron"] .amount.ui-game-selectable')!.textContent);
+    const wood = Number(
+      document.querySelector<HTMLLIElement>('[data-type="wood"] .amount.ui-game-selectable')!.textContent,
+    );
+    const stone = Number(
+      document.querySelector<HTMLLIElement>('[data-type="stone"] .amount.ui-game-selectable')!.textContent,
+    );
+    const iron = Number(
+      document.querySelector<HTMLLIElement>('[data-type="iron"] .amount.ui-game-selectable')!.textContent,
+    );
     return {
       wood: Math.max(requiredResources.wood - wood, 0),
       stone: Math.max(requiredResources.stone - stone, 0),
@@ -128,9 +142,9 @@ export default class ResourceManager {
       ...(await (async () => {
         const capacity = await this.getStoreCapacity();
         const lackingCapacity = Math.max(wood, stone, iron) - capacity;
-        return lackingCapacity < 0 ? { storageCapacity: lackingCapacity } : {}
-      })())
-    }
+        return lackingCapacity < 0 ? { storageCapacity: lackingCapacity } : {};
+      })()),
+    };
   }
 
   /*
@@ -148,5 +162,4 @@ export default class ResourceManager {
    - jeżeli po przeleceniu wszystkich wiosek nie jest wstanie uzbierać to czeka 10 minut i robi pochód od nowa
    - jeżeli uzbiera (wysłał): sprawdza czas ostatniego wejścia handlu i planuje rekrutację wtedy
   */
-
 }

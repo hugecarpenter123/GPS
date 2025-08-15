@@ -1,11 +1,13 @@
-import MasterQueue, { ScheduleOperationDetails } from '../master-queue/master-queue';
+import { TConfigChanges } from '../../config-popup/config-popup';
 import ConfigManager from '../../utility/config-manager';
 import { InfoError } from '../../utility/info-error';
 import { addDelay, HHMMSS_toMS, waitWhile } from '../../utility/plain-utility';
+import Service from '../../utility/Service';
 import Lock from '../../utility/ui-lock';
 import { waitForElementInterval } from '../../utility/ui-utility';
 import CharmsUtility, { CharmDetails } from '../charms/charms-utility';
 import CitySwitchManager, { CityInfo } from '../city/city-switch-manager';
+import MasterQueue, { ScheduleOperationDetails } from '../master-queue/master-queue';
 import GeneralInfo from '../master/ui/general-info';
 import ResourceManager from '../resources/resource-manager';
 import TradeManager from '../trade/trade-manager';
@@ -75,7 +77,7 @@ w momencie kliknięcia add:
 -item zostaje dodany do master queue
 */
 
-export default class Recruiter {
+export default class Recruiter implements Service<'recruiter'> {
   public static readonly MAX_DELIVERY_TIME_MS = 1000 * 60 * 25;
   private static instance: Recruiter;
   private resourceManager!: ResourceManager;
@@ -134,6 +136,10 @@ export default class Recruiter {
     document.body.appendChild(recruiterDialogContainer);
     this.addCharmsToDialog();
   }
+
+  // nothing applies to it
+  public getScheduledActionTimes = () => [];
+  public onConfigChange = (configChanges: Partial<TConfigChanges['recruiter']>) => {};
 
   private addCharmsToDialog() {
     const charms = CharmsUtility.getRecruitmentSpecificCharms();
@@ -577,7 +583,7 @@ export default class Recruiter {
     console.log('performRecruitOrStackResources:', scheduleItem);
     const { city } = operationDetails;
     const { supplierCities, charms } = scheduleItem;
-    if (charms?.required && !CharmsUtility.areCharmsCastedOrAvailable(charms?.required)) {
+    if (charms?.required && !CharmsUtility.areCharmsCastedOrAvailable(charms.required)) {
       const timeToCharmsCastable = CharmsUtility.getCharmsCastingTime(charms?.required);
       const timeToCharmsCastableMs = Math.max(...Array.from(timeToCharmsCastable.values()), 10 * 60 * 1000);
       operationDetails.setScheduleTimeout(
@@ -810,7 +816,7 @@ export default class Recruiter {
 
     // handle charms ----------------
     console.log('performRecruitment, item charms:', item.charms);
-    const requiuredCharmsCasted = CharmsUtility.castCharms(item.charms ?? {});
+    const requiuredCharmsCasted = CharmsUtility.castCityCharms(item.charms ?? {});
     console.log('requiredCharmsCasted:', requiuredCharmsCasted);
     if (!requiuredCharmsCasted) {
       GeneralInfo.getInstance().showError(

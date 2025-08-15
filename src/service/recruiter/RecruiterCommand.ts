@@ -1,5 +1,5 @@
-import { ICommand } from "../../utility/Command";
-import Recruiter, { RecruiterQueueItem } from "./recruiter";
+import { ICommand } from '../../utility/Command';
+import Recruiter, { RecruiterQueueItem } from './recruiter';
 
 export default class RecruiterCommand implements ICommand {
   private itemData: RecruiterQueueItem;

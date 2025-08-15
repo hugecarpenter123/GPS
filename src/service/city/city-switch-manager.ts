@@ -104,8 +104,6 @@ export default class CitySwitchManager extends EventEmitter {
     }
     console.log('CitySwitchManager: city list initialized:', cityList);
     await this.goBackToFirstTown();
-    this.generalInfo.hideInfo();
-    localStorage.setItem(CitySwitchManager.LOCAL_STORAGE_CITY_LIST_KEY, JSON.stringify(cityList));
 
     if (!cityList.length) {
       throw new Error('Critical error: No cities found');
@@ -144,7 +142,6 @@ export default class CitySwitchManager extends EventEmitter {
       if (storageCityListParsed.length !== townList.length) {
         /* continue */
       } else {
-        console.log('storageCityListParsed', storageCityListParsed);
         let matchFlag = true;
         for (const storageCity of storageCityListParsed) {
           if (
@@ -158,21 +155,24 @@ export default class CitySwitchManager extends EventEmitter {
           }
         }
         if (matchFlag) {
-          console.log('all matched');
           // If all are matched, don't go through all cities on the UI, return cached version
+          this.cityList = this.hydrateCityList(storageCityListParsed);
           this.generalInfo.hideInfo();
-          return this.hydrateCityList(storageCityListParsed);
+          return;
         }
       }
     }
 
     let cityList: CityInfo[];
 
-    if (await this.isCuratorActive()) {
-      cityList = await this.initCityListWithCurator();
-    } else {
-      cityList = await this.initCityListRaw(townList);
-    }
+    // TODO: with curator needs to be fixed, for now use old raw method
+    // if (await this.isCuratorActive()) {
+    //   cityList = await this.initCityListWithCurator();
+    // } else {
+    //   cityList = await this.initCityListRaw(townList);
+    // }
+
+    cityList = await this.initCityListRaw(townList);
 
     this.cityList = cityList;
     this.persist();
@@ -264,6 +264,8 @@ export default class CitySwitchManager extends EventEmitter {
 
   public getCurrentCity() {
     const name = document.querySelector('div.town_name')?.textContent ?? '';
+    console.log('name:', name);
+    console.log('cityList:', this.cityList);
     return this.getCityByName(name);
   }
 

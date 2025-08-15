@@ -1,7 +1,7 @@
 export default class StorageManager {
   private static instance: StorageManager;
 
-  private constructor() { }
+  private constructor() {}
 
   public static getInstance(): StorageManager {
     if (!StorageManager.instance) {
