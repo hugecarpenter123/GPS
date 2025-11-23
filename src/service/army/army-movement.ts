@@ -70,7 +70,10 @@ export default class ArmyMovement implements SchedulerExecutor {
 
   private async goToCityFromSavedCoords(id: string) {
     document.querySelector<HTMLButtonElement>('.js-coord-button')?.click();
-    const dropdownList = await waitForElementInterval('.content.js-dropdown-item-list', { interval: 333, retries: 5 });
+    const dropdownList = await waitForElementInterval('#dd_coordinates_list .content.js-dropdown-item-list', {
+      interval: 333,
+      retries: 5,
+    });
     let elements: NodeListOf<HTMLElement>;
     await waitWhile(
       () => {

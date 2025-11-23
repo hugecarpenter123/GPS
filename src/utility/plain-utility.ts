@@ -211,30 +211,6 @@ export const hasAnyValue = (obj: { [key: string]: any }, targetValue: any): bool
   return false;
 };
 
-export const transportationTime = (x1: number, y1: number, x2: number, y2: number): number => {
-  const distance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
-  const timeMsPerPixel = 830;
-  const transportTime = distance * timeMsPerPixel;
-  return transportTime;
-};
-
-export const parseStylePositionToGrids = (stylePosition: string): [number, number] => {
-  // "left: 68941px; top: 66576px;"
-  const x = Number(stylePosition.match(/left: (\d+)/)?.[1]);
-  const y = Number(stylePosition.match(/top: (\d+)/)?.[1]);
-  if (!x || !y) throw new Error("Couldn't parse grids");
-  return [x, y];
-};
-
-// const calculateTimePerPixel = (style1, style2, realTimeText) => {
-//   const transportationTimeMs = textToMs(realTimeText);
-//   const g1 = parseStylePositionToGrids(style1);
-//   const g2 = parseStylePositionToGrids(style2);
-//   const distance = Math.sqrt(Math.pow(g1[0] - g2[0], 2) + Math.pow(g1[1] - g2[1], 2));
-//   const timePerPixel = transportationTimeMs / distance;
-//   return timePerPixel;
-// }
-
 export function getDaysAhead(target: Date, now: Date = new Date()): number {
   // Tworzymy nowe daty tylko z rokiem, miesiącem i dniem (godzina 0:00:00)
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -260,4 +236,15 @@ export const getMsFromStartOfDay = (unixTimestamp: number) => {
   const startOfDay = new Date(date);
   startOfDay.setHours(0, 0, 0, 0);
   return date.getTime() - startOfDay.getTime();
+};
+
+export const findLastIndex = <T>(arr: T[], condition: (item: T) => boolean): number => {
+  let lastIndex = -1;
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (condition(arr[i])) {
+      lastIndex = i;
+      break;
+    }
+  }
+  return lastIndex;
 };

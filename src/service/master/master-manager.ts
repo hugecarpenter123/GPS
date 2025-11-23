@@ -1,7 +1,7 @@
 import { FarmTimeInterval, TConfig } from '../../../gps.config';
-import ConfigPopup, { TConfigChanges } from '../../config-popup/config-popup';
+import { ConfigPopupUtility, TConfigChanges, useConfigPopup } from '../../config-popup/config-popup';
 import ConfigManager from '../../utility/config-manager';
-import { addDelay, getCookie, hasAnyValue, setCookie } from '../../utility/plain-utility';
+import { getCookie, hasAnyValue, setCookie } from '../../utility/plain-utility';
 import CityBuilder from '../city/builder/city-builder';
 import CitySwitchManager from '../city/city-switch-manager';
 import FarmManager from '../farm/farm-manager';
@@ -21,7 +21,7 @@ export default class MasterManager {
   private builder!: CityBuilder;
   private recruiter!: Recruiter;
   private masterQueue!: MasterQueue;
-  private configMenuWindow!: ConfigPopup;
+  private configPopupWindow!: ConfigPopupUtility;
   private generalInfo!: GeneralInfo;
 
   private pausedManagersSnapshot: {
@@ -55,76 +55,31 @@ export default class MasterManager {
     return MasterManager.instance;
   }
 
-  private initRefreshUtility(timeout?: number) {
-    setTimeout(
-      async () => {
-        const scheduler = await Scheduler.getInstance();
-        const canRefresh = !scheduler.isRunning() || scheduler.canSafelyRefresh();
+  // private initRefreshUtility(timeout?: number) {
+  //   setTimeout(
+  //     async () => {
+  //       const scheduler = await Scheduler.getInstance();
+  //       const canRefresh = !scheduler.isRunning() || scheduler.canSafelyRefresh();
 
-        if (canRefresh) {
-          console.log('canRefresh, will refresh', canRefresh);
-          console.log(
-            'timeout ?? this.config.general.applicationRefreshInterval',
-            timeout ?? this.config.general.applicationRefreshInterval,
-          );
-          console.log('this.config.general.applicationRefreshInterval', this.config.general.applicationRefreshInterval);
-          this.config.general.forcedRefresh = true;
-          ConfigManager.getInstance().persistConfig();
-          await addDelay(10000);
-          window.location.reload();
-        } else {
-          console.log('canRefresh', canRefresh);
-          this.initRefreshUtility(5 * 1000 * 60);
-        }
-      },
-      timeout ?? (this.config.general.applicationRefreshInterval + (Math.floor(Math.random() * 121) - 60)) * 1000,
-    );
-  }
-
-  // id="recaptcha_window"
-  // document.querySelector('[class="recaptcha-checkbox-border"]')
-  // document.querySelector('#recaptcha_window [class="caption js-caption"]').click()
-  private initCaptchaPrevention() {
-    new MutationObserver(async mutations => {
-      for (const mutation of mutations) {
-        if (mutation.type === 'childList') {
-          const recaptchaWindow = document.querySelector('#recaptcha_window');
-          const captchaCurtain = document.querySelector('#captcha_curtain');
-          if (recaptchaWindow) {
-            const recaptchaWindowCount = Number(localStorage.getItem('recaptchaWindow') ?? 0);
-            localStorage.setItem('recaptchaWindow', (recaptchaWindowCount + 1).toString());
-            const checkbox = recaptchaWindow.querySelector<HTMLElement>('[class="recaptcha-checkbox-border"]');
-            if (checkbox) {
-              await addDelay(4000);
-              checkbox.click();
-              const caption = recaptchaWindow.querySelector<HTMLElement>(
-                '#recaptcha_window [class="caption js-caption"]',
-              );
-              if (caption) {
-                await addDelay(4000);
-                caption.click();
-              }
-            }
-          } else if (captchaCurtain) {
-            const captchaCurtainCount = Number(localStorage.getItem('captchaCurtain') ?? 0);
-            localStorage.setItem('captchaCurtain', (captchaCurtainCount + 1).toString());
-            const checkbox = captchaCurtain.querySelector<HTMLElement>('[class="captcha-checkbox-border"]');
-            if (checkbox) {
-              await addDelay(2000);
-              checkbox.click();
-              const caption = captchaCurtain.querySelector<HTMLElement>(
-                '#captcha_curtain [class="caption js-caption"]',
-              );
-              if (caption) {
-                await addDelay(2000);
-                caption.click();
-              }
-            }
-          }
-        }
-      }
-    }).observe(document.body, { childList: true });
-  }
+  //       if (canRefresh) {
+  //         console.log('canRefresh, will refresh', canRefresh);
+  //         console.log(
+  //           'timeout ?? this.config.general.applicationRefreshInterval',
+  //           timeout ?? this.config.general.applicationRefreshInterval,
+  //         );
+  //         console.log('this.config.general.applicationRefreshInterval', this.config.general.applicationRefreshInterval);
+  //         this.config.general.forcedRefresh = true;
+  //         ConfigManager.getInstance().persistConfig();
+  //         await addDelay(10000);
+  //         window.location.reload();
+  //       } else {
+  //         console.log('canRefresh', canRefresh);
+  //         this.initRefreshUtility(5 * 1000 * 60);
+  //       }
+  //     },
+  //     timeout ?? (this.config.general.applicationRefreshInterval + (Math.floor(Math.random() * 121) - 60)) * 1000,
+  //   );
+  // }
 
   private async runManagersFromConfig(configChanges?: TConfigChanges): Promise<void> {
     console.log('runManagersFromConfig', configChanges);
@@ -139,7 +94,7 @@ export default class MasterManager {
     }
 
     // scheduler first because if it needs to perform anything straight away then it must block the rest
-    if (this.configMenuWindow.isSchedulerChecked()) {
+    if (this.config.general.scheduler) {
       if (!this.scheduler.isRunning()) {
         console.log('Scheduler will be started...');
         this.scheduler.start();
@@ -150,7 +105,7 @@ export default class MasterManager {
         this.scheduler.stop();
       }
     }
-    if (this.configMenuWindow.isMasterQueueChecked()) {
+    if (this.config.general.masterQueue) {
       if (!this.masterQueue.isRunning()) {
         console.log('MasterQueue will be started...');
         this.masterQueue.start();
@@ -161,7 +116,7 @@ export default class MasterManager {
         this.masterQueue.stop();
       }
     }
-    if (this.configMenuWindow.isBuilderChecked()) {
+    if (this.config.general.builder) {
       if (!this.builder.isRunning()) {
         console.log('Builder will be started...');
         this.builder.start();
@@ -172,7 +127,7 @@ export default class MasterManager {
         this.builder.stop();
       }
     }
-    if (this.configMenuWindow.isFarmChecked()) {
+    if (this.config.general.farm) {
       if (!this.farmManager.isRunning()) {
         console.log('FarmManager will be started...');
         await this.farmManager.start();
@@ -183,7 +138,7 @@ export default class MasterManager {
         this.farmManager.stop();
       }
     }
-    if (this.configMenuWindow.isRecruiterChecked()) {
+    if (this.config.general.recruiter) {
       if (!this.recruiter.isRunning()) {
         console.log('Recruiter will be started...');
         this.recruiter.start();
@@ -197,11 +152,21 @@ export default class MasterManager {
   }
 
   private async initConfigDialog() {
-    this.configMenuWindow = new ConfigPopup();
-    this.configMenuWindow.addListener('managersChange', async (configChanges: TConfigChanges) => {
+    /*
+     TODO: tutaj zostanie przekazana instancja klasy renderującej konfiguracji każdego menadżera
+     w taki sposób, że config popup będzie nieświadomy konfiguracji żadnego z menadżerów, będzie tylko renderował ich własny UI
+     oraz poinformuje master-managera i submicie okna. Następnie master-manager poinformuje każdego z managerów (w odpowiedniej kolenojści)
+     o tym by się dostosowały do zmian.
+     */
+    this.configPopupWindow = useConfigPopup();
+    this.configPopupWindow.addListener('managersChange', async (configChanges: TConfigChanges) => {
       await this.runManagersFromConfig(configChanges);
     });
-    await this.configMenuWindow.render();
+    /*
+    NOTE: na ten moment utility samo decyduje jak renderować ustawienia każdego z managerów (w tym posługuje się np CitySwitchem), 
+    samo komunikuje się z configManagerem by zapisać zmiany itp.
+    */
+    await this.configPopupWindow.mount(this.config);
 
     if (this.config.general.forcedRefresh || getCookie('forceRestart')) {
       console.log('forcedRefresh/forceRestart', this.config.general.forcedRefresh, getCookie('forceRestart'));
@@ -211,7 +176,7 @@ export default class MasterManager {
       this.config.farmConfig.farmInterval = FarmTimeInterval.FirstOption;
       ConfigManager.getInstance().persistConfig();
 
-      this.configMenuWindow.minimize();
+      this.configPopupWindow.minimize();
       await this.runManagersFromConfig();
     }
   }

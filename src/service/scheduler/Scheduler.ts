@@ -8,7 +8,7 @@ import { TConfigChanges } from '../../config-popup/config-popup';
 import ConfigManager from '../../utility/config-manager';
 import { addDelay, HHMMSS_toMS, msToHHMMSS, waitWhile } from '../../utility/plain-utility';
 import Service from '../../utility/Service';
-import Lock from '../../utility/ui-lock';
+import Lock, { LockHandle } from '../../utility/ui-lock';
 import { setInputValue, waitForElement, waitForElementInterval } from '../../utility/ui-utility';
 import ArmyMovement from '../army/army-movement';
 import CharmsUtility, { CharmDetails } from '../charms/charms-utility';
@@ -248,6 +248,7 @@ export default class Scheduler implements Service<'scheduler'> {
    * -zwrócenie info o efekcie pracy: successCallback / failureCallback
    */
   private async activateSchedule(item: ScheduleItem) {
+    let lockHandle!: LockHandle;
     try {
       await new Promise((res, rej) => {
         item.actionTimeout = setTimeout(
@@ -266,7 +267,8 @@ export default class Scheduler implements Service<'scheduler'> {
                 })}`,
               );
             } else {
-              await this.lock.forceAcquire({ method: 'activateSchedule', manager: 'scheduler' });
+              // await this.lock.forceAcquire({ method: 'activateSchedule', manager: 'scheduler' });
+              lockHandle = await this.lock.acquire({ method: 'activateSchedule', manager: 'scheduler', forced: true });
               this.generalInfo.showInfo(
                 'Scheduler: ',
                 `performing "${item.operationType}" on city "${item.targetCityDetails.name}" at: ${new Date(
@@ -287,7 +289,12 @@ export default class Scheduler implements Service<'scheduler'> {
               async () => {
                 // if previous timeout was switching off the managers, then this one should acquire LOCK and perform preparation
                 if (item.timeDetails.switchesOffManagers) {
-                  await this.lock.forceAcquire({ method: 'activateSchedule', manager: 'scheduler' });
+                  // await this.lock.forceAcquire({ method: 'activateSchedule', manager: 'scheduler' });
+                  lockHandle = await this.lock.acquire({
+                    method: 'activateSchedule',
+                    manager: 'scheduler',
+                    forced: true,
+                  });
                   this.generalInfo.showInfo(
                     'Scheduler: ',
                     `performing "${item.operationType}" on city "${item.targetCityDetails.name} at: ${new Date(
@@ -337,7 +344,7 @@ export default class Scheduler implements Service<'scheduler'> {
                   item.actionTimeout = timeoutId;
                 };
 
-                this.armyMovement.execute(item, {
+                await this.armyMovement.execute(item, {
                   assignTimeout,
                   successCallback,
                   failureCallback,
@@ -364,7 +371,8 @@ export default class Scheduler implements Service<'scheduler'> {
       await this.postActionCleanup(item);
     } finally {
       this.generalInfo.hideInfo();
-      this.lock.release();
+      lockHandle.release();
+      // this.lock.release();
       this.tryRestoreManagers();
     }
   }

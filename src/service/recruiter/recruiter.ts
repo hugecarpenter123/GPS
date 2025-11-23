@@ -558,22 +558,27 @@ export default class Recruiter implements Service<'recruiter'> {
     };
   }
 
+  // TODO: check this Lock rework, potentially move trycount try,catch into performWithLock clb
   private async tryRecruitOrStackResources(operationDetails: ScheduleOperationDetails<RecruiterQueueItem>) {
     try {
-      await this.lock.acquire({ method: 'tryRecruitOrStackResources', manager: 'recruiter' });
-      GeneralInfo.getInstance().showInfo('Recruiter:', 'Rekrutacja/stakowanie surowców do rekrutacji');
-      await operationDetails.city.switchAction();
-      await this.performRecruitOrStackResources(operationDetails);
-      this.tryCount = 0;
+      await this.lock.performWithLock(
+        async () => {
+          GeneralInfo.getInstance().showInfo('Recruiter:', 'Rekrutacja/stakowanie surowców do rekrutacji');
+          await operationDetails.city.switchAction();
+          await this.performRecruitOrStackResources(operationDetails);
+          this.tryCount = 0;
+        },
+        { method: 'tryRecruitOrStackResources', manager: 'recruiter' },
+      );
     } catch (e) {
       console.warn('tryRecruitOrStackResources.catch:', e);
+      // NOTE: count may be bad logic
       this.tryCount++;
       if (this.tryCount < 3) {
-        this.performRecruitOrStackResources(operationDetails);
+        this.tryRecruitOrStackResources(operationDetails);
       }
     } finally {
       GeneralInfo.getInstance().hideInfo();
-      this.lock.release();
     }
   }
 

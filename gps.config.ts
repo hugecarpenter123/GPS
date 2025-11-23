@@ -32,9 +32,7 @@ const config = {
     recruiter: true,
     scheduler: true,
   },
-  builder: {
-    minimumTracking: true,
-  },
+  builder: {},
   scheduler: {},
 };
 

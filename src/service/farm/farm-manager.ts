@@ -93,48 +93,153 @@ export default class FarmManager extends EventEmitter {
   public async farmWithCaptain(scheduled: boolean = false) {
     let dialogsSnapshot: Element[] = [];
     try {
-      await this.lock.acquire({ method: 'farmWithCaptain', manager: 'farmManager' });
-      this.generalInfo.showInfo('Farm Manager:', 'Farmienie z kapitanem.');
-      console.log('farmWithCaptain at ', new Date());
+      await this.lock.performWithLock(
+        async () => {
+          this.generalInfo.showInfo('Farm Manager:', 'Farmienie z kapitanem.');
+          console.log('farmWithCaptain at ', new Date());
 
-      // checking opened dialogs to find know which will be opened
-      dialogsSnapshot = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
-      // end of checking opened dialogs
+          // checking opened dialogs to find know which will be opened
+          dialogsSnapshot = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
+          // end of checking opened dialogs
 
-      // opening farm overview
-      document.querySelector<HTMLElement>('[name="farm_town_overview"]')!.click();
-      this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
-      await waitWhile(() => !document.querySelector<HTMLElement>('#fto_town_list'), { delay: 200, maxIterations: 5 });
-      // end of opening farm overview
+          // opening farm overview
+          document.querySelector<HTMLElement>('[name="farm_town_overview"]')!.click();
+          this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
+          await waitWhile(() => !document.querySelector<HTMLElement>('#fto_town_list'), {
+            delay: 200,
+            maxIterations: 5,
+          });
+          // end of opening farm overview
 
-      // checking if there is a cooldown
-      {
-        if (!document.querySelector('.fto_town.active')) {
-          document.querySelector<HTMLElement>('.fto_town')!.click();
-        }
-        let cooldownWrapper = await waitForElementInterval('.ribbon_wrapper', { retries: 10, interval: 200 }).catch(
-          () => {
-            throw new InfoError('cooldownWrapper not found, cannot proceed', {
-              browserState: getBrowserStateSnapshot(),
-              elementState: getElementStateSnapshot(document.querySelector<HTMLElement>('.ribbon_wrapper')!),
-            });
-          },
-        );
+          // checking if there is a cooldown
+          {
+            if (!document.querySelector('.fto_town.active')) {
+              document.querySelector<HTMLElement>('.fto_town')!.click();
+            }
+            let cooldownWrapper = await waitForElementInterval('.ribbon_wrapper', { retries: 10, interval: 200 }).catch(
+              () => {
+                throw new InfoError('cooldownWrapper not found, cannot proceed', {
+                  browserState: getBrowserStateSnapshot(),
+                  elementState: getElementStateSnapshot(document.querySelector<HTMLElement>('.ribbon_wrapper')!),
+                });
+              },
+            );
 
-        if (!cooldownWrapper.classList.contains('hidden')) {
-          console.log('cooldownWrapper found, not hidden');
-          let cooldownTimeTextParsed;
-          while (
-            !(cooldownTimeTextParsed = cooldownWrapper
-              .querySelector('.ribbon_locked .unlock_time')
-              ?.textContent?.match(/\d{2}:\d{2}:\d{2}/)?.[0])
-          ) {
-            await addDelay(250);
+            if (!cooldownWrapper.classList.contains('hidden')) {
+              console.log('cooldownWrapper found, not hidden');
+              let cooldownTimeTextParsed;
+              while (
+                !(cooldownTimeTextParsed = cooldownWrapper
+                  .querySelector('.ribbon_locked .unlock_time')
+                  ?.textContent?.match(/\d{2}:\d{2}:\d{2}/)?.[0])
+              ) {
+                await addDelay(250);
+              }
+              const timeout =
+                calculateTimeToNextOccurrence(cooldownTimeTextParsed!) + this.config.general.timeDifference + 1000;
+              const scheduledDate = new Date(Date.now() + timeout);
+
+              console.log('schedule next farming operation for captain on:', scheduledDate);
+              const scheduleTimeout = setTimeout(() => {
+                console.log('performing scheduled farming operation for captain, at:', dateToHHMMSS(new Date()));
+                this.farmWithCaptain(true);
+              }, timeout);
+
+              this.captainScheduler = {
+                scheduledDate,
+                timeout: scheduleTimeout,
+              };
+              return;
+            }
           }
-          const timeout =
-            calculateTimeToNextOccurrence(cooldownTimeTextParsed!) + this.config.general.timeDifference + 1000;
-          const scheduledDate = new Date(Date.now() + timeout);
+          // end of checking if there is a cooldown
 
+          while (
+            document.querySelector<HTMLElement>('#fto_town_wrapper .button.button_new')?.classList.contains('disabled')
+          ) {
+            await addDelay(100);
+          }
+
+          // selecting cities
+          console.log('clicked select all');
+          await waitForElementInterval('#fto_town_wrapper .checkbox.select_all', { retries: 4, interval: 500 })
+            .then(el => el.click())
+            .then(async () => {
+              while (
+                !document
+                  .querySelector<HTMLElement>('#fto_town_wrapper .checkbox.select_all')
+                  ?.classList.contains('checked')
+              ) {
+                await addDelay(100);
+              }
+            });
+          this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
+
+          const allCityLabels = document.querySelectorAll<HTMLElement>(`#fto_town_wrapper .gp_town_link`);
+          for (const city of this.config.farmConfig.farmingCities) {
+            for (const cityLabel of allCityLabels) {
+              if (cityLabel.textContent === city.name) {
+                const checbkox = cityLabel.parentElement!.querySelector<HTMLElement>('.checkbox.town_checkbox')!;
+                if (!checbkox.classList.contains('checked')) {
+                  console.log('clicking town checkbox', city.name);
+                  checbkox.click();
+                  await addDelay(100);
+                  break;
+                }
+              }
+            }
+          }
+          // end of selecting cities
+
+          //selecting farm option
+          console.log('select farm options');
+          await addDelay(500);
+          const farmOptions = document.querySelectorAll<HTMLElement>('.fto_time_checkbox')!;
+          const farmOptionIndex = this.getFarmOptionIndex()!;
+          !farmOptions[farmOptionIndex].classList.contains('checked') && farmOptions[farmOptionIndex].click();
+          this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : await addDelay(100);
+          !farmOptions[farmOptionIndex + 4]?.classList.contains('checked') && farmOptions[farmOptionIndex + 4]?.click();
+          this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : await addDelay(100);
+          // end of selecting farm option
+
+          // collecting resources
+          console.log('collecting resources');
+          // document.querySelector<HTMLElement>('#fto_claim_button')!.click();
+          await waitForElementInterval('#fto_claim_button', { retries: 4, interval: 400 })
+            .then(el => el.click())
+            .catch(() => {
+              throw new Error('collecting resources failed, no button found');
+            });
+          this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
+          // end of collecting resources
+
+          // potentially confirm click confirm button
+          await waitForElementInterval('.btn_confirm.button_new', { retries: 5, interval: 400 })
+            .then(el => el.click())
+            .catch(() => null);
+          // end of confirm button click
+
+          // finding new cooldown
+          console.log('finding new cooldown');
+          let newCooldownParsedTimeText;
+          let counter = 0;
+          while (
+            !(newCooldownParsedTimeText = document
+              .querySelector('.ribbon_wrapper .ribbon_locked .unlock_time')
+              ?.textContent?.trim()
+              .match(/\d{2}:\d{2}:\d{2}/)?.[0]) &&
+            counter < 5
+          ) {
+            await addDelay(400);
+            counter++;
+          }
+          if (counter === 8) throw new Error('new cooldown not found, cannot schedule properly');
+          // end of finding new cooldown
+
+          // calculating time to next occurrence
+          const timeout =
+            calculateTimeToNextOccurrence(newCooldownParsedTimeText!) + this.config.general.timeDifference + 1000;
+          const scheduledDate = new Date(Date.now() + timeout);
           console.log('schedule next farming operation for captain on:', scheduledDate);
           const scheduleTimeout = setTimeout(() => {
             console.log('performing scheduled farming operation for captain, at:', dateToHHMMSS(new Date()));
@@ -145,109 +250,13 @@ export default class FarmManager extends EventEmitter {
             scheduledDate,
             timeout: scheduleTimeout,
           };
-          return;
-        }
-      }
-      // end of checking if there is a cooldown
 
-      while (
-        document.querySelector<HTMLElement>('#fto_town_wrapper .button.button_new')?.classList.contains('disabled')
-      ) {
-        await addDelay(100);
-      }
-
-      // selecting cities
-      console.log('clicked select all');
-      await waitForElementInterval('#fto_town_wrapper .checkbox.select_all', { retries: 4, interval: 500 })
-        .then(el => el.click())
-        .then(async () => {
-          while (
-            !document
-              .querySelector<HTMLElement>('#fto_town_wrapper .checkbox.select_all')
-              ?.classList.contains('checked')
-          ) {
-            await addDelay(100);
-          }
-        });
-      this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
-
-      const allCityLabels = document.querySelectorAll<HTMLElement>(`#fto_town_wrapper .gp_town_link`);
-      for (const city of this.config.farmConfig.farmingCities) {
-        for (const cityLabel of allCityLabels) {
-          if (cityLabel.textContent === city.name) {
-            const checbkox = cityLabel.parentElement!.querySelector<HTMLElement>('.checkbox.town_checkbox')!;
-            if (!checbkox.classList.contains('checked')) {
-              console.log('clicking town checkbox', city.name);
-              checbkox.click();
-              await addDelay(100);
-              break;
-            }
-          }
-        }
-      }
-      // end of selecting cities
-
-      //selecting farm option
-      console.log('select farm options');
-      await addDelay(500);
-      const farmOptions = document.querySelectorAll<HTMLElement>('.fto_time_checkbox')!;
-      const farmOptionIndex = this.getFarmOptionIndex()!;
-      !farmOptions[farmOptionIndex].classList.contains('checked') && farmOptions[farmOptionIndex].click();
-      this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : await addDelay(100);
-      !farmOptions[farmOptionIndex + 4]?.classList.contains('checked') && farmOptions[farmOptionIndex + 4]?.click();
-      this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : await addDelay(100);
-      // end of selecting farm option
-
-      // collecting resources
-      console.log('collecting resources');
-      // document.querySelector<HTMLElement>('#fto_claim_button')!.click();
-      await waitForElementInterval('#fto_claim_button', { retries: 4, interval: 400 })
-        .then(el => el.click())
-        .catch(() => {
-          throw new Error('collecting resources failed, no button found');
-        });
-      this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
-      // end of collecting resources
-
-      // potentially confirm click confirm button
-      await waitForElementInterval('.btn_confirm.button_new', { retries: 5, interval: 400 })
-        .then(el => el.click())
-        .catch(() => null);
-      // end of confirm button click
-
-      // finding new cooldown
-      console.log('finding new cooldown');
-      let newCooldownParsedTimeText;
-      let counter = 0;
-      while (
-        !(newCooldownParsedTimeText = document
-          .querySelector('.ribbon_wrapper .ribbon_locked .unlock_time')
-          ?.textContent?.trim()
-          .match(/\d{2}:\d{2}:\d{2}/)?.[0]) &&
-        counter < 5
-      ) {
-        await addDelay(400);
-        counter++;
-      }
-      if (counter === 8) throw new Error('new cooldown not found, cannot schedule properly');
-      // end of finding new cooldown
-
-      // calculating time to next occurrence
-      const timeout =
-        calculateTimeToNextOccurrence(newCooldownParsedTimeText!) + this.config.general.timeDifference + 1000;
-      const scheduledDate = new Date(Date.now() + timeout);
-      console.log('schedule next farming operation for captain on:', scheduledDate);
-      const scheduleTimeout = setTimeout(() => {
-        console.log('performing scheduled farming operation for captain, at:', dateToHHMMSS(new Date()));
-        this.farmWithCaptain(true);
-      }, timeout);
-
-      this.captainScheduler = {
-        scheduledDate,
-        timeout: scheduleTimeout,
-      };
-
-      console.log('farmManager.farmWithCaptain.succesfullSnapchot', getBrowserStateSnapshot());
+          console.log('farmManager.farmWithCaptain.succesfullSnapchot', getBrowserStateSnapshot());
+        },
+        {
+          manager: 'farmManager',
+        },
+      );
     } catch (e) {
       if (e instanceof InfoError) {
         console.warn('FarmManager.farmWithCaptain().catch', e.message, e.details, 'will reschedule in 2 minutes');
@@ -267,7 +276,6 @@ export default class FarmManager extends EventEmitter {
       console.log('captain scheduler:', this.captainScheduler);
       this.tryCloseCurrentDialog(Array.from(dialogsSnapshot));
       this.generalInfo.hideInfo();
-      this.lock.release();
     }
   }
 
@@ -309,17 +317,20 @@ export default class FarmManager extends EventEmitter {
   private async farmVillages(city: CityInfo) {
     try {
       console.log('farmVillages, wait for lock', city.name);
-      await this.lock.acquire();
-      this.generalInfo.showInfo('Farm Manager:', `farmienie w mieście: ${city.name}`);
-      console.log('farmVillages, take lock', city.name);
-      await this.farmVillagesFlow(city);
+      await this.lock.performWithLock(
+        async () => {
+          this.generalInfo.showInfo('Farm Manager:', `farmienie w mieście: ${city.name}`);
+          console.log('farmVillages, take lock', city.name);
+          await this.farmVillagesFlow(city);
+        },
+        { manager: 'farmManager' },
+      );
     } catch (e) {
       console.warn('FarmManager.farmVillages().catch', e);
     } finally {
       this.disconnectObservers();
       console.log('farmVillages, release lock', city.name);
       this.generalInfo.hideInfo();
-      this.lock.release();
       this.emit('farmingFinished');
     }
   }
@@ -432,18 +443,21 @@ export default class FarmManager extends EventEmitter {
 
       try {
         console.log('initFarmAllVillages, wait for lock', new Date());
-        await this.lock.acquire({ method: 'initFarmAllVillages', manager: 'farmManager' });
-        this.generalInfo.showInfo('Farm Manager:', 'Inicjalizacja/farmienie wszystkich wiosek.');
-        console.log('initFarmAllVillages, take lock', new Date());
-        for (const cityInfo of cityList) {
-          await this.farmVillagesFlow(cityInfo);
-        }
-        if (cityList.length !== 1) await cityList[0].switchAction();
+        await this.lock.performWithLock(
+          async () => {
+            this.generalInfo.showInfo('Farm Manager:', 'Inicjalizacja/farmienie wszystkich wiosek.');
+            console.log('initFarmAllVillages, take lock', new Date());
+            for (const cityInfo of cityList) {
+              await this.farmVillagesFlow(cityInfo);
+            }
+            if (cityList.length !== 1) await cityList[0].switchAction();
+          },
+          { manager: 'farmManager' },
+        );
       } catch (e) {
         console.warn('FarmManager.initFarmAllVillages().catch', e);
       } finally {
         this.generalInfo.hideInfo();
-        this.lock.release();
         this.messageDialogObserver?.disconnect();
         this.emit('farmingFinished');
       }

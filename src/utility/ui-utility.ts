@@ -392,3 +392,30 @@ export function performComplexInput(inputElement: HTMLElement, value: string) {
     inputElement.dispatchEvent(keyupEvent);
   }
 }
+
+export class OperationTimedOutError extends Error {
+  constructor(message: string = 'Operation timed out') {
+    super(message);
+    this.name = 'OperationTimedOutError';
+  }
+}
+
+/**
+ * Wrapper around operation that which throws error if it takes more than or equal 5 minutes.
+ * @param fn - operation which is to be wrapped
+ * @throws OperationTimedOutError
+ * @returns
+ */
+export const executionWrapper = <T>(
+  fn: () => Promise<T> | T,
+  config: { timeoutMs: number } = { timeoutMs: 300000 },
+) => {
+  return Promise.race([
+    new Promise((_, rej) => {
+      setTimeout(() => {
+        rej(new OperationTimedOutError('Operation timed out'));
+      }, config.timeoutMs);
+    }),
+    fn,
+  ]);
+};

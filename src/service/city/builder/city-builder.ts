@@ -4,15 +4,8 @@ import ConfigManager from '../../../utility/config-manager';
 import { addDelay, HHMMSS_toMS, msToFutureHHMMSS, waitWhile } from '../../../utility/plain-utility';
 import ResourceLock from '../../../utility/resource-lock';
 import Service from '../../../utility/Service';
-import Lock from '../../../utility/ui-lock';
-import {
-  cancelHover,
-  triggerHover,
-  waitForElement,
-  waitForElementFromNode,
-  waitForElementInterval,
-  waitForElements,
-} from '../../../utility/ui-utility';
+import Lock, { LockOperationCancelledError } from '../../../utility/ui-lock';
+import { cancelHover, triggerHover, waitForElement, waitForElementInterval } from '../../../utility/ui-utility';
 import MasterQueue, { ScheduleOperationDetails } from '../../master-queue/master-queue';
 import GeneralInfo from '../../master/ui/general-info';
 import ResourceManager from '../../resources/resource-manager';
@@ -75,28 +68,7 @@ export default class CityBuilder implements Service<'builder'> {
     ][];
   }
   public onConfigChange(configChanges: Partial<TConfigChanges['builder']>) {
-    const minimumTrackingChanged = configChanges.minimumTracking;
-
-    // minimum tracking change handling
-    if (minimumTrackingChanged) {
-      const minimumTracking = ConfigManager.getInstance().getConfig().builder.minimumTracking;
-      if (minimumTracking === true) {
-        this.mainQueue.forEach(citySchedule => {
-          if (citySchedule.schedule) {
-            clearInterval(citySchedule.schedule);
-            clearTimeout(citySchedule.schedule);
-            citySchedule.schedule = null;
-            citySchedule.scheduledDate = null;
-          }
-        });
-      } else {
-        if (this.RUN) {
-          this.mainQueue.forEach(cityQueue => {
-            if (!cityQueue.schedule) this.setInternalSpeedUpFlow(cityQueue.city);
-          });
-        }
-      }
-    }
+    // nothing
   }
 
   public static async getInstance(): Promise<CityBuilder> {
@@ -163,28 +135,7 @@ export default class CityBuilder implements Service<'builder'> {
    * @param configChanges
    */
   public handleBuilderConfigChange(configChanges: TConfigChanges['builder']) {
-    const minimumTrackingChanged = configChanges.minimumTracking;
-
-    // minimum tracking change handling
-    if (minimumTrackingChanged) {
-      const minimumTracking = ConfigManager.getInstance().getConfig().builder.minimumTracking;
-      if (minimumTracking === true) {
-        this.mainQueue.forEach(citySchedule => {
-          if (citySchedule.schedule) {
-            clearInterval(citySchedule.schedule);
-            clearTimeout(citySchedule.schedule);
-            citySchedule.schedule = null;
-            citySchedule.scheduledDate = null;
-          }
-        });
-      } else {
-        if (this.RUN) {
-          this.mainQueue.forEach(cityQueue => {
-            if (!cityQueue.schedule) this.setInternalSpeedUpFlow(cityQueue.city);
-          });
-        }
-      }
-    }
+    // nothing
   }
 
   private initToggleButton() {
@@ -416,21 +367,29 @@ export default class CityBuilder implements Service<'builder'> {
 
       const executionCallback = async () => {
         try {
-          await this.lock.acquire({
-            method: operationDetails.city.name + ' - setTimeoutForNextSpeedUpAndSchedule (inside timeout)',
-            manager: 'builder',
-          });
-          console.log('setTimeoutForNextSpeedUpAndSchedule() inside timeout');
-          console.log('\t-speed up first build');
-          await this.speedUpFirstBuild(operationDetails.city);
-          console.log('\t-performBuildSchedule');
-          await this.performBuildSchedule(operationDetails);
+          await this.lock.performWithLock(
+            async () => {
+              console.log('setTimeoutForNextSpeedUpAndSchedule() inside timeout');
+              console.log('\t-speed up first build');
+              await this.speedUpFirstBuild(operationDetails.city);
+              console.log('\t-performBuildSchedule');
+              await this.performBuildSchedule(operationDetails);
+            },
+            {
+              manager: 'builder',
+              id: operationDetails.id,
+              details: 'method: setTimeoutForSpeedUpAndPerformBuildSchedule',
+              forced: false,
+            },
+          );
         } catch (e) {
-          console.warn('CityBuilder.setTimeoutForNextSpeedUpAndSchedule().catch', e);
-          console.log('\t-retrying by calling handleBuildSchedule()');
-          this.handleBuildSchedule(operationDetails);
-        } finally {
-          this.lock.release();
+          if (e instanceof LockOperationCancelledError) {
+            // TODO: something?
+          } else {
+            console.warn('CityBuilder.setTimeoutForNextSpeedUpAndSchedule().catch', e);
+            console.log('\t-retrying by calling handleBuildSchedule()');
+            this.handleBuildSchedule(operationDetails);
+          }
         }
       };
       console.warn(
@@ -695,21 +654,28 @@ export default class CityBuilder implements Service<'builder'> {
       operationDetails.setScheduleTimeout(
         async () => {
           try {
-            await this.lock.acquire({
-              method: operationDetails.city.name + ' - handleResourcesStackable (inside checking timeout)',
-              manager: 'builder',
-            });
-            // this.generalInfo.showInfo('Builder:', `Przyspieszanie budowy w mieście: ${cityQueue.city.name}`);
-            await this.speedUpFirstBuild(operationDetails.city);
-            if (await resourcesCheckContition()) {
-              await performBuildActionAndCallback();
-            } else {
-              await this.handleResourcesStackableFlow(operationDetails, requiredResources, retrialTime);
-            }
+            await this.lock.performWithLock(
+              async () => {
+                // this.generalInfo.showInfo('Builder:', `Przyspieszanie budowy w mieście: ${cityQueue.city.name}`);
+                await this.speedUpFirstBuild(operationDetails.city);
+                if (await resourcesCheckContition()) {
+                  await performBuildActionAndCallback();
+                } else {
+                  await this.handleResourcesStackableFlow(operationDetails, requiredResources, retrialTime);
+                }
+              },
+              {
+                manager: 'builder',
+                id: operationDetails.id,
+                details: 'method: handleResourcesStackableFlow',
+                forced: false,
+              },
+            );
           } catch (e) {
+            if (e instanceof LockOperationCancelledError) {
+              // TODO: something?
+            }
             console.warn('CityBuilder.handleResourcesStackable().catch', e);
-          } finally {
-            this.lock.release();
           }
         },
         timeToSpeedUp,
@@ -727,19 +693,26 @@ export default class CityBuilder implements Service<'builder'> {
       operationDetails.setScheduleTimeout(
         async () => {
           try {
-            await this.lock.acquire({
-              method: operationDetails.city.name + ' - handleResourcesStackable (inside checking timeout)',
-              manager: 'builder',
-            });
-            if (await resourcesCheckContition()) {
-              await performBuildActionAndCallback();
-            } else {
-              await this.handleResourcesStackableFlow(operationDetails, requiredResources);
-            }
+            await this.lock.performWithLock(
+              async () => {
+                if (await resourcesCheckContition()) {
+                  await performBuildActionAndCallback();
+                } else {
+                  await this.handleResourcesStackableFlow(operationDetails, requiredResources);
+                }
+              },
+              {
+                manager: 'builder',
+                id: operationDetails.id,
+                details: 'method: handleResourcesStackableFlow',
+                forced: false,
+              },
+            );
           } catch (e) {
+            if (e instanceof LockOperationCancelledError) {
+              // TODO: something?
+            }
             console.warn('CityBuilder.handleResourcesStackable().catch', e);
-          } finally {
-            this.lock.release();
           }
         },
         timeToRetry,
@@ -779,17 +752,31 @@ export default class CityBuilder implements Service<'builder'> {
   }
 
   private async handleBuildSchedule(operationDetails: ScheduleOperationDetails<BuilderQueueItem>) {
+    console.log('handleBuildSchedule()');
     try {
-      await this.lock.acquire({ method: operationDetails.city.name + ' - handleBuildSchedule', manager: 'builder' });
-      this.generalInfo.showInfo('Builder:', `Obsługa kolejki w mieście: ${operationDetails.city.name}`);
-      this.clearInternalCitySchedule(operationDetails.city);
-      await this.performBuildSchedule(operationDetails);
+      await this.lock.performWithLock(
+        async () => {
+          console.log('inside operation callback');
+          this.generalInfo.showInfo('Builder:', `Obsługa kolejki w mieście: ${operationDetails.city.name}`);
+          this.clearInternalCitySchedule(operationDetails.city);
+          await this.performBuildSchedule(operationDetails);
+        },
+        {
+          manager: 'builder',
+          id: operationDetails.id,
+          details: 'method: handleBuildSchedule',
+          forced: false,
+        },
+      );
     } catch (e) {
+      console.log('handleBuildSchedule catch block:', e);
+      if (e instanceof LockOperationCancelledError) {
+        // TODO: something?
+      }
       console.warn('CityBuilder.handleBuildSchedule().catch', e);
     } finally {
-      console.log('handleBuildSchedule, release lock', operationDetails.city.name);
+      console.log('handleBuildSchedule finally block', operationDetails.city.name);
       this.generalInfo.hideInfo();
-      this.lock.release();
     }
   }
 
@@ -998,11 +985,6 @@ export default class CityBuilder implements Service<'builder'> {
   public async start() {
     this.RUN = true;
     document.getElementById(CityBuilder.toggleBuilderButtonId)!.classList.remove('hidden');
-    if (!this.config.builder.minimumTracking) {
-      this.citySwitchManager.getCityList().forEach(city => {
-        this.setInternalSpeedUpFlow(city);
-      });
-    }
   }
 
   public stop() {
