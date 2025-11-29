@@ -1,4 +1,4 @@
-/* must ble classess because elements are rendered in multiple places */
+/* must be classess because elements are rendered in multiple places */
 
 .master-queue {
   display: flex;

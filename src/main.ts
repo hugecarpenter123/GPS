@@ -1,14 +1,24 @@
 import MasterManager from './service/master/master-manager';
 import { setCookie } from './utility/plain-utility';
 import { onPageLoad } from './utility/ui-utility';
+import tailwindCssRaw from '~/styles/tailwind.css';
 
 // https://pl-play.grepolis.com/?logout=true&lps_flow=after_glps_shim
 const main = async () => {
   console.log('VERY POLITE GPS v.0.5.0 MVP walikonie special edition (c) 2024');
+
+  // master css injection
+  const tailwindCssStyle = document.createElement('style');
+  tailwindCssStyle.setAttribute('data-source', 'gps-tailwind');
+  tailwindCssStyle.textContent = tailwindCssRaw;
+  document.head.appendChild(tailwindCssStyle);
+
   const currentUrl = window.location.href;
   if (/.*grepolis.com\/game\/.*/.test(currentUrl)) {
-    const masterManager = await MasterManager.getInstance();
+    // actual boot
+    await MasterManager.getInstance();
   } else if (currentUrl.includes('start?nosession')) {
+    // TODO: for now it's not actually well implemented
     console.log('will try to reconnect in 5 minutes');
     setInterval(
       () => {

@@ -185,7 +185,7 @@ const SchedulerTable: React.FC<SchedulerTableProps> = ({ scheduleList, onCancel,
                         <div class="scheduler-army-details-container">
                           {schedule.armyDetails.map(({ value, name }) => (
                             <div class={`scheduler-army-details-item`}>
-                              <div class={`unit_icon50x50 ${name} scheduler-army-details-item-bg `} />
+                              <div class={`unit_icon50x50 ${name} scheduler-army-details-item-bg`} />
                               <span class="scheduler-army-details-item-caption">{value}</span>
                             </div>
                           ))}

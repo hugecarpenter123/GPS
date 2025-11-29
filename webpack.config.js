@@ -1,6 +1,10 @@
-const path = require('path');
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-module.exports = {
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+export default {
   mode: 'production',
   entry: './src/main.ts',
   module: {
@@ -17,7 +21,17 @@ module.exports = {
       },
       {
         test: /\.css$/i,
-        use: 'raw-loader',
+        use: [
+          'raw-loader',
+          {
+            loader: 'postcss-loader',
+            options: {
+              postcssOptions: {
+                config: path.resolve(__dirname, 'postcss.config.js'),
+              },
+            },
+          },
+        ],
       },
       {
         test: /\.html$/i,
@@ -34,7 +48,7 @@ module.exports = {
     },
     fullySpecified: false,
     fallback: {
-      events: require.resolve('events/'),
+      events: 'events/',
     },
   },
   output: {
