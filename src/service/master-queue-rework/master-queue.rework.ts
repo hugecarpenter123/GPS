@@ -13,12 +13,10 @@ import gpsConfig from '../../../gps.config';
 import ConfigManager from '../../utility/config-manager';
 import ResourceLock from '../../utility/resource-lock';
 import Service from '../../utility/Service';
-import { BuilderQueueItem } from '../city/builder/city-builder';
 import CitySwitchManager, { CityInfo } from '../city/city-switch-manager';
-import { RecruiterQueueItem } from '../recruiter/recruiter';
-import masterQueueTableCss from './master-queue-table.css';
-import masterQueueTableHtml from './master-queue-table.prod.html';
-import masterQueueCss from './master-queue.css';
+import useInlineQueueNavigation from './inline-queue-navigation';
+import useMasterQueueInline, { componentName, MasterQueueInlineUtility } from './master-queue-inline';
+import useMasterQueueTable, { MasterQueueTableUtility } from './master-queue-table';
 
 export enum QueuePriority {
   High = 'high',
@@ -135,6 +133,8 @@ export default class MasterQueue extends EventEmitter implements Service<'master
   private cityChangeListener?: (city: CityInfo) => void;
   private resourcesWhiteList: CityInfo[] = [];
   private executors: Map<QueueItemType, QueueExecutor<any>> = new Map();
+  private tableUIUtility!: MasterQueueTableUtility;
+  private queueInlineUIUtility!: MasterQueueInlineUtility;
 
   private constructor() {
     super();
@@ -176,102 +176,54 @@ export default class MasterQueue extends EventEmitter implements Service<'master
 
   private async init() {
     this.loadSchedule();
-    this.addCSS();
-    this.addTable();
+    this.loadUI();
   }
 
-  private addCSS() {
-    const queueStyle = document.createElement('style');
-    queueStyle.textContent = masterQueueCss;
-    document.head.appendChild(queueStyle);
-
-    const tableStyle = document.createElement('style');
-    tableStyle.textContent = masterQueueTableCss;
-    document.head.appendChild(tableStyle);
-  }
-
-  private addTable() {
-    const tableWrapper = document.createElement('div');
-    document.body.appendChild(tableWrapper);
-    tableWrapper.outerHTML = masterQueueTableHtml;
-    const tableContainer = document.getElementById(MasterQueue.TABLE_CONTAINER_ID)!;
-    const table = document.getElementById(MasterQueue.TABLE_ID)!;
-    const tableFooter = document.querySelector<HTMLElement>(`#${MasterQueue.TABLE_FOOTER_ID}`)!;
-    this.getNavigation('master', tableFooter);
-    document
-      .querySelector<HTMLButtonElement>(`#${MasterQueue.TABLE_TOGGLE_BUTTON_ID}`)!
-      .addEventListener('click', () => {
-        if (tableContainer.hidden) {
-          this.rerenderTable();
-          tableContainer.hidden = false;
-        } else {
-          tableContainer.hidden = true;
+  private loadUI() {
+    this.tableUIUtility = useMasterQueueTable();
+    this.tableUIUtility.mount(null, {
+      initialQueue: this.queue,
+      onRunAll: async () => {
+        for (const citySchedule of this.queue) {
+          this.safeRunCitySchedule(citySchedule);
         }
-      });
-    document.getElementById(MasterQueue.TABLE_CLOSE_BUTTON_ID)!.addEventListener('click', () => {
-      tableContainer.hidden = true;
+        this.tableUIUtility!.update(this.queue);
+      },
+      onResetAll: async () => {
+        this.rerunAllCitySchedules();
+        this.tableUIUtility!.update(this.queue);
+      },
+      onDeleteAll: () => {
+        this.deleteAllSchedules();
+        this.tableUIUtility!.update(this.queue);
+      },
+      onPauseAll: () => {
+        this.pauseAllSchedules();
+        this.tableUIUtility!.update(this.queue);
+      },
+      onRunCity: async (citySchedule: CitySchedule) => {
+        await this.safeRunCitySchedule(citySchedule);
+        this.tableUIUtility!.update(this.queue);
+      },
+      onRestartCity: async (citySchedule: CitySchedule) => {
+        this.stopAllCityScheduleActions(citySchedule);
+        await this.safeRunCitySchedule(citySchedule);
+        this.tableUIUtility!.update(this.queue);
+      },
+      onPauseCity: (citySchedule: CitySchedule) => {
+        this.stopAllCityScheduleActions(citySchedule);
+        this.tableUIUtility!.update(this.queue);
+      },
+      onDeleteCity: (citySchedule: CitySchedule) => {
+        this.clearAndRemoveCitySchedule(citySchedule);
+        this.tableUIUtility!.update(this.queue);
+      },
+      onDeleteItem: (citySchedule: CitySchedule, item: QueueItem) => {
+        this.removeItem(citySchedule.city, item);
+        this.tableUIUtility!.update(this.queue);
+      },
     });
-  }
-
-  // OPTIMIZATION: potentially add "is table opened" condition to rerendering + force argument to bypass that
-  private rerenderTable() {
-    // TODO: also wtf is this? why this check?
-    const tableBody = document.querySelector<HTMLTableSectionElement>(`#${MasterQueue.TABLE_ID} .tbody`);
-    if (!tableBody) return;
-
-    const isTableEmpty = this.queue.filter(citySchedule => citySchedule.queue.length > 0).length === 0;
-    console.log('isTableEmpty:', isTableEmpty);
-    const tableFooter = document.getElementById(MasterQueue.TABLE_FOOTER_ID)!;
-    if (isTableEmpty) {
-      tableFooter.hidden = true;
-    } else {
-      tableFooter.hidden = false;
-    }
-
-    tableBody.innerHTML = `
-    <div class="tr ${isTableEmpty ? '' : 'hidden'}" id="${MasterQueue.TABLE_EMPTY_ID}">
-      <div class="td no-schedules">No schedules</div>
-    </div>`;
-
-    // then hydrate table
-    for (const citySchedule of this.queue) {
-      if (citySchedule.queue.length === 0) continue;
-      const row = document.createElement('div');
-      row.classList.add('tr');
-      row.dataset.city = citySchedule.city.name;
-
-      // city Cell
-      const cityCell = document.createElement('div');
-      cityCell.classList.add('td');
-      cityCell.textContent = citySchedule.city.name;
-      row.appendChild(cityCell);
-
-      // queue Cell
-      const queueCell = document.createElement('div');
-      queueCell.classList.add('td');
-      const queueCellContent = document.createElement('div');
-      queueCellContent.classList.add('queue-cell');
-      this.createUIQueueItems(queueCellContent, citySchedule);
-      queueCell.appendChild(queueCellContent);
-      row.appendChild(queueCell);
-
-      // state Cell
-      const stateCell = document.createElement('div');
-      stateCell.classList.add('td');
-      stateCell.classList.add('master-queue-state');
-      stateCell.classList.add(citySchedule.currentAction ? 'running' : 'idle');
-      stateCell.textContent = citySchedule.currentAction ? 'Running' : 'Idle';
-      row.appendChild(stateCell);
-
-      // actions Cell
-      const actionsCell = document.createElement('div');
-      actionsCell.classList.add('td');
-      actionsCell.classList.add('master-queue-actions');
-      this.getNavigation('city', citySchedule, actionsCell);
-      row.appendChild(actionsCell);
-
-      tableBody.appendChild(row);
-    }
+    this.queueInlineUIUtility = useMasterQueueInline();
   }
 
   public isRunning() {
@@ -284,12 +236,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     // this.reevaluateProviderCities();
     this.addResourceLockChangeListener();
     this.addOncityChangeListener();
-    this.showToggleButton(true);
-  }
-
-  private showToggleButton(value: boolean) {
-    const toggleButton = document.getElementById(MasterQueue.TABLE_TOGGLE_BUTTON_ID)!;
-    toggleButton.hidden = !value;
+    this.tableUIUtility.show();
   }
 
   public async stop() {
@@ -300,7 +247,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     if (this.cityChangeListener) {
       this.citySwitchManager.removeListener('cityChange', this.cityChangeListener);
     }
-    this.showToggleButton(false);
+    this.tableUIUtility.hide();
     this.queue.forEach(citySchedule => {
       this.stopCityScheduleMainQueueAction(citySchedule);
     });
@@ -367,9 +314,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
 
     this.reevaluateProviderCities(citySchedule);
     this.rerenderAllUIQueues(citySchedule);
-    if (this.isTableOpened()) {
-      this.rerenderTable();
-    }
+    this.tableUIUtility.update(this.queue);
     this.persistCitySchedule(citySchedule);
     this.emit(MasterQueue.MASTER_QUEUE_CHANGE_EVENT, this.queue);
     return citySchedule;
@@ -589,36 +534,8 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     this.reevaluateProviderCities(citySchedule);
     this.persistCitySchedule(citySchedule);
     this.rerenderAllUIQueues(citySchedule);
-    if (this.isTableOpened()) {
-      this.rerenderTable();
-    }
+    this.tableUIUtility.update(this.queue);
     this.emit(MasterQueue.MASTER_QUEUE_CHANGE_EVENT, this.queue);
-  }
-
-  /**
-   * Sets specified status for all table rows or for specified city schedule row.
-   * @param status - status to set
-   * @param citySchedule - city schedule to set status for
-   */
-  private setUITableStatuses(status: 'idle' | 'running', citySchedule?: CitySchedule) {
-    const table = document.getElementById(MasterQueue.TABLE_ID)!;
-    if (!citySchedule) {
-      table.querySelectorAll<HTMLDivElement>('div.tr .master-queue-state').forEach(statusCell => {
-        statusCell.classList.remove('idle', 'running');
-        statusCell.classList.add(status);
-        statusCell.textContent = status.charAt(0).toUpperCase() + status.slice(1);
-      });
-    } else {
-      const statusCell = table.querySelector<HTMLDivElement>(
-        `div.tr[data-city="${citySchedule.city.name}"] .master-queue-state`,
-      );
-      console.log('row:', statusCell);
-      if (statusCell) {
-        statusCell.classList.remove('idle', 'running');
-        statusCell.classList.add(status);
-        statusCell.textContent = status.charAt(0).toUpperCase() + status.slice(1);
-      }
-    }
   }
 
   /**
@@ -831,26 +748,11 @@ export default class MasterQueue extends EventEmitter implements Service<'master
   }
 
   /**
-   * Creates new element and hydrates it with queue items for given city.
-   * @param city - city to get queue for
-   * @returns - new element with queue items
-   */
-  public getCityQueueUI(city: CityInfo) {
-    const container = document.createElement('div');
-    container.classList.add('master-queue');
-
-    const citySchedule = this.getCitySchedule(city);
-    if (!citySchedule) return container;
-
-    this.createUIQueueItems(container, citySchedule);
-    return container;
-  }
-
-  /**
    * Rerenders all master-queue elements in the DOM.
    * If no argument is provided, rerenders queue for current city (or clears if non-existent).
    * @param arg - city schedule/city info corresponding to the queue to rerender
    */
+  // TODO: preact integration
   public rerenderAllUIQueues(arg?: CitySchedule | CityInfo) {
     const citySchedule = arg
       ? Object.keys(arg).includes('name')
@@ -858,51 +760,15 @@ export default class MasterQueue extends EventEmitter implements Service<'master
         : (arg as CitySchedule)
       : this.getCitySchedule(this.citySwitchManager.getCurrentCity()!);
 
-    document.querySelectorAll('.master-queue').forEach(el => {
-      el.innerHTML = '';
+    document.querySelectorAll(`[data-coponent-name="${componentName}"]`).forEach(el => {
       if (citySchedule) {
-        this.createUIQueueItems(el as HTMLElement, citySchedule);
+        this.queueInlineUIUtility.mount(el as HTMLElement, {
+          schedule: citySchedule,
+          onDeleteItem: item => this.removeItem(citySchedule.city, item),
+        });
+      } else {
+        el.innerHTML = '';
       }
-    });
-  }
-
-  /**
-   * Creates UI elements for given city schedule with complete delete buttons functionality
-   * and appends them to provided container.
-   * @param container - container to append queue items to
-   * @param schedule - city schedule to create queue items for
-   */
-  private createUIQueueItems(container: HTMLElement, schedule: CitySchedule) {
-    const queue = schedule.queue;
-
-    queue.forEach((item, index) => {
-      const queueItem = document.createElement('div');
-      queueItem.classList.add('master-queue-item');
-      // NOTE: innerHtml looks ugly, consider doing it in JS when complexity grows
-      queueItem.innerHTML = `
-        <span class="master-queue-item-position">${index + 1}</span>
-        <div class="master-queue-item-delete">&#x2715;</div>
-        <div class="master-queue-item-level-bar">
-          ${item.ui.lvlBar}
-        </div>
-        <div class="master-queue-item-image ${item.ui.queueImageClass ?? ''}"
-          style="${item.ui.queueBgImgProp ? `background-image: ${item.ui.queueBgImgProp};` : ''}"
-        >
-        </div>
-        <div class="master-queue-item-info">
-          <span class="desc1">
-          ${item.ui.title}
-          </span>
-          ${item.ui.description ? `<span class="desc2">${item.ui.description}</span>` : ''}
-        </div>
-      `;
-
-      const deleteButton = queueItem.querySelector('.master-queue-item-delete');
-      deleteButton?.addEventListener('click', () => {
-        // this.onQueueItemDelete(schedule, item, index);
-        this.removeItem(schedule.city, item);
-      });
-      container.appendChild(queueItem);
     });
   }
 
@@ -988,10 +854,6 @@ export default class MasterQueue extends EventEmitter implements Service<'master
 
     localStorage.setItem(MasterQueue.LOCAL_STORAGE_KEY, JSON.stringify(alreadyPersistedSchedule));
   }
-
-  private isTableOpened = () => {
-    return document.getElementById(MasterQueue.TABLE_ID)?.hidden === false;
-  };
 
   // NOTE: during non-blocking queue joining, it doesn't take into account the priority
   /**
@@ -1084,61 +946,38 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     return this.queue.find(citySchedule => citySchedule.city.name === city.name)?.queue ?? [];
   }
 
-  public getNavigation(type: 'master', container?: HTMLElement): HTMLElement;
-  public getNavigation(type: 'city' | 'all', arg1: CitySchedule | CityInfo, container?: HTMLElement): void;
-  public getNavigation(
-    type: 'master' | 'city' | 'all',
-    arg1?: HTMLElement | CitySchedule | CityInfo,
-    arg2?: HTMLElement,
-  ): HTMLElement | void {
-    const div = document.createElement('div');
-    div.classList.add('master-queue-navigation');
+  // TODO: won't render if citySchedule is not present, BUT should do so - consider initializing all citiSchedules
+  public injectQueueNavigation(identifier: CityInfo | CitySchedule, container: HTMLElement) {
+    const citySchedule =
+      'name' in identifier ? this.queue.find(schedule => schedule.city.name === identifier.name) : identifier;
 
-    if (type === 'master') {
-      const navigation = this.getMasterNavigationButtons();
-      if (arg1 instanceof HTMLElement) {
-        Object.values(navigation).forEach(button => {
-          arg1.appendChild(button);
-        });
-      } else {
-        Object.values(navigation).forEach(button => {
-          div.appendChild(button);
-        });
-        return div;
-      }
-    } else if (type === 'city') {
-      const navigation = this.getQueueNavigationButtons(arg1 as CitySchedule | CityInfo);
-      if (arg2 instanceof HTMLElement) {
-        Object.values(navigation).forEach(button => {
-          arg2.appendChild(button);
-        });
-      } else {
-        Object.values(navigation).forEach(button => {
-          div.appendChild(button);
-        });
-        return div;
-      }
-    } else if (type === 'all') {
-      const queueNavigation = this.getQueueNavigationButtons(arg1 as CitySchedule | CityInfo);
-      const masterNavigation = this.getMasterNavigationButtons();
-
-      if (arg2 instanceof HTMLElement) {
-        Object.values(queueNavigation).forEach(button => {
-          arg2.appendChild(button);
-        });
-        Object.values(masterNavigation).forEach(button => {
-          arg2.appendChild(button);
-        });
-      } else {
-        Object.values(queueNavigation).forEach(button => {
-          div.appendChild(button);
-        });
-        Object.values(masterNavigation).forEach(button => {
-          div.appendChild(button);
-        });
-        return div;
-      }
+    if (!citySchedule) {
+      console.warn(
+        "Can't inject navigation UI for city: " + ('name' in identifier ? identifier.name : identifier.city.name),
+      );
+      return;
     }
+
+    // QUESTION: await or not?
+    return useInlineQueueNavigation().mount(container, {
+      onRun: async () => {
+        await this.safeRunCitySchedule(citySchedule);
+        this.tableUIUtility!.update(this.queue);
+      },
+      onRestart: async () => {
+        this.stopAllCityScheduleActions(citySchedule);
+        await this.safeRunCitySchedule(citySchedule);
+        this.tableUIUtility!.update(this.queue);
+      },
+      onPause: () => {
+        this.stopAllCityScheduleActions(citySchedule);
+        this.tableUIUtility!.update(this.queue);
+      },
+      onDelete: () => {
+        this.clearAndRemoveCitySchedule(citySchedule);
+        this.tableUIUtility!.update(this.queue);
+      },
+    });
   }
 
   private deleteAllSchedules() {
@@ -1150,173 +989,10 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     this.persistSchedule();
   }
 
-  public getMasterNavigationButtons(): {
-    runAllButton: HTMLButtonElement;
-    resetAllButton: HTMLButtonElement;
-    deleteAllButton: HTMLButtonElement;
-    pauseAllButton: HTMLButtonElement;
-  } {
-    const runAllButton = document.createElement('button');
-    const resetAllButton = document.createElement('button');
-    const deleteAllButton = document.createElement('button');
-    const pauseAllButton = document.createElement('button');
-    runAllButton.textContent = 'Run all';
-    resetAllButton.textContent = 'Reset all';
-    deleteAllButton.textContent = 'Delete all';
-    pauseAllButton.textContent = 'Pause all';
-
-    runAllButton.classList.add('run-all-button');
-    resetAllButton.classList.add('reset-all-button');
-    deleteAllButton.classList.add('clear-all-button');
-    pauseAllButton.classList.add('pause-all-button');
-
-    runAllButton.addEventListener('click', async () => {
-      // show something which is not YET true, but will certainly will
-      // on table reopen - if some schedules are yet to start, status will be shown accordingly
-      this.setUITableStatuses('running');
-
-      // QUESTION: await or not
-      for (const citySchedule of this.queue) {
-        this.safeRunCitySchedule(citySchedule);
-      }
-      if (this.isTableOpened()) {
-        // this.rehydrateTable();
-      }
-    });
-    resetAllButton.addEventListener('click', () => {
-      this.rerunAllCitySchedules();
-      if (this.isTableOpened()) {
-        // this.rerenderTable();
-        // premature 'status' display
-        this.setUITableStatuses('running');
-      }
-    });
-    deleteAllButton.addEventListener('click', () => {
-      this.deleteAllSchedules();
-      if (this.isTableOpened()) {
-        this.rerenderTable();
-      }
-    });
-    pauseAllButton.addEventListener('click', () => {
-      this.pauseAllSchedules();
-      if (this.isTableOpened()) {
-        // this.rehydrateTable();
-        this.setUITableStatuses('idle');
-      }
-    });
-
-    return {
-      runAllButton,
-      resetAllButton,
-      deleteAllButton,
-      pauseAllButton,
-    };
-  }
-
-  // OPTIMIZATION: possible optimizations by checking if queue length changed - then rerender all UI, else only statuses
-  /**
-   * @see VALID - but optimization for rerenders can be done
-   */
-  public getQueueNavigationButtons(queueIdentifier: CityInfo | CitySchedule): {
-    runThisButton: HTMLButtonElement;
-    restartThisButton: HTMLButtonElement;
-    pauseThisButton: HTMLButtonElement;
-    deleteThisButton: HTMLButtonElement;
-  } {
-    const runThisButton = document.createElement('button');
-    const restartThisButton = document.createElement('button');
-    const pauseThisButton = document.createElement('button');
-    const deleteThisButton = document.createElement('button');
-
-    runThisButton.textContent = 'Run';
-    restartThisButton.textContent = 'Restart';
-    pauseThisButton.textContent = 'Pause';
-    deleteThisButton.textContent = 'Delete';
-
-    runThisButton.classList.add('run-this-button');
-    restartThisButton.classList.add('reset-this-button');
-    pauseThisButton.classList.add('pause-this-button');
-    deleteThisButton.classList.add('clear-this-button');
-
-    const citySchedule = Object.keys(queueIdentifier).includes('city')
-      ? (queueIdentifier as CitySchedule)
-      : this.queue.find(schedule => schedule.city.name === (queueIdentifier as CityInfo).name)!;
-
-    runThisButton.addEventListener('click', () => {
-      this.safeRunCitySchedule(citySchedule);
-      if (this.isTableOpened()) {
-        this.rerenderTable();
-      }
-      // restart may take non-blocking queues into main queue and it should be shown
-      this.rerenderAllUIQueues();
-    });
-
-    restartThisButton.addEventListener('click', () => {
-      if (citySchedule) {
-        this.stopAllCityScheduleActions(citySchedule);
-        this.safeRunCitySchedule(citySchedule);
-
-        if (this.isTableOpened()) {
-          this.rerenderTable();
-        }
-        // restart may take non-blocking queues into main queue and it should be shown
-        this.rerenderAllUIQueues();
-      }
-    });
-    pauseThisButton.addEventListener('click', () => {
-      console.log('pauseThisButton clicked, schedule:', citySchedule);
-      if (citySchedule) {
-        console.log('should clear city schedule action');
-        this.stopAllCityScheduleActions(citySchedule);
-        if (this.isTableOpened()) {
-          // this.rerenderTable();
-          this.setUITableStatuses('idle', citySchedule);
-        }
-      }
-    });
-    deleteThisButton.addEventListener('click', () => {
-      this.clearAndRemoveCitySchedule(citySchedule);
-      this.rerenderAllUIQueues();
-      if (this.isTableOpened()) {
-        this.rerenderTable();
-      }
-    });
-
-    return {
-      runThisButton,
-      restartThisButton,
-      pauseThisButton,
-      deleteThisButton,
-    };
-  }
-
   private pauseAllSchedules() {
     this.queue.forEach(citySchedule => {
       this.stopCityScheduleMainQueueAction(citySchedule);
     });
-  }
-
-  private simpleScheduleLoadConfirmationDialog(cityScheduleList: CitySchedule[]) {
-    let message = `Czy chcesz kontynuować poprzednią sesje rekrutacji?`;
-    cityScheduleList.forEach(citySchedule => {
-      if (citySchedule.queue.length) {
-        message += `\n${citySchedule.city.name}:\n${citySchedule.queue
-          .map(q => {
-            switch (q.itemType) {
-              case 'recruiter':
-                const queueItem = q.itemDetails as RecruiterQueueItem;
-                const unitName = queueItem.unitContextInfo.unitSelector.split('.').at(-1);
-                return `\t${unitName} x ${queueItem.amountLeft} ${queueItem.amountType === 'slots' ? 'slotów' : 'jednostek'}`;
-              case 'builder':
-                const builderItem = q.itemDetails as BuilderQueueItem;
-                return `\t${builderItem.building.name} -> ${builderItem.toLvl}`;
-            }
-          })
-          .join('\n')}`;
-      }
-    });
-    const confirm = window.confirm(message);
-    return confirm;
   }
 
   public getScheduledActionTimes() {
@@ -1403,9 +1079,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
       }
 
       this.rerenderAllUIQueues(citySchedule);
-      if (this.isTableOpened()) {
-        this.rerenderTable();
-      }
+      this.tableUIUtility.update(this.queue);
       // reevaluate only if city can become supplier
       if (!citySchedule.queue.length) {
         this.reevaluateProviderCities();
@@ -1450,10 +1124,5 @@ export default class MasterQueue extends EventEmitter implements Service<'master
       return true;
     }
     return false;
-  }
-
-  private isOnTheSupplierCityList(city: CityInfo | string) {
-    const cityName = typeof city === 'object' ? city.name : city;
-    return this.resourcesWhiteList.find(c => c.name === cityName);
   }
 }

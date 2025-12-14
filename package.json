@@ -1,12 +1,15 @@
 {
   "name": "gps",
   "version": "1.0.0",
+  "type": "module",
   "description": "",
   "main": "main.ts",
   "scripts": {
     "build": "webpack",
     "build:readable": "webpack --mode development --devtool source-map",
     "start": "webpack serve --mode development",
+    "playground": "vite playground",
+    "play": "node playground/play.mjs",
     "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,scss}\"",
     "format:check": "prettier --check \"src/**/*.{js,jsx,ts,tsx,json,css,scss}\""
   },
@@ -14,6 +17,7 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@preact/preset-vite": "^2.10.2",
     "@tailwindcss/postcss": "^4.1.17",
     "@types/node": "^22.14.1",
     "@types/webpack-env": "^1.18.5",
@@ -30,13 +34,16 @@
     "tailwindcss": "^4.1.17",
     "ts-loader": "^9.5.1",
     "typescript": "^5.5.4",
+    "vite": "^7.2.6",
     "webpack": "^5.93.0",
     "webpack-cli": "^5.1.4",
     "webpack-dev-server": "^5.0.4"
   },
   "dependencies": {
+    "clsx": "^2.1.1",
     "events": "^3.3.0",
     "preact": "^10.26.5",
-    "stream-browserify": "^3.0.0"
+    "stream-browserify": "^3.0.0",
+    "tailwind-merge": "^3.4.0"
   }
 }

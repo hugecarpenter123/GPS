@@ -107,6 +107,7 @@ export default class CityBuilder implements Service<'builder'> {
 
     // workaround for bad architecture
     await waitWhile(() => !this.masterQueue.isInitialized());
+    // BUG: it didn' work becasue it was called once for given city, and when changing the cities it was performing for bac city
     this.masterQueue.getNavigation('city', currentCity, buttonsSection);
 
     // NOTE: "master-queue" class must be added for master-queue to handle queue display

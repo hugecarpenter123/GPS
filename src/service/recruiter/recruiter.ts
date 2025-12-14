@@ -388,6 +388,7 @@ export default class Recruiter implements Service<'recruiter'> {
     const shipmentTimeSelect = recruiterDialog?.querySelector<HTMLSelectElement>('#shipment-time');
 
     const buttonsSection = document.querySelector<HTMLElement>('.recruiter-buttons-section')!;
+    // BUG: it didn' work becasue it was called once for given city, and when changing the cities it was performing for bac city
     this.masterQueue.getNavigation('city', this.citySwitchManager.getCurrentCity()!, buttonsSection);
 
     /**

@@ -1,3 +1,9 @@
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
 /**
  * Takes string in format of xx:xx:xx - parses and returns number in miliseconds
  * @param text string in format 00:02:38
