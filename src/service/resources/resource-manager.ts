@@ -141,7 +141,7 @@ export default class ResourceManager {
       iron: Math.max(requiredResources.iron - iron, 0),
       ...(await (async () => {
         const capacity = await this.getStoreCapacity();
-        const lackingCapacity = Math.max(wood, stone, iron) - capacity;
+        const lackingCapacity = capacity - Math.max(wood, stone, iron);
         return lackingCapacity < 0 ? { storageCapacity: lackingCapacity } : {};
       })()),
     };

@@ -8,33 +8,34 @@ export enum FarmTimeInterval {
 }
 
 const config = {
-  masterQueue: {
-    autoReevaluate: true,
-  },
-  resources: {
-    minPopulationBuffer: 170, // buffer na kolona
-    storeAlmostFullPercentage: 0.9,
-  },
-  farmConfig: {
+  scheduler: {},
+  recruiter: {},
+  builder: {},
+  academy: {},
+  farmer: {
     farmInterval: FarmTimeInterval.FirstOption,
     humanize: false,
     farmingCities: [] as CityInfo[],
+  },
+  masterQueue: {},
+  resources: {
+    minPopulationBuffer: 170, // buffer na kolona
+    storeAlmostFullPercentage: 0.9,
   },
   general: {
     timeDifference: 11 * 1000 + 500,
     antyTimingMs: 10000,
     applicationRefreshInterval: 32 * 60 * 1000, // 32 minutes
     forcedRefresh: false,
-    farm: true,
+    farmer: true,
     builder: true,
-    guard: false,
     masterQueue: true,
     recruiter: true,
     scheduler: true,
+    academy: true,
   },
-  builder: {},
-  scheduler: {},
 };
 
+export type Managers = 'scheduler' | 'builder' | 'recruiter' | 'academy' | 'farmer' | 'masterQueue';
 export type TConfig = typeof config;
 export default config;

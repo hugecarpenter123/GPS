@@ -4,6 +4,8 @@ export default interface Service<K extends keyof TConfigChanges> {
   isRunning: () => boolean;
   start: () => void | Promise<void>;
   stop: () => void | Promise<void>;
+  pause: () => void | Promise<void>;
+  resume: () => void | Promise<void>;
   getScheduledActionTimes: () => [number, number | undefined][];
   onConfigChange: (configChanges: Partial<TConfigChanges[K]>) => void;
 }

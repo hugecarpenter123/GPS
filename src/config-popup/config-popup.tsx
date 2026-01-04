@@ -13,27 +13,27 @@ import { FarmTimeInterval, TConfig } from '../../gps.config';
 import CitySwitchManager, { CityInfo } from '../service/city/city-switch-manager';
 import ConfigManager from '../utility/config-manager';
 // @ts-ignore
-import configPopupCss from './config-popup.css';
+import configPopupCss from './config-popup.css?raw';
 
 export type TConfigChanges = {
-  masterQueue: {
-    autoReevaluate: boolean;
-  };
-  farmConfig: {
+  masterQueue: {};
+  farmer: {
     farmInterval: boolean;
     humanize: boolean;
     farmingCities: boolean;
   };
   general: {
-    farm: boolean;
+    farmer: boolean;
     builder: boolean;
-    guard: boolean;
     recruiter: boolean;
     masterQueue: boolean;
+    scheduler: boolean;
+    academy: boolean;
   };
   builder: {};
   recruiter: {};
   scheduler: {};
+  academy: {};
 };
 
 export const componentName = 'config-popup' as const;
@@ -139,19 +139,16 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList }: ConfigPop
   }, [eventEmitter]);
 
   // General toggles
-  const [farm, setFarm] = useState(initialConfig.general.farm);
-  const [builder, setBuilder] = useState(initialConfig.general.builder);
-  const [guard, setGuard] = useState(initialConfig.general.guard);
+  const [farmer, setFarmer] = useState(initialConfig.general.farmer);
   const [recruiter, setRecruiter] = useState(initialConfig.general.recruiter);
+  const [builder, setBuilder] = useState(initialConfig.general.builder);
   const [masterQueue, setMasterQueue] = useState(initialConfig.general.masterQueue);
   const [scheduler, setScheduler] = useState(initialConfig.general.scheduler);
+  const [academy, setAcademy] = useState(initialConfig.general.academy);
 
   // Farm specific
-  const [farmInterval, setFarmInterval] = useState(initialConfig.farmConfig.farmInterval);
-  const [humanize, setHumanize] = useState(initialConfig.farmConfig.humanize);
-
-  // Master Queue specific
-  const [masterQueueAutoReevaluate, setMasterQueueAutoReevaluate] = useState(initialConfig.masterQueue.autoReevaluate);
+  const [farmInterval, setFarmInterval] = useState(initialConfig.farmer.farmInterval);
+  const [humanize, setHumanize] = useState(initialConfig.farmer.humanize);
 
   // Conflicting cities
   const [uniquelySelectedFarmingCitiesPerIsle, setUniquelySelectedFarmingCitiesPerIsle] = useState<
@@ -199,8 +196,7 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList }: ConfigPop
           const initialCity =
             arrayOfCities.find(
               city =>
-                city.name ===
-                initialConfig.farmConfig.farmingCities.find(c => c.isleId === arrayOfCities[0].isleId)?.name,
+                city.name === initialConfig.farmer.farmingCities.find(c => c.isleId === arrayOfCities[0].isleId)?.name,
             ) ?? arrayOfCities[0];
           initialSelection[arrayOfCities[0].isleId] = initialCity;
         }
@@ -226,7 +222,7 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList }: ConfigPop
   };
 
   const farmTimeConfirmation = (): boolean => {
-    if (farmInterval === FarmTimeInterval.FourthOption && farm) {
+    if (farmInterval === FarmTimeInterval.FourthOption && farmer) {
       return confirm('Farmienie ustawione na 4h/8h. Kliknij OK aby kontynuować lub Anuluj aby cofnąć (na 5min/10min).');
     }
     return true;
@@ -252,28 +248,28 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList }: ConfigPop
     const conflictingCitiesChanged = Object.keys(uniquelySelectedFarmingCitiesPerIsle).some(
       isleId =>
         uniquelySelectedFarmingCitiesPerIsle[isleId].name !==
-        initialConfig.farmConfig.farmingCities.find(city => city.isleId === isleId)?.name,
+        initialConfig.farmer.farmingCities.find(city => city.isleId === isleId)?.name,
     );
 
     const managersConfigChanges: TConfigChanges = {
-      masterQueue: {
-        autoReevaluate: initialConfig.masterQueue.autoReevaluate !== masterQueueAutoReevaluate,
-      },
-      farmConfig: {
-        farmInterval: initialConfig.farmConfig.farmInterval !== farmInterval,
-        humanize: initialConfig.farmConfig.humanize !== humanize,
+      masterQueue: {},
+      farmer: {
+        farmInterval: initialConfig.farmer.farmInterval !== farmInterval,
+        humanize: initialConfig.farmer.humanize !== humanize,
         farmingCities: conflictingCitiesChanged,
       },
       general: {
-        farm: initialConfig.general.farm !== farm,
+        farmer: initialConfig.general.farmer !== farmer,
         masterQueue: initialConfig.general.masterQueue !== masterQueue,
         builder: initialConfig.general.builder !== builder,
-        guard: initialConfig.general.guard !== guard,
         recruiter: initialConfig.general.recruiter !== recruiter,
+        scheduler: initialConfig.general.scheduler !== scheduler,
+        academy: initialConfig.general.academy !== academy,
       },
       builder: {},
       scheduler: {},
       recruiter: {},
+      academy: {},
     };
 
     // Update config if changed
@@ -281,18 +277,18 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList }: ConfigPop
       const configManager = ConfigManager.getInstance();
       const config = configManager.getConfig();
 
-      config.farmConfig.farmInterval = farmInterval;
-      config.farmConfig.humanize = humanize;
-      config.general.farm = farm;
+      config.farmer.farmInterval = farmInterval;
+      config.farmer.humanize = humanize;
+      config.farmer.farmingCities = Object.values(uniquelySelectedFarmingCitiesPerIsle);
+
+      config.general.farmer = farmer;
       config.general.builder = builder;
-      config.general.guard = guard;
       config.general.recruiter = recruiter;
       config.general.masterQueue = masterQueue;
-      config.masterQueue.autoReevaluate = masterQueueAutoReevaluate;
-      config.farmConfig.farmingCities = Object.values(uniquelySelectedFarmingCitiesPerIsle);
       config.general.scheduler = scheduler;
+      config.general.academy = academy;
 
-      configManager.persistConfig();
+      configManager.persist();
     }
 
     setIsMinimized(true);
@@ -300,12 +296,12 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList }: ConfigPop
   };
 
   const handleCancelAll = () => {
-    setFarm(false);
+    setFarmer(false);
     setBuilder(false);
-    setGuard(false);
     setRecruiter(false);
     setMasterQueue(false);
     setScheduler(false);
+    setAcademy(false);
   };
 
   //   useEffect(() => {
@@ -345,8 +341,8 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList }: ConfigPop
         <InputWrapper
           id="farm"
           label="Farm manager"
-          checked={farm}
-          onChange={setFarm}
+          checked={farmer}
+          onChange={setFarmer}
           expandableContent={
             <>
               <div className="input-wapper">
@@ -413,23 +409,13 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList }: ConfigPop
         <InputWrapper id="recruiter" label="Recruiter" checked={recruiter} onChange={setRecruiter} />
 
         {/* Master Queue */}
-        <InputWrapper
-          id="master-queue"
-          label="Master queue"
-          checked={masterQueue}
-          onChange={setMasterQueue}
-          expandableContent={
-            <InputWrapper
-              id="master-queue-auto-reevaluate"
-              label="Auto evaluate"
-              checked={masterQueueAutoReevaluate}
-              onChange={setMasterQueueAutoReevaluate}
-            />
-          }
-        />
+        <InputWrapper id="master-queue" label="Master queue" checked={masterQueue} onChange={setMasterQueue} />
 
-        {/* Scheduler (hidden) */}
-        <InputWrapper id="scheduler" label="Scheduler" checked={scheduler} onChange={setScheduler} hidden />
+        {/* Scheduler */}
+        <InputWrapper id="scheduler" label="Scheduler" checked={scheduler} onChange={setScheduler} />
+
+        {/* Academy (hidden) */}
+        <InputWrapper id="academy" label="Academy" checked={academy} onChange={setAcademy} />
 
         {/* Button Panel */}
         <div id="button-panel">

@@ -23,7 +23,7 @@ type TargetResourcesInfo = {
 };
 type StackResourcesResult = {
   fullyStacked: boolean;
-  timeMs: number;
+  arrivalTime: number;
   resources?: TargetResourcesInfo;
 };
 
@@ -173,7 +173,7 @@ export default class TradeManager {
     if (!fromCities.length) {
       return {
         fullyStacked: false,
-        timeMs: -1,
+        arrivalTime: -1,
       };
     }
 
@@ -231,7 +231,7 @@ export default class TradeManager {
       return {
         fullyStacked: true,
         // TODO: unsafe because shipment time may be higher than maxShipmentTime (RARE CASE)
-        timeMs: longestShipmentTime + 3000,
+        arrivalTime: Date.now() + longestShipmentTime + 3000,
       };
     }
     // END check if resources are alredy non its way
@@ -364,7 +364,7 @@ export default class TradeManager {
       console.log('not fully stacked, timeMs:', highestTime);
       return {
         fullyStacked: false,
-        timeMs: highestTime === -1 ? -1 : highestTime + 3000,
+        arrivalTime: highestTime === -1 ? -1 : Date.now() + highestTime + 3000,
         resources: stillNeededResources,
       };
     }
@@ -372,7 +372,7 @@ export default class TradeManager {
     console.log('fully stacked, timeMs:', highestTime);
     return {
       fullyStacked: true,
-      timeMs: highestTime === -1 ? -1 : highestTime + 3000,
+      arrivalTime: highestTime === -1 ? -1 : Date.now() + highestTime + 3000,
     };
   }
 

@@ -1,4 +1,4 @@
-import type { CitySchedule, QueueItem, QueuePriority } from '../../src/service/master-queue-rework/master-queue.rework';
+import type { CitySchedule, QueueItem, QueuePriority } from '../../src/service/master-queue-rework/master-queue';
 
 // Mock data for testing MasterQueueTable component
 export const props = {
@@ -17,8 +17,7 @@ export const props = {
           ui: {
             title: 'Barracks',
             lvlBar: 'Lvl 5',
-            queueImageClass: 'building-barracks',
-            queueBgImgProp: undefined,
+            className: 'building-barracks',
           },
         },
         {
@@ -33,8 +32,7 @@ export const props = {
             title: 'Swordsman',
             description: '50 units',
             lvlBar: undefined,
-            queueImageClass: 'unit-sword',
-            queueBgImgProp: undefined,
+            className: 'unit-sword',
           },
         },
       ],
@@ -42,6 +40,7 @@ export const props = {
       nonBlockingQueueComplex: {},
       timeoutData: {
         executionTime: Date.now() + 200000,
+        purpose: 'resources',
       },
     },
     {
@@ -58,8 +57,7 @@ export const props = {
           ui: {
             title: 'Temple',
             lvlBar: 'Lvl 10',
-            queueImageClass: 'building-temple',
-            queueBgImgProp: undefined,
+            className: 'building-temple',
           },
         },
       ],
@@ -79,8 +77,7 @@ export const props = {
                 title: 'Swordsman',
                 description: '50 units',
                 lvlBar: undefined,
-                queueImageClass: 'unit-sword',
-                queueBgImgProp: undefined,
+                className: 'unit-sword',
               },
             },
             {
@@ -95,18 +92,19 @@ export const props = {
                 title: 'Hoplite',
                 description: '50 units',
                 lvlBar: undefined,
-                queueImageClass: 'unit-sword',
-                queueBgImgProp: undefined,
+                className: 'unit-sword',
               },
             },
           ],
           timeoutData: {
             executionTime: Date.now() + 1000 * 60 * 1,
+            purpose: 'charms',
           },
         },
       },
       timeoutData: {
         executionTime: Date.now() + 1000 * 60 * 5,
+        purpose: 'resources',
       },
     },
     {
@@ -124,8 +122,7 @@ export const props = {
             title: 'Archer',
             description: '100 units',
             lvlBar: undefined,
-            queueImageClass: 'unit-archer',
-            queueBgImgProp: undefined,
+            className: 'unit-archer',
           },
         },
         {
@@ -139,14 +136,15 @@ export const props = {
           ui: {
             title: 'Farm',
             lvlBar: 'Lvl 20',
-            queueImageClass: 'building-farm',
-            queueBgImgProp: undefined,
+            className: 'building-farm',
           },
         },
       ],
       currentAction: null,
       nonBlockingQueueComplex: {},
-      timeoutData: {},
+      timeoutData: {
+        purpose: 'slot',
+      },
     },
   ] as CitySchedule[],
   onRunAll: () => {

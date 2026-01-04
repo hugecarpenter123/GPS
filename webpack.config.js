@@ -21,6 +21,12 @@ export default {
       },
       {
         test: /\.css$/i,
+        resourceQuery: /^\?raw$/,
+        use: 'raw-loader',
+      },
+      {
+        test: /\.css$/i,
+        resourceQuery: { not: [/^\?raw$/] },
         use: [
           'raw-loader',
           {

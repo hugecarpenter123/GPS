@@ -1,9 +1,9 @@
-/** @jsx h */
 import EventEmitter from 'events';
 import { h, render } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
 import QueueItemComp from './components/queue-item';
-import type { CitySchedule, QueueItem } from './master-queue.rework';
+import type { CitySchedule, QueueItem } from './master-queue';
+import { useState } from 'preact/hooks';
+import { QueueDisplay } from './master-queue-table';
 
 export const componentName = 'master-queue-inline' as const;
 
@@ -13,17 +13,65 @@ interface MasterQueueInlineProps {
 }
 
 const MasterQueueInline = ({ schedule, onDeleteItem }: MasterQueueInlineProps) => {
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<QueueDisplay>('main');
   // If no schedule or empty queue, render nothing
-  if (!schedule || schedule.queue.length === 0) {
+  if (
+    !schedule ||
+    (Object.values(schedule.nonBlockingQueueComplex).every(c => !c.queue.length) && !schedule.queue.length)
+  ) {
     return null;
   }
 
+  const selectedQueue =
+    selected === 'main' ? schedule.queue : (schedule.nonBlockingQueueComplex[selected]?.queue ?? []);
+
+  console.log(selectedQueue);
+
   return (
     // queue wrapper
-    <div className="flex flex-wrap items-start gap-2">
-      {schedule.queue.map((item, index) => (
-        <QueueItemComp key={item.id} item={item} index={index} onDelete={() => onDeleteItem(item)} />
-      ))}
+    <div>
+      <button onClick={() => setOpen(prev => !prev)}>{open ? 'hide' : 'open'} queue</button>
+      {open && (
+        <div className="font-roboto mt-1 max-h-[192px] w-fit overflow-auto rounded-md p-1 shadow-xl">
+          <div className="flex gap-2">
+            {selectedQueue.length ? (
+              <div className="flex flex-wrap items-start gap-2">
+                {selectedQueue.map((item, index) => (
+                  <QueueItemComp
+                    key={item.id}
+                    item={item}
+                    index={index}
+                    onDelete={() => {
+                      onDeleteItem(item);
+                    }}
+                  />
+                ))}
+              </div>
+            ) : null}
+            <div className="flex flex-col gap-[2px]">
+              <button
+                onClick={() => setSelected('main')}
+                className={selected === 'main' ? 'rounded-sm border border-amber-700 bg-amber-500/50' : ''}
+              >
+                Main
+              </button>
+              <button
+                onClick={() => setSelected('builder')}
+                className={selected === 'builder' ? 'rounded-sm border border-amber-700 bg-amber-500/50' : ''}
+              >
+                Builder
+              </button>
+              <button
+                onClick={() => setSelected('recruiter')}
+                className={selected === 'recruiter' ? 'rounded-sm border border-amber-700 bg-amber-500/50' : ''}
+              >
+                Recruiter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -54,7 +102,7 @@ export const useMasterQueueInline = () => {
     }
 
     container = targetContainer;
-    container.setAttribute('data-component-container', componentName);
+    container.dataset.componentName = componentName;
     prevProps = props;
 
     // Render component

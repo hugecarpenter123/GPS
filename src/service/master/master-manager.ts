@@ -1,37 +1,39 @@
-import { FarmTimeInterval, TConfig } from '../../../gps.config';
+import type Service from '~/utility/Service';
+import { FarmTimeInterval, type Managers, TConfig } from '../../../gps.config';
 import { ConfigPopupUtility, TConfigChanges, useConfigPopup } from '../../config-popup/config-popup';
 import ConfigManager from '../../utility/config-manager';
 import { getCookie, hasAnyValue, setCookie } from '../../utility/plain-utility';
 import CityBuilder from '../city/builder/city-builder';
 import CitySwitchManager from '../city/city-switch-manager';
-import FarmManager from '../farm/farm-manager';
-import MasterQueue from '../master-queue/master-queue';
+import Farmer from '../farm/farm-manager';
+import MasterQueue from '../master-queue-rework/master-queue';
 import Recruiter from '../recruiter/recruiter';
 import Scheduler from '../scheduler/Scheduler';
 import GeneralInfo from './ui/general-info';
-
-export type Managers = 'farmManager' | 'scheduler' | 'builder' | 'recruiter' | 'masterQueue';
+import { Academy } from '../academy/academy';
 
 export default class MasterManager {
   private static instance: MasterManager;
   private config!: TConfig;
-  private farmManager!: FarmManager;
+  private farmer!: Farmer;
   private switchManager!: CitySwitchManager;
   private scheduler!: Scheduler;
   private builder!: CityBuilder;
   private recruiter!: Recruiter;
   private masterQueue!: MasterQueue;
+  private academy!: Academy;
   private configPopupWindow!: ConfigPopupUtility;
   private generalInfo!: GeneralInfo;
 
   private pausedManagersSnapshot: {
     [key in Managers]: boolean;
   } = {
-    farmManager: false,
+    farmer: false,
     scheduler: false,
     builder: false,
     recruiter: false,
     masterQueue: false,
+    academy: false,
   };
   private constructor() {
     // Private constructor to prevent direct instantiation
@@ -43,10 +45,11 @@ export default class MasterManager {
       MasterManager.instance.generalInfo = GeneralInfo.getInstance();
       MasterManager.instance.config = ConfigManager.getInstance().getConfig();
       MasterManager.instance.switchManager = await CitySwitchManager.getInstance();
-      MasterManager.instance.farmManager = await FarmManager.getInstance();
+      MasterManager.instance.farmer = await Farmer.getInstance();
       MasterManager.instance.scheduler = await Scheduler.getInstance();
       MasterManager.instance.builder = await CityBuilder.getInstance();
       MasterManager.instance.recruiter = await Recruiter.getInstance();
+      MasterManager.instance.academy = await Academy.getInstance();
       MasterManager.instance.masterQueue = await MasterQueue.getInstance();
       // MasterManager.instance.initCaptchaPrevention();
       // MasterManager.instance.initRefreshUtility();
@@ -82,72 +85,30 @@ export default class MasterManager {
   // }
 
   private async runManagersFromConfig(configChanges?: TConfigChanges): Promise<void> {
-    console.log('runManagersFromConfig', configChanges);
-    // if config changes are present, perform them before potentially starting the manager
     if (configChanges) {
-      if (hasAnyValue(configChanges.masterQueue, true)) {
-        this.masterQueue.onConfigChange(configChanges.masterQueue);
-      }
-      if (hasAnyValue(configChanges.builder, true)) {
-        this.builder.onConfigChange(configChanges.builder);
-      }
-    }
+      (
+        Object.keys(configChanges)
+          // exclude general config
+          .filter(k => k !== 'general') as Managers[]
+      ).forEach(k => {
+        if (hasAnyValue(configChanges[k], true)) {
+          this[k].onConfigChange(configChanges[k]);
+        }
+      });
 
-    // scheduler first because if it needs to perform anything straight away then it must block the rest
-    if (this.config.general.scheduler) {
-      if (!this.scheduler.isRunning()) {
-        console.log('Scheduler will be started...');
-        this.scheduler.start();
-      }
-    } else {
-      if (this.scheduler.isRunning()) {
-        console.log('Scheduler will be stopped...');
-        this.scheduler.stop();
-      }
-    }
-    if (this.config.general.masterQueue) {
-      if (!this.masterQueue.isRunning()) {
-        console.log('MasterQueue will be started...');
-        this.masterQueue.start();
-      }
-    } else {
-      if (this.masterQueue.isRunning()) {
-        console.log('MasterQueue will be stopped...');
-        this.masterQueue.stop();
-      }
-    }
-    if (this.config.general.builder) {
-      if (!this.builder.isRunning()) {
-        console.log('Builder will be started...');
-        this.builder.start();
-      }
-    } else {
-      if (this.builder.isRunning()) {
-        console.log('Builder will be stopped...');
-        this.builder.stop();
-      }
-    }
-    if (this.config.general.farm) {
-      if (!this.farmManager.isRunning()) {
-        console.log('FarmManager will be started...');
-        await this.farmManager.start();
-      }
-    } else {
-      if (this.farmManager.isRunning()) {
-        console.log('FarmManager will be stopped...');
-        this.farmManager.stop();
-      }
-    }
-    if (this.config.general.recruiter) {
-      if (!this.recruiter.isRunning()) {
-        console.log('Recruiter will be started...');
-        this.recruiter.start();
-      }
-    } else {
-      if (this.recruiter.isRunning()) {
-        console.log('Recruiter will be stopped...');
-        this.recruiter.stop();
-      }
+      (Object.keys(configChanges.general) as Managers[]).forEach(managerKey => {
+        if (this.config.general[managerKey]) {
+          if (!this[managerKey].isRunning()) {
+            console.log(`${managerKey} will be started...`);
+            this[managerKey].start();
+          }
+        } else {
+          if (this[managerKey].isRunning()) {
+            console.log(`${managerKey} will be stopped...`);
+            this[managerKey].stop();
+          }
+        }
+      });
     }
   }
 
@@ -173,8 +134,8 @@ export default class MasterManager {
       this.config.general.forcedRefresh = false;
       setCookie('forceRestart', false);
 
-      this.config.farmConfig.farmInterval = FarmTimeInterval.FirstOption;
-      ConfigManager.getInstance().persistConfig();
+      this.config.farmer.farmInterval = FarmTimeInterval.FirstOption;
+      ConfigManager.getInstance().persist();
 
       this.configPopupWindow.minimize();
       await this.runManagersFromConfig();
@@ -186,144 +147,79 @@ export default class MasterManager {
   }
 
   public pauseRunningManagers(except: Managers[]): void {
-    console.log('pauseRunningManagers', this.pausedManagersSnapshot);
-    if (!except.includes('masterQueue') && this.masterQueue.isRunning()) {
-      console.log('masterQueue will be paused...');
-      this.masterQueue.stop();
-      this.pausedManagersSnapshot.masterQueue = true;
-    }
-    if (!except.includes('farmManager') && this.farmManager.isRunning()) {
-      console.log('farmManager will be paused...');
-      this.farmManager.stop();
-      this.pausedManagersSnapshot.farmManager = true;
-    }
-    if (!except.includes('scheduler') && this.scheduler.isRunning()) {
-      console.log('scheduler will be paused...');
-      this.scheduler.stop();
-      this.pausedManagersSnapshot.scheduler = true;
-    }
-    if (!except.includes('builder') && this.builder.isRunning()) {
-      console.log('builder will be paused...');
-      this.builder.stop();
-      this.pausedManagersSnapshot.builder = true;
-    }
-    if (!except.includes('recruiter') && this.recruiter.isRunning()) {
-      console.log('recruiter will be paused...');
-      this.recruiter.stop();
-      this.pausedManagersSnapshot.recruiter = true;
-    }
+    (
+      [
+        [this.farmer, 'farmManager'],
+        [this.masterQueue, 'masterQueue'],
+        [this.recruiter, 'recruiter'],
+        [this.builder, 'builder'],
+        [this.scheduler, 'scheduler'],
+        [this.academy, 'academy'],
+      ] as [Service<keyof TConfigChanges>, Managers][]
+    ).forEach(([manager, managerKey]) => {
+      if (!except.includes(managerKey) && manager.isRunning()) {
+        console.log(`${managerKey} will be paused...`);
+        manager.pause();
+        this.pausedManagersSnapshot[managerKey] = true;
+      }
+    });
     console.log('pauseRunningManagers', this.pausedManagersSnapshot);
   }
 
   public pauseRunningManagersIfNeeded(actionTime: number, except: Managers[]): void {
-    console.log('pauseRunningManagers', this.pausedManagersSnapshot);
-    if (!except.includes('farmManager') && this.farmManager.isRunning()) {
-      const farmTimes = this.farmManager.getFarmScheduleTimes();
-      const farmTimesCollides = farmTimes.some(
-        farmingTime =>
-          farmingTime &&
-          farmingTime.getTime() <= actionTime &&
-          Math.abs(farmingTime.getTime() - actionTime) <= 1000 * 20,
-      );
-      if (farmTimesCollides) {
-        this.farmManager.stop();
-        this.pausedManagersSnapshot.farmManager = true;
+    const handlePauseManager = (manager: Service<keyof TConfigChanges>, managerKey: Managers) => {
+      if (!except.includes(managerKey) && manager.isRunning()) {
+        const scheduledActionTimes = manager.getScheduledActionTimes();
+        const isCollision = scheduledActionTimes.some(
+          // FUTURE: include scheduleTimeEnd condition if needed
+          ([scheduleTimeStart, _scheduleTimeEnd]) =>
+            scheduleTimeStart <= actionTime && Math.abs(actionTime - scheduleTimeStart) <= 1000 * 30,
+        );
+        if (isCollision) {
+          manager.pause();
+          this.pausedManagersSnapshot[managerKey] = true;
+        }
       }
-    }
-    // NOTE: remake as masterqueue holds now all operations
-    if (!except.includes('masterQueue') && this.masterQueue.isRunning()) {
-      const masterQueueTimes = this.masterQueue.getMasterQueueScheduleTimes();
-      const masterQueueTimesCollide = masterQueueTimes.some(
-        (masterQueueScheduleTime: number) =>
-          masterQueueScheduleTime &&
-          masterQueueScheduleTime <= actionTime &&
-          Math.abs(masterQueueScheduleTime - actionTime) <= 1000 * 30,
-      );
-      if (masterQueueTimesCollide) {
-        this.masterQueue.stop();
-        this.pausedManagersSnapshot.masterQueue = true;
-      }
-    }
-    if (!except.includes('recruiter') && this.recruiter.isRunning()) {
-      this.recruiter.stop();
-      this.pausedManagersSnapshot.recruiter = true;
-    }
-    if (!except.includes('scheduler') && this.scheduler.isRunning()) {
-      this.scheduler.stop();
-      this.pausedManagersSnapshot.scheduler = true;
-    }
-    if (!except.includes('builder') && this.builder.isRunning()) {
-      const builderTimes = this.builder.getBuilderScheduleTimes();
-      const builderTimesCollides = builderTimes.some(
-        builderTime =>
-          builderTime &&
-          builderTime.getTime() <= actionTime &&
-          Math.abs(builderTime.getTime() - actionTime) <= 1000 * 20,
-      );
-      if (builderTimesCollides) {
-        this.builder.stop();
-        this.pausedManagersSnapshot.builder = true;
-      }
-    }
+    };
+    (
+      [
+        [this.farmer, 'farmManager'],
+        [this.masterQueue, 'masterQueue'],
+        [this.recruiter, 'recruiter'],
+        [this.builder, 'builder'],
+        [this.scheduler, 'scheduler'],
+        [this.academy, 'academy'],
+      ] as [Service<keyof TConfigChanges>, Managers][]
+    ).forEach(args => {
+      handlePauseManager(...args);
+    });
     console.log('pauseRunningManagers', this.pausedManagersSnapshot);
   }
 
-  public resumeRunningManagers(except: Managers[]): void {
+  public resumePausedManagers(except: Managers[]): void {
     console.log('resumeRunningManagers', this.pausedManagersSnapshot);
-    Object.entries(this.pausedManagersSnapshot).forEach(([key, isPaused]) => {
-      switch (key) {
-        case 'farmManager':
-          if (isPaused && !except.includes('farmManager')) {
-            console.log('farmManager will be resumed...');
-            this.farmManager.start();
-          }
-          break;
-        case 'recruiter':
-          if (isPaused && !except.includes('recruiter')) {
-            console.log('recruiter will be resumed...');
-            this.recruiter.start();
-          }
-          break;
-        case 'scheduler':
-          if (isPaused && !except.includes('scheduler')) {
-            console.log('scheduler will be resumed...');
-            this.scheduler.start();
-          }
-          break;
-        case 'builder':
-          if (isPaused && !except.includes('builder')) {
-            console.log('builder will be resumed...');
-            this.builder.start();
-          }
-          break;
-        case 'masterQueue':
-          if (isPaused && !except.includes('masterQueue')) {
-            console.log('masterQueue will be resumed...');
-            this.masterQueue.start();
-          }
-          break;
-      }
-    });
-
-    Object.keys(this.pausedManagersSnapshot).forEach(key => {
-      if (except.includes(key as Managers)) {
-        this.pausedManagersSnapshot[key as Managers] = false;
+    (Object.entries(this.pausedManagersSnapshot) as [Managers, boolean][]).forEach(([key, isPaused]) => {
+      if (isPaused && !except.includes(key)) {
+        console.log(`${key} will be resumed...`);
+        this[key].resume();
+        this.pausedManagersSnapshot[key] = false;
       }
     });
   }
 
   public forceRefresh(): void {
     this.config.general.forcedRefresh = true;
-    ConfigManager.getInstance().persistConfig();
+    ConfigManager.getInstance().persist();
     window.location.reload();
   }
 
   public stopAll(): void {
-    this.farmManager.stop();
+    this.farmer.stop();
     this.switchManager.stop();
     this.scheduler.stop();
     this.builder.stop();
     this.recruiter.stop();
+    this.academy.stop();
     this.masterQueue.stop();
   }
 }

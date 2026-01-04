@@ -1,7 +1,7 @@
 // import { createElement } from 'preact';
 // import { render } from 'preact/compat'
 // import { useEffect, useState } from 'preact/hooks';
-// import municipalUtilityStyle from './municipal-utility-style.css';
+// import municipalUtilityStyle from './municipal-utility-style.css?raw';
 // import CitySwitchManager, { CityInfo } from '../city-switch-manager';
 // import { QueuePriority } from '../../master-queue/master-queue';
 // import { MunicipalEvent } from './municipal-utility';

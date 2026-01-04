@@ -20,7 +20,14 @@
   border: 1px solid black;
 }
 
-#recruiter-dialog * {
+#recruiter-dialog
+  *:not(
+    #recruiter-navigation-section,
+    #recruiter-navigation-section *,
+    #recruiter-queue-content,
+    #recruiter-queue-content *,
+    button
+  ) {
   /* box-sizing: border-box; */
   padding: 0;
   margin: 0;
@@ -180,9 +187,6 @@
 
 .recruiter-queue-item-info {
   font-size: 0.8rem;
-}
-
-#recruiter-dialog .recruiter-queue-item-number {
 }
 
 #recruiter-dialog .recruiter-buttons-section {

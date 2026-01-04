@@ -1,179 +1,168 @@
-import { TConfig } from '../../../../gps.config';
+import { ScheduleExecutionDetails } from '~/service/master-queue-rework/inline-queue-navigation';
 import { TConfigChanges } from '../../../config-popup/config-popup';
-import ConfigManager from '../../../utility/config-manager';
-import { addDelay, HHMMSS_toMS, msToFutureHHMMSS, waitWhile } from '../../../utility/plain-utility';
-import ResourceLock from '../../../utility/resource-lock';
+import { addDelay, HHMMSS_toMS, msToFutureHHMMSS } from '../../../utility/plain-utility';
 import Service from '../../../utility/Service';
 import Lock, { LockOperationCancelledError } from '../../../utility/ui-lock';
 import { cancelHover, triggerHover, waitForElement, waitForElementInterval } from '../../../utility/ui-utility';
-import MasterQueue, { ScheduleOperationDetails } from '../../master-queue/master-queue';
+import MasterQueue, {
+  type QueueItemInput,
+  QueuePriority,
+  type ScheduleOperationDetails,
+  type TimeoutPurpose,
+} from '../../master-queue-rework/master-queue';
 import GeneralInfo from '../../master/ui/general-info';
 import ResourceManager from '../../resources/resource-manager';
 import TradeManager from '../../trade/trade-manager';
 import CitySwitchManager, { CityInfo } from '../city-switch-manager';
 import builderHtml from './builder-prod.html';
 import { Building, buildings, buildingsSelectors } from './buildings';
-import builderCss from './queue.css';
+import builderCss from './queue.css?raw';
 
-export type BuilderQueueItem = {
+type ItemDetails = {
   building: Building;
   toLvl: number;
-  supplierCities: CityInfo[];
-  maxShipmentTime: number;
 };
 
 type CitySchedule = {
   city: CityInfo;
-  schedule: NodeJS.Timeout | null;
-  scheduledDate: Date | null;
-  description?: string;
-  operation?: 'build' | 'speedUp' | 'buildCheck' | 'speedUpAndCheck';
+  timeout: NodeJS.Timeout | null;
+  executionTime: number | null;
 };
 
 export default class CityBuilder implements Service<'builder'> {
-  private static readonly queueContainerId = 'additional-queue';
-  private static readonly queueItemClass = 'queue-item';
-  private static readonly cancelButtonClass = 'cancel';
-  private static readonly upButtonClass = 'up';
   private static readonly buildOptionsContainerId = 'build-options';
   private static readonly buildOptionItemClass = 'build-option';
   private static readonly buildOptionItemAddClass = 'build-options-add';
-  private static readonly buildContainerId = 'build-container';
+  private static readonly builderContainerId = 'build-container';
   private static readonly toggleBuilderButtonId = 'toggle-builder';
 
   private static instance: CityBuilder;
   private citySwitchManager!: CitySwitchManager;
   private generalInfo!: GeneralInfo;
-  private allowUnsequentialBuilds: boolean = false;
   private allowCriticalBuilds: boolean = true;
-  private static readonly BUILD_RETRY_INTERVAL: number = 10 * 60 * 1000;
 
   private lock!: Lock;
   private resourceManager!: ResourceManager;
   private masterQueue!: MasterQueue;
   private tradeManager!: TradeManager;
-  private config!: TConfig;
+  private getScheduleBaseFormValues: (() => ScheduleExecutionDetails) | undefined;
 
   private RUN: boolean = false;
-  private resourceLock!: ResourceLock;
 
-  private mainQueue: Array<CitySchedule> = [];
+  private schedule: Array<CitySchedule> = [];
 
   private constructor() {}
-
-  public getScheduledActionTimes() {
-    return this.mainQueue.map(s => [s.scheduledDate?.getTime(), undefined]).filter(([t1]) => Boolean(t1)) as [
-      number,
-      undefined,
-    ][];
-  }
-  public onConfigChange(configChanges: Partial<TConfigChanges['builder']>) {
-    // nothing
-  }
 
   public static async getInstance(): Promise<CityBuilder> {
     if (!CityBuilder.instance) {
       CityBuilder.instance = new CityBuilder();
       CityBuilder.instance.lock = Lock.getInstance();
-      CityBuilder.instance.resourceLock = ResourceLock.getInstance();
       CityBuilder.instance.resourceManager = await ResourceManager.getInstance();
       CityBuilder.instance.citySwitchManager = await CitySwitchManager.getInstance();
       CityBuilder.instance.generalInfo = GeneralInfo.getInstance();
       CityBuilder.instance.masterQueue = await MasterQueue.getInstance();
       CityBuilder.instance.tradeManager = await TradeManager.getInstance();
-      CityBuilder.instance.config = ConfigManager.getInstance().getConfig();
-      CityBuilder.instance.addStyle();
-      CityBuilder.instance.renderUI();
+      CityBuilder.instance.register();
+      CityBuilder.instance.addUI();
     }
     return CityBuilder.instance;
   }
-  private async renderUI() {
-    const container = document.createElement('div');
-    container.innerHTML = builderHtml;
-    document.body.appendChild(container);
-    this.addBuildingButtons();
-    this.initProviderCities();
-    await this.accustomHtmlToMasterQueue();
+
+  private register() {
+    this.masterQueue.registerExecutor<ItemDetails>('builder', {
+      execute: async operationDetails => {
+        await this.execute(operationDetails);
+      },
+      postDeleteAction: (queue, deletedItemDetails) => {
+        queue.forEach(item => {
+          if (item.details.building.name === deletedItemDetails.building.name) {
+            item.details.toLvl--;
+          }
+        });
+      },
+      hydrateItem: function (itemDetails: ItemDetails) {
+        return {
+          toLvl: itemDetails.toLvl,
+          building: buildings[itemDetails.building.name as keyof typeof buildings],
+        };
+      },
+      persistItem: function (itemDetails: ItemDetails) {
+        return { toLvl: itemDetails.toLvl, building: { name: itemDetails.building.name } };
+      },
+    });
+  }
+
+  private async addUI() {
+    this.addStyle();
+    this.addBuilderUI();
+    this.injectMasterQueueUIGenerics();
     this.initToggleButton();
   }
 
-  /**
-   * Should be called only once on init. Tempoarily async as it has bad architecture at the moment.
-   */
-  private async accustomHtmlToMasterQueue() {
-    // NOTE: hydrate builder navigation with master-queue navigation
-    const buttonsSection = document.querySelector<HTMLElement>('#builder-navigation')!;
-    const currentCity = this.citySwitchManager.getCurrentCity()!;
+  private injectMasterQueueUIGenerics() {
+    // OPTIMIZATION: should it really render on EACH city change OR only if visible?
+    const addMasterQueueNavigation = () => {
+      const navigation = document.querySelector<HTMLElement>('#builder-navigation')!;
+      const currentCity = this.citySwitchManager.getCurrentCity()!;
 
-    // workaround for bad architecture
-    await waitWhile(() => !this.masterQueue.isInitialized());
-    // BUG: it didn' work becasue it was called once for given city, and when changing the cities it was performing for bac city
-    this.masterQueue.getNavigation('city', currentCity, buttonsSection);
+      // injects standard navigation + required schedule options and assigns getValues callback for access inside addToQueue method
+      this.getScheduleBaseFormValues = this.masterQueue.injectQueueNavigation(currentCity, navigation).getValues;
+    };
+    this.citySwitchManager.addListener('cityChange', addMasterQueueNavigation);
+    addMasterQueueNavigation();
 
-    // NOTE: "master-queue" class must be added for master-queue to handle queue display
-    const additionalQueue = document.querySelector<HTMLElement>('#additional-queue')!;
-    additionalQueue.classList.add('master-queue');
+    // NOTE: inline queue container must be registered (added dataset attr) for master-queue to handle queue lifecycle/refresh etc
+    const queueViewContainer = document.querySelector<HTMLElement>('#builder-queue-view')!;
+    this.masterQueue.registerInlineQueueContainer(queueViewContainer, this.citySwitchManager.getCurrentCity()!);
   }
 
-  private initProviderCities() {
-    if (ConfigManager.getInstance().getConfig().masterQueue.autoReevaluate) {
-      document.getElementById('provider-cities')!.parentElement!.classList.add('hidden');
-    } else {
-      const providerCities = document.getElementById('provider-cities')!;
-      providerCities.hidden = false;
-      this.citySwitchManager.getCityList().forEach(city => {
-        const option = document.createElement('option');
-        option.value = city.name;
-        option.textContent = city.name;
-        providerCities.appendChild(option);
-      });
-    }
-  }
-
-  // TODO: change because of master queue
   /**
    * Handles builder config changes, method serves as a listener for config changes.
-   * @param configChanges
+   * @see VALID
    */
   public handleBuilderConfigChange(configChanges: TConfigChanges['builder']) {
     // nothing
   }
 
+  /**
+   * @see VALID
+   */
   private initToggleButton() {
     const button = document.getElementById(CityBuilder.toggleBuilderButtonId)!;
+    const builderContainer = document.getElementById(CityBuilder.builderContainerId)!;
 
     button.addEventListener('click', () => {
-      const buildContainer = document.getElementById(CityBuilder.buildContainerId)!;
-      buildContainer.classList.toggle('hidden');
-      if (!buildContainer.classList.contains('hidden')) {
+      builderContainer.classList.toggle('hidden');
+      if (!builderContainer.classList.contains('hidden')) {
         this.goToBuildMode('current');
       } else {
-        this.tryExitBuildMode();
+        this.exitBuildMode();
       }
     });
   }
 
-  public getBuilderScheduleTimes() {
-    return this.mainQueue.map(queue => queue.scheduledDate);
-  }
-
   /*
   <div id="build-container">
-    <div id="build-options">
-      <div class="build-option"
-        style="background-image: url(https://gpen.innogamescdn.com/images/game/main/lumber.png)">
-        <div class="build-options-add">+</div>
-      </div>
-    </div>
-    <div id="additional-queue">
-
-    </div>
+  <div id="build-options">
+  <div class="build-option"
+  style="background-image: url(https://gpen.innogamescdn.com/images/game/main/lumber.png)">
+  <div class="build-options-add">+</div>
+  </div>
+  </div>
+  <div id="builder-queue-view">
+  
+  </div>
   </div>
   <button id="show-builder">Toggle builder</button>
   */
 
-  // TODO: change because of master queue (should call masterQueue.addToQueue(details))
-  private addBuildingButtons() {
+  /**
+   * @see VALID
+   */
+  private addBuilderUI() {
+    const container = document.createElement('div');
+    container.innerHTML = builderHtml;
+    document.body.appendChild(container);
     // <div id="build-container">
     const buildOptions = document.getElementById(CityBuilder.buildOptionsContainerId)!;
 
@@ -211,32 +200,22 @@ export default class CityBuilder implements Service<'builder'> {
     }
   }
 
-  private tryExitBuildMode() {
+  private exitBuildMode() {
     const buildModeButton = document.querySelector<HTMLElement>('[class="construction_queue_build_button"] div');
     if (buildModeButton?.classList.contains('active')) {
       buildModeButton.click();
     }
   }
 
-  // TODO: change because of master queue
   /**
-   * API method to revalidate queue item levels for given building and from index. Assumes item is already deleted from queue.
-   * @param building
-   * @param fromIndex
-   * @param citySchedule
+   * @see VALID
    */
-  public revalidateQueueItemLevels(building: Building, fromIndex: number, itemsToRevalidate: BuilderQueueItem[]) {
-    console.log('--------revalidateQueueItemLevels', building, fromIndex);
-    itemsToRevalidate.forEach(item => {
-      const newToLvl = item.toLvl - 1;
-      item.toLvl = newToLvl;
-    });
-  }
-
   private async addToQueue(building: Building) {
-    console.log('cityBuilder.addToQueue() building', building);
     const currentCity = this.citySwitchManager.getCurrentCity()!;
-    const citySchedule = this.masterQueue.getBuilderScheduleForCity(currentCity);
+    const itemDetailsArr = this.masterQueue.getTypeSpecificItemDetailsForCity(currentCity, 'builder') as {
+      building: Building;
+      toLvl: number;
+    }[];
     await this.goToBuildMode('current');
 
     // assess lvl
@@ -260,41 +239,39 @@ export default class CityBuilder implements Service<'builder'> {
     }
     // end of assess lvl
 
-    // assess supplier cities
-    const citiesSelect = document.getElementById('provider-cities') as HTMLSelectElement;
-    const selectedSupplierCities = Array.from(citiesSelect.selectedOptions).map(
-      (option: HTMLOptionElement) => this.citySwitchManager.getCityByName(option.value)!,
-    );
-    console.log('selectedSupplierCities', selectedSupplierCities);
-    // end of assess supplier cities
-
-    // assess max shipment time
-    const maxShipmentTime = document.getElementById('max-shipment-time') as HTMLSelectElement;
-    const maxShipmentTimeValue = Number(maxShipmentTime.value);
-    console.log('maxShipmentTimeValue', maxShipmentTimeValue);
-    // end of assess max shipment time
+    const { blocking, priority, supplierCityNames, autoSuppliers, maxShipmentTime } = this.getScheduleBaseFormValues!();
 
     // assess lvl
-    console.log('lvl conter start, citySchedule', citySchedule);
-    const lvlCounter = citySchedule.filter(item => item.building.name === building.name).length + 1;
-    console.log('lvlCounter', lvlCounter);
+    const lvlCounter = itemDetailsArr.filter(item => item.building.name === building.name).length + 1;
     // end of assess lvl
 
-    const queueItem = {
-      building,
-      toLvl: currentLvl + lvlCounter,
-      supplierCities: selectedSupplierCities,
-      maxShipmentTime: Number(maxShipmentTimeValue),
+    const toLvl = currentLvl + lvlCounter;
+
+    const queueItem: QueueItemInput = {
+      itemType: 'builder',
+      ui: {
+        title: building.name,
+        style: { backgroundImage: building.backgroundImageProp },
+        lvlBar: toLvl.toString(),
+      },
+      blocking,
+      priority,
+      maxShipmentTime,
+      supplyEvaluation: autoSuppliers ? 'auto' : 'manual',
+      supplierCities: supplierCityNames?.map(name => this.citySwitchManager.getCityByName(name)!),
+      itemDetails: {
+        building,
+        toLvl,
+      },
     };
 
-    console.log('cityBuilder.addToQueue() queueItem', queueItem);
+    console.log('cityBuilder.addToQueue() queueItem:', queueItem);
 
     // add to master queue
-    this.masterQueue.addToQueue(currentCity, 'builder', queueItem);
+    this.masterQueue.addToQueue(currentCity, queueItem);
   }
 
-  public async execute(operationDetails: ScheduleOperationDetails<BuilderQueueItem>) {
-    console.log('cityBuilder.execute() operationDetails', JSON.parse(JSON.stringify(operationDetails)));
+  public async execute(operationDetails: ScheduleOperationDetails<ItemDetails>) {
     await this.handleBuildSchedule(operationDetails);
   }
 
@@ -303,13 +280,13 @@ export default class CityBuilder implements Service<'builder'> {
    * @param operationDetails
    * @requires Lock
    */
-  private async performBuildSchedule(operationDetails: ScheduleOperationDetails<BuilderQueueItem>) {
+  private async performBuildSchedule(operationDetails: ScheduleOperationDetails<ItemDetails>) {
     if (await this.isEmptySlot(operationDetails.city)) {
       console.log('\t-isEmptySlot is true, checking if can build');
       await this.buildOrScheduleOrRemove(operationDetails);
     } else {
       console.log('\t-isEmptySlot is false, scheduling speed up');
-      await this.setTimeoutForSpeedUpAndPerformBuildSchedule(operationDetails, 'slot');
+      await this.setTimeoutForSpeedUpAndPerformBuildSchedule(operationDetails);
     }
   }
 
@@ -317,12 +294,9 @@ export default class CityBuilder implements Service<'builder'> {
    * Calls API method to shift queue and go for next item, and sets internal speed up flow for given city.
    * @param operationDetails
    */
-  private async onScheduleItemFinished(operationDetails: ScheduleOperationDetails<BuilderQueueItem>) {
+  private async onScheduleItemFinished(operationDetails: ScheduleOperationDetails<ItemDetails>) {
     await this.setInternalSpeedUpFlow(operationDetails.city);
-    // NOTE: could be optimized because calculating time to speed up is called twice
-    const isRealQueueFull = await this.isRealQueueFull(operationDetails.city);
-    // TODO: prepare master-queue for argument reception
-    operationDetails.shiftQueueAndNext();
+    operationDetails.onFinishCallback();
   }
 
   /**
@@ -330,14 +304,14 @@ export default class CityBuilder implements Service<'builder'> {
    * @param city
    */
   private clearInternalCitySchedule(city: CityInfo) {
-    const citySchedule = this.mainQueue.find(schedule => schedule.city.name === city.name);
-    console.warn('clearInternalCitySchedule for city:', city.name, 'timeoutId:', citySchedule?.schedule);
-    if (citySchedule && citySchedule.schedule) {
+    const citySchedule = this.schedule.find(schedule => schedule.city.name === city.name);
+    console.warn('clearInternalCitySchedule for city:', city.name, 'timeoutId:', citySchedule?.timeout);
+    if (citySchedule && citySchedule.timeout) {
       console.warn('\t-clearing internal schedule');
-      clearTimeout(citySchedule.schedule);
-      clearInterval(citySchedule.schedule);
-      citySchedule.schedule = null;
-      citySchedule.scheduledDate = null;
+      clearTimeout(citySchedule.timeout);
+      clearInterval(citySchedule.timeout);
+      citySchedule.timeout = null;
+      citySchedule.executionTime = null;
     } else {
       console.warn('\t-no schedule found, no timeout cleared');
     }
@@ -347,10 +321,7 @@ export default class CityBuilder implements Service<'builder'> {
    * Speeds up first build or schedules it and then performs build schedule. (valid for master queue)
    * @param operationDetails
    */
-  private async setTimeoutForSpeedUpAndPerformBuildSchedule(
-    operationDetails: ScheduleOperationDetails<BuilderQueueItem>,
-    purpose: 'slot' | 'resources' | 'charms' | 'other',
-  ) {
+  private async setTimeoutForSpeedUpAndPerformBuildSchedule(operationDetails: ScheduleOperationDetails<ItemDetails>) {
     console.log('setTimeoutForSpeedUpAndPerformBuildSchedule execution()');
     const timeToSpeedUp = await this.getTimeToCanSpeedUp(operationDetails.city).catch(() => null);
     console.log('\t-timeToSpeedUp:', timeToSpeedUp);
@@ -364,7 +335,7 @@ export default class CityBuilder implements Service<'builder'> {
       await this.performBuildSchedule(operationDetails);
     } else {
       console.log('\t-time to speed up is:', timeToSpeedUp, 'will be scheduled at:', msToFutureHHMMSS(timeToSpeedUp));
-      const timeToAction = timeToSpeedUp + 2 * 1000;
+      const timeToAction = timeToSpeedUp + 2000;
 
       const executionCallback = async () => {
         try {
@@ -384,11 +355,9 @@ export default class CityBuilder implements Service<'builder'> {
             },
           );
         } catch (e) {
-          if (e instanceof LockOperationCancelledError) {
-            // TODO: something?
-          } else {
-            console.warn('CityBuilder.setTimeoutForNextSpeedUpAndSchedule().catch', e);
-            console.log('\t-retrying by calling handleBuildSchedule()');
+          // if it's not deliberate Lock cancelation, retry the whole flow
+          if (!(e instanceof LockOperationCancelledError && e.reason === 'called')) {
+            console.warn('CityBuilder.handleResourcesStackable().catch', e, '\nretrying the whole flow');
             this.handleBuildSchedule(operationDetails);
           }
         }
@@ -397,7 +366,7 @@ export default class CityBuilder implements Service<'builder'> {
         'setting timeout for speed up and schedule (setTimeoutForSpeedUpAndPerformBuildSchedule)',
         new Date(Date.now() + timeToAction),
       );
-      operationDetails.setScheduleTimeout(executionCallback, timeToAction, purpose);
+      operationDetails.setScheduleTimeout(executionCallback, Date.now() + timeToAction, 'waiting', 'slot');
     }
   }
 
@@ -428,13 +397,13 @@ export default class CityBuilder implements Service<'builder'> {
    * @requires Lock
    */
   private async buildOrScheduleOrRemove(
-    operationDetails: ScheduleOperationDetails<BuilderQueueItem>,
+    operationDetails: ScheduleOperationDetails<ItemDetails>,
     forced: boolean = false,
   ) {
-    const building = operationDetails.queueItem.building;
-    const item = operationDetails.queueItem;
+    const building = operationDetails.itemDetails.building;
+    // const item = operationDetails.queueItem;
 
-    console.log('check if can build item:', item);
+    // console.log('check if can build item:', item);
     const canBuild = await this.canBuild(building, operationDetails.city);
     console.log('\t-canBuild:', canBuild);
     // NOTE: only point in the code where building gets built
@@ -445,10 +414,11 @@ export default class CityBuilder implements Service<'builder'> {
     } else if (canBuild === 'maxed') {
       console.log('\t-canBuild is maxed, shifting queue');
       if (forced) {
-        this.masterQueue.removeItemById(operationDetails.city, operationDetails.id);
-        await this.onScheduleItemFinished(operationDetails);
+        await this.setInternalSpeedUpFlow(operationDetails.city);
+        operationDetails.shiftQueueAndNext();
       } else {
-        await this.onScheduleItemFinished(operationDetails);
+        await this.setInternalSpeedUpFlow(operationDetails.city);
+        operationDetails.shiftQueueAndNext();
       }
     }
     // problematic, because it can block whole queue until queue is empty - user must be cautious
@@ -457,12 +427,12 @@ export default class CityBuilder implements Service<'builder'> {
         console.log(
           '\t-canBuild is impossible, but queue is not empty, scheduling build because maybe after that it will be possible',
         );
-        /* NOTE: it can be set as "waiting for the slot" as it waits for building to be done 
-        in order to know if that was the condition why building was not possible */
-        await this.setTimeoutForSpeedUpAndPerformBuildSchedule(operationDetails, 'slot');
+        // BUG: can be buggy - check it (especially error throwing if speedup is not possible)
+        await this.setTimeoutForSpeedUpAndPerformBuildSchedule(operationDetails);
       } else {
         console.log('\t-canBuild is impossible, and queue is empty, element must be deleted');
-        await this.onScheduleItemFinished(operationDetails);
+        await this.setInternalSpeedUpFlow(operationDetails.city);
+        operationDetails.shiftQueueAndNext();
       }
     } else {
       const resourcesInfo = await this.areResourcesStackable(building, operationDetails.city);
@@ -471,26 +441,52 @@ export default class CityBuilder implements Service<'builder'> {
         await this.handleResourcesStackableFlow(operationDetails, resourcesInfo.requiredResources);
       } else if (resourcesInfo.areStackable === 'population' && this.allowCriticalBuilds) {
         console.log('\t\t-areResourcesStackable is population, adding farm to queue');
-        this.masterQueue.unshiftAndRun(operationDetails.city, 'builder', {
-          building: buildings.farm,
-          toLvl: (await this.getBuildingCurrentLvl(buildings.farm)) + 1,
+
+        const toLvl = (await this.getBuildingCurrentLvl(buildings.Farm)) + 1;
+        this.masterQueue.unshiftAndRun(operationDetails.city, {
+          itemType: 'builder',
+          ui: {
+            title: buildings.Farm.name,
+            style: { backgroundImage: buildings.Warehouse.backgroundImageProp },
+            lvlBar: toLvl.toString(),
+          },
+          // NOTE: some fields are hardcoded -but this feature is FOR SURE not going to be used much and hardocded values seem reasonable
+          blocking: true,
+          priority: QueuePriority.High,
+          maxShipmentTime: operationDetails.maxShipmentTime,
+          supplyEvaluation: 'auto',
           supplierCities: [],
-          maxShipmentTime: 0,
+          itemDetails: {
+            building: buildings.Farm,
+            toLvl,
+          },
         });
       } else if (resourcesInfo.areStackable === 'storage' && this.allowCriticalBuilds) {
         console.log('\t\t-areResourcesStackable is storage, adding storage to queue');
-        this.masterQueue.unshiftAndRun(operationDetails.city, 'builder', {
-          building: buildings.storage,
-          toLvl: (await this.getBuildingCurrentLvl(buildings.storage)) + 1,
+        const toLvl = (await this.getBuildingCurrentLvl(buildings.Warehouse)) + 1;
+        this.masterQueue.unshiftAndRun(operationDetails.city, {
+          itemType: 'builder',
+          ui: {
+            title: buildings.Warehouse.name,
+            style: { backgroundImage: buildings.Warehouse.backgroundImageProp },
+            lvlBar: toLvl.toString(),
+          },
+          // NOTE: some fields are hardcoded -but this feature is FOR SURE not going to be used much and hardocded values seem reasonable
+          blocking: true,
+          priority: QueuePriority.High,
+          maxShipmentTime: operationDetails.maxShipmentTime,
+          supplyEvaluation: 'auto',
           supplierCities: [],
-          maxShipmentTime: 0,
+          itemDetails: {
+            building: buildings.Warehouse,
+            toLvl,
+          },
         });
       }
       // surowce zestackowane, nie można zbudować, ale są inne elementy w kolejce, które po zbudowaniu mogą zmienić warunek więc czekaj
       else if (resourcesInfo.areStackable === 'alreadyStacked' && !(await this.isQueueEmpty(operationDetails.city))) {
         console.log('\t\t-areResourcesStackable is alreadyStacked, waiting for other items to be built');
-        /* NOTE: it can be set as "waiting for the slot" as it waits for building to be done in order to know if that was the condition that is to be met */
-        await this.setTimeoutForSpeedUpAndPerformBuildSchedule(operationDetails, 'slot');
+        await this.setTimeoutForSpeedUpAndPerformBuildSchedule(operationDetails);
       } else {
         console.log('Item cannot be scheduled, because it has not met requirements');
         await this.onScheduleItemFinished(operationDetails);
@@ -522,9 +518,9 @@ export default class CityBuilder implements Service<'builder'> {
           await this.speedUpFirstBuild(city);
           await this.setInternalSpeedUpFlow(city);
         }, timeToSpeedUp + 1000);
-        const scheduleDate = new Date(Date.now() + timeToSpeedUp + 1000);
-        console.warn('\t-(setInternalSpeedUpFlow) setting timeout to speed up first build', timeout, scheduleDate);
-        this.setInternalScheduleTimeout(city, timeout, scheduleDate);
+        const scheduleTime = Date.now() + timeToSpeedUp + 1000;
+        console.warn('\t-(setInternalSpeedUpFlow) setting timeout to speed up first build', timeout, scheduleTime);
+        this.setInternalScheduleTimeout(city, timeout, scheduleTime);
       }
     }
   }
@@ -534,28 +530,28 @@ export default class CityBuilder implements Service<'builder'> {
    * Assigns it to internal builder queue (not to master queue).
    * @param city
    * @param timeout
-   * @param scheduleDate
+   * @param scheduleTime
    */
-  private setInternalScheduleTimeout(city: CityInfo, timeout: NodeJS.Timeout, scheduleDate: Date) {
-    const cityScheduleExists = this.mainQueue.find(queue => queue.city.name === city.name);
+  private setInternalScheduleTimeout(city: CityInfo, timeout: NodeJS.Timeout, scheduleTime: number) {
+    const cityScheduleExists = this.schedule.find(queue => queue.city.name === city.name);
     const citySchedule = cityScheduleExists ?? {
       city,
-      schedule: null,
-      scheduledDate: null,
+      timeout: null,
+      executionTime: null,
     };
 
-    citySchedule.schedule = timeout;
-    citySchedule.scheduledDate = scheduleDate;
+    citySchedule.timeout = timeout;
+    citySchedule.executionTime = scheduleTime;
 
     if (!cityScheduleExists) {
-      this.mainQueue.push(citySchedule);
+      this.schedule.push(citySchedule);
     }
 
     console.warn(
       'setInternalScheduleTimeout for city:',
       city.name,
       '(schedule):',
-      this.mainQueue.find(queue => queue.city.name === city.name),
+      this.schedule.find(queue => queue.city.name === city.name),
     );
   }
 
@@ -566,7 +562,7 @@ export default class CityBuilder implements Service<'builder'> {
    * @requires Lock
    */
   private async handleResourcesStackableFlow(
-    operationDetails: ScheduleOperationDetails<BuilderQueueItem>,
+    operationDetails: ScheduleOperationDetails<ItemDetails>,
     requiredResources: { wood: number; stone: number; iron: number },
     resourcesArrivalTime?: number,
   ) {
@@ -585,8 +581,8 @@ export default class CityBuilder implements Service<'builder'> {
      * @requires Lock
      */
     const performBuildActionAndCallback = async () => {
-      if ((await this.canBuild(operationDetails.queueItem.building, operationDetails.city)) === true) {
-        await this.buildBuilding(operationDetails.queueItem.building, operationDetails.city);
+      if ((await this.canBuild(operationDetails.itemDetails.building, operationDetails.city)) === true) {
+        await this.buildBuilding(operationDetails.itemDetails.building, operationDetails.city);
         await this.onScheduleItemFinished(operationDetails);
       } else {
         // it shouldn't happen, but if at this point canBuild is false or maxed or impossible then delete item from queue because it will block the queue permamently
@@ -607,26 +603,27 @@ export default class CityBuilder implements Service<'builder'> {
       retrialTime = resourcesArrivalTime;
     } else {
       // if there are supplier cities, then stack resources
-      if (operationDetails.queueItem.supplierCities.length) {
-        console.log('stacking resources, supplierCities.length:', operationDetails.queueItem.supplierCities.length);
+      if (operationDetails.supplierCities.length) {
+        console.log('stacking resources, supplierCities.length:', operationDetails.supplierCities.length);
         const stackResourcesResult = await this.tradeManager.stackResources(
           requiredResources,
           operationDetails.city,
-          operationDetails.queueItem.supplierCities,
-          operationDetails.queueItem.maxShipmentTime,
+          operationDetails.supplierCities,
+          operationDetails.maxShipmentTime,
         );
         // if stackResourcesResult.timeMs is -1, then resources are not fully stacked and it needs to be retried in 10 minutes
-        if (stackResourcesResult.timeMs === -1 || stackResourcesResult.fullyStacked === false) {
-          timeToRetry = 1000 * 60 * 10;
-          retrialTime = Date.now() + 1000 * 60 * 10;
+        if (stackResourcesResult.arrivalTime === -1 || stackResourcesResult.fullyStacked === false) {
+          timeToRetry = 600000;
+          retrialTime = Date.now() + 600000;
         } else {
           // time to arrival of all necessary resources (+3s)
-          timeToRetry = stackResourcesResult.timeMs;
-          retrialTime = Date.now() + stackResourcesResult.timeMs;
+          timeToRetry = stackResourcesResult.arrivalTime - Date.now();
+          retrialTime = stackResourcesResult.arrivalTime;
         }
       } else {
         timeToRetry = 600000;
         retrialTime = Date.now() + 600000;
+        console.log('retrialTime:', retrialTime, new Date(retrialTime));
       }
     }
 
@@ -637,12 +634,13 @@ export default class CityBuilder implements Service<'builder'> {
           .catch(() => null)
       : null;
 
-    // jeżeli nie ma czasu do przyspieszenia (brak budynku w kolejce), to sprawdź w czasie określonym przez czas dostawy
+    // jeżeli nie ma czasu do przyspieszenia (brak budynku w kolejce), to sprawdź w czasie określonym przez czas dostawy lub fallback 10 minut
     if (!timeToSpeedUp) {
       operationDetails.setScheduleTimeout(
         async () => await this.handleBuildSchedule(operationDetails),
-        timeToRetry,
-        'slot' /* NOTE: na pewno slot? */,
+        retrialTime,
+        'execution',
+        'resources' /* NOTE: na pewno taki? */,
       );
     } else if (timeToSpeedUp < timeToRetry) {
       /* w przeciwnym razie sprawdź czy timeToSpeedUp jest krótszy od czasu dostawy surowców
@@ -673,13 +671,15 @@ export default class CityBuilder implements Service<'builder'> {
               },
             );
           } catch (e) {
-            if (e instanceof LockOperationCancelledError) {
-              // TODO: something?
+            // if it's not deliberate Lock cancel error, retry whole flow
+            if (!(e instanceof LockOperationCancelledError && e.reason === 'called')) {
+              console.warn('CityBuilder.handleResourcesStackable().catch', e, '\nretrying the whole flow');
+              this.handleBuildSchedule(operationDetails);
             }
-            console.warn('CityBuilder.handleResourcesStackable().catch', e);
           }
         },
-        timeToSpeedUp,
+        Date.now() + timeToSpeedUp,
+        'execution',
         'resources',
       );
     } else {
@@ -710,13 +710,15 @@ export default class CityBuilder implements Service<'builder'> {
               },
             );
           } catch (e) {
-            if (e instanceof LockOperationCancelledError) {
-              // TODO: something?
+            // if it's not deliberate Lock cancel error, retry whole flow
+            if (!(e instanceof LockOperationCancelledError && e.reason === 'called')) {
+              console.warn('CityBuilder.handleResourcesStackable().catch', e, '\nretrying the whole flow');
+              this.handleBuildSchedule(operationDetails);
             }
-            console.warn('CityBuilder.handleResourcesStackable().catch', e);
           }
         },
-        timeToRetry,
+        retrialTime,
+        'execution',
         'resources',
       );
     }
@@ -752,7 +754,7 @@ export default class CityBuilder implements Service<'builder'> {
     cityViewBtn?.click();
   }
 
-  private async handleBuildSchedule(operationDetails: ScheduleOperationDetails<BuilderQueueItem>) {
+  private async handleBuildSchedule(operationDetails: ScheduleOperationDetails<ItemDetails>) {
     console.log('handleBuildSchedule()');
     try {
       await this.lock.performWithLock(
@@ -770,11 +772,11 @@ export default class CityBuilder implements Service<'builder'> {
         },
       );
     } catch (e) {
-      console.log('handleBuildSchedule catch block:', e);
-      if (e instanceof LockOperationCancelledError) {
-        // TODO: something?
+      // if it's not deliberate Lock cancelation, retry the whole flow
+      if (!(e instanceof LockOperationCancelledError && e.reason === 'called')) {
+        console.warn('CityBuilder.handleResourcesStackable().catch', e, '\nretrying the whole flow');
+        this.handleBuildSchedule(operationDetails);
       }
-      console.warn('CityBuilder.handleBuildSchedule().catch', e);
     } finally {
       console.log('handleBuildSchedule finally block', operationDetails.city.name);
       this.generalInfo.hideInfo();
@@ -991,27 +993,32 @@ export default class CityBuilder implements Service<'builder'> {
   public stop() {
     console.log('Stopping');
     this.RUN = false;
-    this.mainQueue.forEach(cityQueue => {
-      if (cityQueue.schedule) {
-        clearInterval(cityQueue.schedule);
-        clearTimeout(cityQueue.schedule);
-        cityQueue.schedule = null;
-        cityQueue.scheduledDate = null;
+    this.schedule.forEach(cityQueue => {
+      if (cityQueue.timeout) {
+        clearInterval(cityQueue.timeout);
+        clearTimeout(cityQueue.timeout);
+        cityQueue.timeout = null;
+        cityQueue.executionTime = null;
       }
     });
     document.getElementById(CityBuilder.toggleBuilderButtonId)!.classList.add('hidden');
   }
+
+  public pause() {
+    this.RUN = false;
+  }
+  public resume() {
+    this.RUN = true;
+  }
+
   public isRunning() {
     return this.RUN;
   }
 
-  public async isRealQueueFull(city?: CityInfo): Promise<{ isRealQueueFull: boolean; timeToFreeSlot: number }> {
-    if (city) await city.switchAction(false);
-    const emptySlots = this.getEmptySlotsCount();
-    const returnValue = { isRealQueueFull: !emptySlots, timeToFreeSlot: 0 };
-    if (!emptySlots) {
-      returnValue.timeToFreeSlot = await this.getTimeToCanSpeedUp(city);
-    }
-    return returnValue;
+  public getScheduledActionTimes() {
+    return this.schedule.map(s => [s.executionTime, undefined]).filter(([t1]) => Boolean(t1)) as [number, undefined][];
+  }
+  public onConfigChange(configChanges: Partial<TConfigChanges['builder']>) {
+    // nothing
   }
 }

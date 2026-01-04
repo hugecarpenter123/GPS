@@ -64,7 +64,7 @@ export default class ConfigManager {
     return this.config;
   }
 
-  public persistConfig(): void {
+  public persist(): void {
     this.storageManager.writeToLocalStorage('config', this.config);
   }
 

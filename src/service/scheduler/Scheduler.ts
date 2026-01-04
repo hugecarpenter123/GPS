@@ -218,6 +218,17 @@ export default class Scheduler implements Service<'scheduler'> {
     // operations:
     this.stopAllSchedules();
   }
+
+  public pause() {
+    this.RUN = false;
+    this.stopAllSchedules();
+  }
+
+  public resume() {
+    this.RUN = true;
+    this.schedule.forEach(s => this.activateSchedule(s));
+  }
+
   public isRunning(): boolean {
     return this.RUN;
   }
@@ -360,6 +371,7 @@ export default class Scheduler implements Service<'scheduler'> {
         );
       });
     } catch (e) {
+      // FUTURE: manual lock handling doesn't throw timeoutError, but implement when ready
       this.generalInfo.showError('Scheduler: ', `Schedule failed - "${e}"`, 4000);
       console.warn('Scheduler catch block:', e);
       const dependantSchduleItemIds = item.dependentScheduleItems.map(i => i.scheduleId);
@@ -694,7 +706,7 @@ export default class Scheduler implements Service<'scheduler'> {
   private tryRestoreManagers(): void {
     if (this.schedule.length === 0) {
       console.log('RESTORE MANAGERS');
-      this.masterManager.resumeRunningManagers(['scheduler']);
+      this.masterManager.resumePausedManagers(['scheduler']);
     } else {
       const now = Date.now();
       const isTooSoonOrMidTime = this.schedule.some(el => {
@@ -707,7 +719,7 @@ export default class Scheduler implements Service<'scheduler'> {
       });
       if (!isTooSoonOrMidTime) {
         console.log('RESTORE MANAGERS');
-        this.masterManager.resumeRunningManagers(['scheduler']);
+        this.masterManager.resumePausedManagers(['scheduler']);
       }
     }
   }

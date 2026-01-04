@@ -1,7 +1,7 @@
 // TODO: tragically needs rework because it's super lame and faulty at the moment (but works)
 
-import generalInfoStyle from './general-info.css';
-import generalInfoTemplate from './info-template.html';
+import generalInfoStyle from './general-info.css?raw';
+import generalInfoTemplate from './info-template.html?raw';
 
 export default class GeneralInfo {
   private static instance: GeneralInfo;

@@ -17,13 +17,12 @@ import Lock from '../../utility/ui-lock';
 import {
   performComplexClick,
   waitForElement,
-  waitForElementFromNode,
   waitForElementInterval,
-  waitForElements,
   waitForElementsInterval,
 } from '../../utility/ui-utility';
 import CitySwitchManager, { CityInfo } from '../city/city-switch-manager';
 import GeneralInfo from '../master/ui/general-info';
+import Service from '~/utility/Service';
 
 type ScheduleItem = {
   scheduledDate: Date;
@@ -41,14 +40,14 @@ export enum FarmingSolution {
   Manual,
 }
 
-export default class FarmManager extends EventEmitter {
-  private static instance: FarmManager;
+export default class Farmer extends EventEmitter implements Service<'farmer'> {
+  private static instance: Farmer;
   private citySwitch!: CitySwitchManager;
   private configManager!: ConfigManager;
   private generalInfo!: GeneralInfo;
   private config!: typeof gpsConfig;
-  private schedulerArray: ScheduleItem[] = [];
-  private captainScheduler: CaptainSchedulerItem | null = null;
+  private schedule: ScheduleItem[] = [];
+  private captainSchedule: CaptainSchedulerItem | null = null;
   private messageDialogObserver: MutationObserver | null = null;
   private humanMessageDialogObserver: MutationObserver | null = null;
   private lock!: Lock;
@@ -60,19 +59,19 @@ export default class FarmManager extends EventEmitter {
     // Private constructor to prevent direct instantiation
   }
 
-  public static async getInstance(): Promise<FarmManager> {
-    if (!FarmManager.instance) {
-      FarmManager.instance = new FarmManager();
-      FarmManager.instance.generalInfo = GeneralInfo.getInstance();
-      FarmManager.instance.citySwitch = await CitySwitchManager.getInstance();
-      FarmManager.instance.config = ConfigManager.getInstance().getConfig();
-      FarmManager.instance.lock = Lock.getInstance();
-      await FarmManager.instance.setFarmSolution();
+  public static async getInstance(): Promise<Farmer> {
+    if (!Farmer.instance) {
+      Farmer.instance = new Farmer();
+      Farmer.instance.generalInfo = GeneralInfo.getInstance();
+      Farmer.instance.citySwitch = await CitySwitchManager.getInstance();
+      Farmer.instance.config = ConfigManager.getInstance().getConfig();
+      Farmer.instance.lock = Lock.getInstance();
+      await Farmer.instance.setFarmSolution();
     }
-    return FarmManager.instance;
+    return Farmer.instance;
   }
 
-  public async setFarmSolution() {
+  private async setFarmSolution() {
     const captainPresent = await waitForElement('.advisor_frame.captain .advisor', 4000)
       .then(el => el.classList.contains('captain_active'))
       .catch(() => false);
@@ -80,14 +79,10 @@ export default class FarmManager extends EventEmitter {
     this.farmSolution = captainPresent ? FarmingSolution.Captain : FarmingSolution.Manual;
   }
 
-  public getFarmSolution() {
-    return this.farmSolution;
-  }
-
   public getFarmScheduleTimes() {
     return this.farmSolution === FarmingSolution.Captain
-      ? [this.captainScheduler?.scheduledDate]
-      : this.schedulerArray.map(item => item.scheduledDate);
+      ? [this.captainSchedule?.scheduledDate]
+      : this.schedule.map(item => item.scheduledDate);
   }
 
   public async farmWithCaptain(scheduled: boolean = false) {
@@ -104,7 +99,7 @@ export default class FarmManager extends EventEmitter {
 
           // opening farm overview
           document.querySelector<HTMLElement>('[name="farm_town_overview"]')!.click();
-          this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
+          this.config.farmer.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
           await waitWhile(() => !document.querySelector<HTMLElement>('#fto_town_list'), {
             delay: 200,
             maxIterations: 5,
@@ -145,7 +140,7 @@ export default class FarmManager extends EventEmitter {
                 this.farmWithCaptain(true);
               }, timeout);
 
-              this.captainScheduler = {
+              this.captainSchedule = {
                 scheduledDate,
                 timeout: scheduleTimeout,
               };
@@ -173,10 +168,10 @@ export default class FarmManager extends EventEmitter {
                 await addDelay(100);
               }
             });
-          this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
+          this.config.farmer.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
 
           const allCityLabels = document.querySelectorAll<HTMLElement>(`#fto_town_wrapper .gp_town_link`);
-          for (const city of this.config.farmConfig.farmingCities) {
+          for (const city of this.config.farmer.farmingCities) {
             for (const cityLabel of allCityLabels) {
               if (cityLabel.textContent === city.name) {
                 const checbkox = cityLabel.parentElement!.querySelector<HTMLElement>('.checkbox.town_checkbox')!;
@@ -197,9 +192,9 @@ export default class FarmManager extends EventEmitter {
           const farmOptions = document.querySelectorAll<HTMLElement>('.fto_time_checkbox')!;
           const farmOptionIndex = this.getFarmOptionIndex()!;
           !farmOptions[farmOptionIndex].classList.contains('checked') && farmOptions[farmOptionIndex].click();
-          this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : await addDelay(100);
+          this.config.farmer.humanize ? await addDelay(getRandomMs(400, 1200)) : await addDelay(100);
           !farmOptions[farmOptionIndex + 4]?.classList.contains('checked') && farmOptions[farmOptionIndex + 4]?.click();
-          this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : await addDelay(100);
+          this.config.farmer.humanize ? await addDelay(getRandomMs(400, 1200)) : await addDelay(100);
           // end of selecting farm option
 
           // collecting resources
@@ -210,7 +205,7 @@ export default class FarmManager extends EventEmitter {
             .catch(() => {
               throw new Error('collecting resources failed, no button found');
             });
-          this.config.farmConfig.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
+          this.config.farmer.humanize ? await addDelay(getRandomMs(400, 1200)) : null;
           // end of collecting resources
 
           // potentially confirm click confirm button
@@ -246,7 +241,7 @@ export default class FarmManager extends EventEmitter {
             this.farmWithCaptain(true);
           }, timeout);
 
-          this.captainScheduler = {
+          this.captainSchedule = {
             scheduledDate,
             timeout: scheduleTimeout,
           };
@@ -254,7 +249,7 @@ export default class FarmManager extends EventEmitter {
           console.log('farmManager.farmWithCaptain.succesfullSnapchot', getBrowserStateSnapshot());
         },
         {
-          manager: 'farmManager',
+          manager: 'farmer',
         },
       );
     } catch (e) {
@@ -263,7 +258,7 @@ export default class FarmManager extends EventEmitter {
       } else {
         console.warn('FarmManager.farmWithCaptain().catch', e, 'will reschedule in 2 minutes');
       }
-      this.captainScheduler = {
+      this.captainSchedule = {
         timeout: setTimeout(
           () => {
             this.farmWithCaptain();
@@ -273,17 +268,9 @@ export default class FarmManager extends EventEmitter {
         scheduledDate: new Date(Date.now() + 2 * 60 * 1000),
       };
     } finally {
-      console.log('captain scheduler:', this.captainScheduler);
+      console.log('captain scheduler:', this.captainSchedule);
       this.tryCloseCurrentDialog(Array.from(dialogsSnapshot));
       this.generalInfo.hideInfo();
-    }
-  }
-
-  public async start() {
-    if (!this.RUN) {
-      console.log('FarmManager started');
-      this.RUN = true;
-      await this.initFarmAllVillages();
     }
   }
 
@@ -323,7 +310,7 @@ export default class FarmManager extends EventEmitter {
           console.log('farmVillages, take lock', city.name);
           await this.farmVillagesFlow(city);
         },
-        { manager: 'farmManager' },
+        { manager: 'farmer' },
       );
     } catch (e) {
       console.warn('FarmManager.farmVillages().catch', e);
@@ -386,8 +373,10 @@ export default class FarmManager extends EventEmitter {
 
         const farmOptionIndex = this.getFarmOptionIndex();
         let farmNotOwned = false;
+
         await waitForElementsInterval('.btn_claim_resources.button.button_new', {
-          retries: 10,
+          // one try, because when village name change, ui with buttons should be present as well
+          retries: 1,
           interval: 200,
           fromNode: masterWindow!,
         })
@@ -416,13 +405,13 @@ export default class FarmManager extends EventEmitter {
       console.log('post loop actions');
       const cooldownTime = await this.getUnlockTimeOrNull(masterWindow!);
       // const timeoutTime = Math.min(cooldownTime ?? Infinity, this.config.farmConfig.farmInterval);
-      await waitForElement('.btn_wnd.close', 2000)
+      await waitForElementInterval('.btn_wnd.close')
         .then(el => el.click())
         .catch(() => {});
 
       // NOTE: check if this is called in the finally block (remove duplicate if so)
       this.disconnectObservers();
-      this.scheduleNextFarmingOperationForCity(cooldownTime ?? this.config.farmConfig.farmInterval + 1000, city);
+      this.scheduleNextFarmingOperationForCity(cooldownTime ?? this.config.farmer.farmInterval + 1000, city);
     } catch (e) {
       console.warn('FarmManager.farmVillagesFlow().catch', e);
       await this.forceRepeatFarming(city);
@@ -437,7 +426,7 @@ export default class FarmManager extends EventEmitter {
     if (this.farmSolution === FarmingSolution.Captain) {
       await this.farmWithCaptain();
     } else {
-      const cityList = this.config.farmConfig.farmingCities.map(
+      const cityList = this.config.farmer.farmingCities.map(
         city => this.citySwitch.getCityList().find(c => c.name === city.name)!,
       );
 
@@ -452,7 +441,7 @@ export default class FarmManager extends EventEmitter {
             }
             if (cityList.length !== 1) await cityList[0].switchAction();
           },
-          { manager: 'farmManager' },
+          { manager: 'farmer' },
         );
       } catch (e) {
         console.warn('FarmManager.initFarmAllVillages().catch', e);
@@ -485,13 +474,13 @@ export default class FarmManager extends EventEmitter {
     };
 
     const timeout = setTimeout(async () => {
-      this.schedulerArray = this.schedulerArray.filter(item => item !== scheduleItem);
+      this.schedule = this.schedule.filter(item => item !== scheduleItem);
       this.farmVillages(city);
     }, timeInterval);
 
     scheduleItem.timeout = timeout;
-    this.schedulerArray.push(scheduleItem as ScheduleItem);
-    console.log('scheduler:', this.schedulerArray);
+    this.schedule.push(scheduleItem as ScheduleItem);
+    console.log('scheduler:', this.schedule);
   };
 
   /**
@@ -569,7 +558,7 @@ export default class FarmManager extends EventEmitter {
    * Depending on the length of the farm options, it returns the index of the farm option to click.
    */
   private getFarmOptionIndex() {
-    switch (this.config.farmConfig.farmInterval) {
+    switch (this.config.farmer.farmInterval) {
       case FarmTimeInterval.FirstOption:
         return 0;
       case FarmTimeInterval.SecondOption:
@@ -583,38 +572,60 @@ export default class FarmManager extends EventEmitter {
     }
   }
 
-  private getFarmOptionTimeRegex() {
-    switch (this.config.farmConfig.farmInterval) {
-      case FarmTimeInterval.FirstOption:
-        return /(5|10)/;
-      case FarmTimeInterval.SecondOption:
-        return /^(20|40)/;
-      case FarmTimeInterval.ThirdOption:
-        return /^(1.*30|3\D+)/;
-      case FarmTimeInterval.FourthOption:
-        return /^(4|8)h/;
-      default:
-        return /^(5|10)/;
-    }
-  }
-
-  private getFarmOption() {
-    return Array.from(document.querySelectorAll<HTMLElement>('.btn_claim_resources.button.button_new')).find(el =>
-      this.getFarmOptionTimeRegex().test(el.textContent ?? ''),
-    );
-  }
-
   public stop() {
     this.RUN = false;
     console.log('FarmManager stopped');
     // manual related
-    this.schedulerArray.forEach(item => {
+    this.schedule.forEach(item => {
       clearTimeout(item.timeout);
     });
-    this.schedulerArray = [];
+    this.schedule = [];
     // captain related
-    this.captainScheduler && clearTimeout(this.captainScheduler.timeout);
-    this.captainScheduler = null;
+    this.captainSchedule && clearTimeout(this.captainSchedule.timeout);
+    this.captainSchedule = null;
+  }
+
+  public async start() {
+    if (!this.RUN) {
+      console.log('FarmManager started');
+      this.RUN = true;
+      await this.initFarmAllVillages();
+    }
+  }
+
+  public pause() {
+    if (this.captainSchedule) {
+      clearTimeout(this.captainSchedule.timeout);
+    } else {
+      this.schedule.forEach(s => clearTimeout(s.timeout));
+    }
+  }
+  public async resume() {
+    if (this.farmSolution === FarmingSolution.Captain) {
+      await this.farmWithCaptain();
+    } else {
+      this.schedule.forEach(citySchedule => {
+        citySchedule.timeout = setTimeout(() => {
+          this.schedule = this.schedule.filter(item => item !== citySchedule);
+          this.farmVillages(citySchedule.city);
+        }, citySchedule.scheduledDate.getTime() - Date.now());
+      });
+    }
+  }
+  public getScheduledActionTimes() {
+    return this.captainSchedule
+      ? ([[this.captainSchedule.scheduledDate.getTime(), 3000]] as [[number, number]])
+      : (this.schedule.map(s => [s.scheduledDate.getTime(), 5000]) as [[number, number]]);
+  }
+
+  public onConfigChange(configChanges: Partial<{ farmInterval: boolean; humanize: boolean; farmingCities: boolean }>) {
+    if (configChanges.farmingCities) {
+      if (this.farmSolution === FarmingSolution.Manual) {
+        this.schedule.forEach(s => clearTimeout(s.timeout));
+        this.schedule = [];
+        this.initFarmAllVillages();
+      }
+    }
   }
 
   public isRunning(): boolean {

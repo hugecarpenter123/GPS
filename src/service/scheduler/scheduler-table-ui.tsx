@@ -3,7 +3,7 @@ import { useState } from 'preact/hooks';
 import ConfigManager from '../../utility/config-manager';
 import SchedulerTableAction from './components/scheduler-table-action';
 import { OperationType, ScheduleItem, ScheduleItemEditData } from './Scheduler';
-import SchedulerTableCSS from './scheduler-table.css';
+import SchedulerTableCSS from './scheduler-table.css?raw';
 
 export interface SchedulerTableProps {
   scheduleList: ScheduleItem[];

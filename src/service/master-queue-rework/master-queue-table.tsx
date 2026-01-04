@@ -3,14 +3,24 @@ import { h, render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { ActionButton } from './components/action-button';
 import QueueItemComp from './components/queue-item';
-import type { CitySchedule, QueueItem } from './master-queue.rework';
+import type { CitySchedule, QueueItem } from './master-queue';
 import Select from './components/select';
 
 export const componentName = 'master-queue' as const;
 
 // Local helper components (not exported)
-const Td = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
-  <div className={`border-gps-border bg-gps-card border p-2 ${className}`}>{children}</div>
+const Td = ({
+  children,
+  className = '',
+  style,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  style?: Record<string, string>;
+}) => (
+  <div className={`border-gps-border bg-gps-card border p-2 ${className}`} style={style}>
+    {children}
+  </div>
 );
 
 const Th = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
@@ -35,11 +45,7 @@ const CityScheduleRow = ({
   onDeleteItem: (item: QueueItem) => void;
 }) => {
   const selectedScheduleType =
-    queueDisplay === 'blocking'
-      ? citySchedule
-      : queueDisplay === 'async-builder'
-        ? citySchedule.nonBlockingQueueComplex.builder
-        : citySchedule.nonBlockingQueueComplex.recruiter;
+    queueDisplay === 'main' ? citySchedule : citySchedule.nonBlockingQueueComplex[queueDisplay];
   return (
     // Tr
     <div className="contents" data-city={citySchedule.city.name}>
@@ -53,13 +59,37 @@ const CityScheduleRow = ({
           : '-'}
       </Td>
 
+      <Td className="relative flex items-center justify-center">
+        <div
+          className="absolute h-7 w-8 self-center"
+          style={
+            selectedScheduleType?.timeoutData.purpose === 'resources'
+              ? {
+                  backgroundImage: 'url(https://gppl.innogamescdn.com/images/game/layout/resources_2.32.png)',
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: '0 -92px',
+                }
+              : selectedScheduleType?.timeoutData.purpose === 'charms'
+                ? {
+                    backgroundImage: 'url(https://gppl.innogamescdn.com/images/game/layout/resources_2.32.png)',
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: '0 -150px',
+                  }
+                : {}
+          }
+        />
+        {['slot', 'error'].includes(selectedScheduleType?.timeoutData.purpose ?? '')
+          ? selectedScheduleType?.timeoutData.purpose
+          : '-'}
+      </Td>
+
       {/* Queue Cell */}
       <Td className="overflow-x-auto">
         <div className="flex flex-nowrap items-start gap-2">
           {(
-            (queueDisplay === 'blocking'
+            (queueDisplay === 'main'
               ? citySchedule.queue
-              : queueDisplay === 'async-builder'
+              : queueDisplay === 'builder'
                 ? citySchedule.nonBlockingQueueComplex.builder?.queue
                 : citySchedule.nonBlockingQueueComplex.recruiter?.queue) ?? []
           ).map((item, index) => (
@@ -108,7 +138,7 @@ interface MasterQueueTableProps {
   onDeleteItem: (citySchedule: CitySchedule, item: QueueItem) => void;
 }
 
-export type QueueDisplay = 'blocking' | 'async-builder' | 'async-recruiter';
+export type QueueDisplay = 'main' | 'builder' | 'recruiter';
 
 const MasterQueueTable = ({
   eventEmitter,
@@ -125,12 +155,12 @@ const MasterQueueTable = ({
 }: MasterQueueTableProps) => {
   const [open, setOpen] = useState(false);
   const [queue, setQueue] = useState<CitySchedule[]>(initialQueue);
-  const [queueDisplay, setQueueDisplay] = useState<QueueDisplay>('blocking');
+  const [queueDisplay, setQueueDisplay] = useState<QueueDisplay>('main');
 
   // Listen for queue updates from MasterQueue
   useEffect(() => {
     const handleQueueUpdate = (newQueue: CitySchedule[]) => {
-      setQueue(newQueue);
+      setQueue([...newQueue]); // spread to create new reference and trigger re-render
     };
 
     const handleToggle = () => {
@@ -158,8 +188,11 @@ const MasterQueueTable = ({
     };
   }, [eventEmitter]);
 
-  const activeSchedules = queue.filter(citySchedule => citySchedule.queue.length > 0);
-  const isEmpty = activeSchedules.length === 0;
+  const activeSchedules = queue.filter(
+    citySchedule =>
+      citySchedule.queue.length > 0 || Object.values(citySchedule.nonBlockingQueueComplex).some(c => c.queue.length),
+  );
+  const isEmpty = !activeSchedules.length;
 
   return (
     <>
@@ -171,9 +204,9 @@ const MasterQueueTable = ({
         {/* Table Container */}
         <div className="mx-auto max-h-[70vh] w-fit max-w-[90%] overflow-x-auto" hidden={!open}>
           {/* Table Grid */}
-          <div className="bg-gps-card pointer-events-auto grid grid-cols-[min-content_min-content_minmax(200px,1fr)_min-content_min-content] rounded-b">
+          <div className="bg-gps-card pointer-events-auto grid grid-cols-[min-content_min-content_min-content_minmax(200px,1fr)_min-content_min-content] rounded-b">
             {/* Toolbar */}
-            <div className="bg-gps-toolbar sticky top-0 col-span-5 flex justify-end rounded-t">
+            <div className="bg-gps-toolbar sticky top-0 col-span-6 flex justify-end rounded-t">
               <button
                 className="cursor-pointer rounded border-none bg-red-600 text-white"
                 onClick={() => setOpen(false)}
@@ -188,21 +221,24 @@ const MasterQueueTable = ({
               <div className="contents">
                 <Th>City</Th>
                 <Th className="whitespace-nowrap">Next at</Th>
+                <Th className="whitespace-nowrap">Reason</Th>
                 <Th className="flex items-center gap-2">
                   <span>Queue</span>
-                  <div className={'flex'}>
-                    {'('}
-                    <Select
-                      options={[
-                        { value: 'blocking', label: 'Blocking' },
-                        { value: 'async-builder', label: 'Async Builder' },
-                        { value: 'async-recruiter', label: 'Async Recruiter' },
-                      ]}
-                      onSelect={value => setQueueDisplay(value as QueueDisplay)}
-                      triggerType="text"
-                    />
-                    {')'}
-                  </div>
+                  {!isEmpty && (
+                    <div className={'flex'}>
+                      {'('}
+                      <Select
+                        options={[
+                          { value: 'main', label: 'Main' },
+                          { value: 'builder', label: 'Builder' },
+                          { value: 'recruiter', label: 'Recruiter' },
+                        ]}
+                        onSelect={value => setQueueDisplay(value as QueueDisplay)}
+                        triggerType="text"
+                      />
+                      {')'}
+                    </div>
+                  )}
                 </Th>
                 <Th>State</Th>
                 <Th>Actions</Th>
@@ -214,7 +250,7 @@ const MasterQueueTable = ({
               {isEmpty ? (
                 // Tr
                 <div className="contents">
-                  <Td className="col-span-5 border-t-0 p-3 text-center">No schedules</Td>
+                  <Td className="col-span-6 border-t-0 p-3 text-center">No schedules</Td>
                 </div>
               ) : (
                 activeSchedules.map(citySchedule => (
@@ -234,7 +270,7 @@ const MasterQueueTable = ({
 
             {/* Table Footer */}
             {!isEmpty && (
-              <div className="border-gps-border bg-gps-card sticky bottom-0 col-span-4 border p-2 text-center">
+              <div className="border-gps-border bg-gps-card sticky bottom-0 col-span-5 border p-2 text-center">
                 <ActionButton variant="run" onClick={onRunAll}>
                   Run all
                 </ActionButton>
@@ -255,7 +291,7 @@ const MasterQueueTable = ({
 
       {/* Toggle Button */}
       <button
-        className="absolute bottom-[135px] left-[10px] z-1000 m-0 cursor-pointer rounded border border-red-500 px-2 py-1 text-xs text-red-500 shadow-[0_0_2px_tomato] transition-all duration-150 hover:bg-red-500 hover:text-white"
+        className="absolute bottom-[135px] left-[10px] z-1000 m-0 cursor-pointer rounded border border-red-500 bg-transparent px-2 py-1 text-xs text-red-500 shadow-[0_0_2px_tomato] transition-all duration-150 hover:bg-red-500 hover:text-white"
         style={{ fontVariant: 'small-caps' }}
         onClick={() => setOpen(!open)}
       >
@@ -268,11 +304,11 @@ const MasterQueueTable = ({
 // Hook for lifecycle management
 export type MasterQueueTableUtility = ReturnType<typeof useMasterQueueTable>;
 export const useMasterQueueTable = () => {
-  let container: HTMLDivElement | null = null;
+  let container: HTMLElement | null = null;
   const eventEmitter = new EventEmitter();
 
   const mount = (
-    container: HTMLElement | null,
+    targetContainer: HTMLElement | null,
     props: {
       initialQueue: CitySchedule[];
       onRunAll: () => void;
@@ -286,17 +322,16 @@ export const useMasterQueueTable = () => {
       onDeleteItem: (citySchedule: CitySchedule, item: QueueItem) => void;
     },
   ) => {
-    console.log('should mount:', componentName);
-
     // NOTE: component is done with tailwind, and talwind.css is injected on script load, so it's no necessery anymore
     // use it however when for example lazy loading is preferred
     // addStyleIfNotAdded();
 
     // Find existing container or create new one
-    container = container ?? document.body.querySelector<HTMLDivElement>(`[data-for="${componentName}"]`);
+    container =
+      targetContainer ?? document.body.querySelector<HTMLDivElement>(`[data-component-name="${componentName}"]`);
     if (!container) {
       container = document.createElement('div');
-      container.dataset.for = componentName;
+      container.dataset.componentName = componentName;
       document.body.appendChild(container);
     }
 

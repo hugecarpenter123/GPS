@@ -1,41 +1,14 @@
-// NOTE: reworked hybrid
-/**
- * Lock system with unified queue for both automatic (performWithLock) and manual (acquire/release) locking.
- *
- * Usage examples:
- *
- * 1. Automatic locking with performWithLock (recommended for most cases):
- * ```typescript
- * const lock = Lock.getInstance();
- * const result = await lock.performWithLock(
- *   async () => {
- *     // Your operation here
- *     return someValue;
- *   },
- *   { manager: 'CityBuilder', method: 'buildBuilding' }
- * );
- * ```
- *
- * 2. Manual locking with acquire/release (for more control):
- * ```typescript
- * const lock = Lock.getInstance();
- * const handle!: LockHandle;
- * try {
- *   handle = await lock.acquire({ manager: 'CityBuilder', method: 'buildBuilding' });
- *   // Your operation here
- * } finally {
- *   handle.release();
- * }
- * ```
- *
- * Both methods use the same queue and are fully compatible.
- */
+// TODO: manual lock handling has no security against deadlock
 
-import { Managers } from '../service/master/master-manager';
+import { type Managers } from '../../gps.config';
 import { getCopyOf } from './plain-utility';
 
+type LockCancelReason = 'timeout' | 'called';
 export class LockOperationCancelledError extends Error {
-  constructor(public readonly lockInfo: { manager: Managers; id: string }) {
+  constructor(
+    public readonly lockInfo: { manager: Managers; id: string },
+    public readonly reason: LockCancelReason,
+  ) {
     super(`Lock operation cancelled for ${lockInfo.manager} (${lockInfo.id})`);
     this.name = 'LockOperationCancelledError';
   }
@@ -70,7 +43,37 @@ type QueuedLockRequest = {
   // For manual acquire - flag to indicate it's manual
   isManual?: boolean;
 };
-
+/**
+ * Lock system with unified queue for both automatic (performWithLock) and manual (acquire/release) locking.
+ *
+ * Usage examples:
+ *
+ * 1. Automatic locking with performWithLock (recommended for most cases):
+ * ```typescript
+ * const lock = Lock.getInstance();
+ * const result = await lock.performWithLock(
+ *   async () => {
+ *     // Your operation here
+ *     return someValue;
+ *   },
+ *   { manager: 'CityBuilder', method: 'buildBuilding' }
+ * );
+ * ```
+ *
+ * 2. Manual locking with acquire/release (for more control):
+ * ```typescript
+ * const lock = Lock.getInstance();
+ * const handle!: LockHandle;
+ * try {
+ *   handle = await lock.acquire({ manager: 'CityBuilder', method: 'buildBuilding' });
+ *   // Your operation here
+ * } finally {
+ *   handle.release();
+ * }
+ * ```
+ *
+ * Both methods use the same queue and are fully compatible.
+ */
 export default class Lock {
   public static readonly LOCK_TIMEOUT: number = 1000 * 60 * 5;
 
@@ -137,14 +140,11 @@ export default class Lock {
             (_, rej) =>
               (timeoutId = setTimeout(() => {
                 console.log('reject');
-                rej(new LockOperationCancelledError({ manager: lockInfo.manager, id: lockInfo.id }));
+                rej(new LockOperationCancelledError({ manager: lockInfo.manager, id: lockInfo.id }, 'timeout'));
               }, Lock.LOCK_TIMEOUT)),
           ),
           operation(),
         ]);
-      } catch (error) {
-        console.warn('Lock: catch block:', error);
-        throw error;
       } finally {
         clearTimeout(timeoutId);
         console.log('Lock: finally block');
@@ -171,7 +171,7 @@ export default class Lock {
       await Promise.race([
         new Promise((_, rej) => {
           timeoutId = setTimeout(() => {
-            rej(new LockOperationCancelledError({ manager: data.lockInfo.manager, id: data.lockInfo.id }));
+            rej(new LockOperationCancelledError({ manager: data.lockInfo.manager, id: data.lockInfo.id }, 'timeout'));
           }, Lock.LOCK_TIMEOUT);
         }),
         new Promise<any>(async res => {
@@ -246,7 +246,7 @@ export default class Lock {
       // Clear timeout if exists - should never exist at this point, but let it be
       clearTimeout(cancelledOperation.timeoutId);
 
-      cancelledOperation.resolver.reject(new LockOperationCancelledError(arg));
+      cancelledOperation.resolver.reject(new LockOperationCancelledError(arg, 'called'));
     }
   };
 

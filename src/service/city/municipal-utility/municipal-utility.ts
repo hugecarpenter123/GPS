@@ -34,7 +34,7 @@ Przewidywane pola/opcje w oknie:
 // import CitySwitchManager, { CityInfo } from '../city-switch-manager';
 // import { BaseQueueItemDetails, QueuePriority, ScheduleOperationDetails } from '../../master-queue/master-queue';
 // import GeneralInfo from '../../master/ui/general-info';
-// import municipalUtilityStyle from './index.css';
+// import municipalUtilityStyle from './index.css?raw';
 // import municipalUtilityHTML from './index.prod.html';
 // import { useMunicipalUtilityUI } from './municipal-utility-ui';
 
