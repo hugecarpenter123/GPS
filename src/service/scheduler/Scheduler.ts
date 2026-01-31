@@ -9,7 +9,12 @@ import ConfigManager from '../../utility/config-manager';
 import { addDelay, HHMMSS_toMS, msToHHMMSS, waitWhile } from '../../utility/plain-utility';
 import Service from '../../utility/Service';
 import Lock, { LockHandle } from '../../utility/ui-lock';
-import { setInputValue, waitForElement, waitForElementInterval } from '../../utility/ui-utility';
+import {
+  getBrowserExecutionContextInfo,
+  setInputValue,
+  waitForElement,
+  waitForElementInterval,
+} from '../../utility/ui-utility';
 import ArmyMovement from '../army/army-movement';
 import CharmsUtility, { CharmDetails } from '../charms/charms-utility';
 import CitySwitchManager, { CityInfo } from '../city/city-switch-manager';
@@ -260,13 +265,14 @@ export default class Scheduler implements Service<'scheduler'> {
    */
   private async activateSchedule(item: ScheduleItem) {
     let lockHandle!: LockHandle;
+    let infoId: number | undefined = undefined;
     try {
       await new Promise((res, rej) => {
         item.actionTimeout = setTimeout(
           async () => {
             // first timeout can be either PREPARATION or MANAGERS PAUSE
             if (item.timeDetails.switchesOffManagers) {
-              this.generalInfo.showInfo(
+              infoId = this.generalInfo.showInfo(
                 'Scheduler: ',
                 `pausing managers before "${item.operationType}" on city "${item.targetCityDetails.name}" at: ${new Date(
                   item.timeDetails.targetTime!,
@@ -276,11 +282,13 @@ export default class Scheduler implements Service<'scheduler'> {
                   second: '2-digit',
                   hour12: false,
                 })}`,
+                'info',
               );
             } else {
               // await this.lock.forceAcquire({ method: 'activateSchedule', manager: 'scheduler' });
               lockHandle = await this.lock.acquire({ method: 'activateSchedule', manager: 'scheduler', forced: true });
-              this.generalInfo.showInfo(
+              if (infoId) this.generalInfo.hideInfo(infoId);
+              infoId = this.generalInfo.showInfo(
                 'Scheduler: ',
                 `performing "${item.operationType}" on city "${item.targetCityDetails.name}" at: ${new Date(
                   item.timeDetails.targetTime!,
@@ -290,6 +298,7 @@ export default class Scheduler implements Service<'scheduler'> {
                   second: '2-digit',
                   hour12: false,
                 })}`,
+                'info',
               );
             }
 
@@ -306,7 +315,8 @@ export default class Scheduler implements Service<'scheduler'> {
                     manager: 'scheduler',
                     forced: true,
                   });
-                  this.generalInfo.showInfo(
+                  if (infoId) this.generalInfo.hideInfo(infoId);
+                  infoId = this.generalInfo.showInfo(
                     'Scheduler: ',
                     `performing "${item.operationType}" on city "${item.targetCityDetails.name} at: ${new Date(
                       item.timeDetails.targetTime!,
@@ -316,6 +326,7 @@ export default class Scheduler implements Service<'scheduler'> {
                       second: '2-digit',
                       hour12: false,
                     })}"`,
+                    'info',
                   );
                 }
                 const successCallback = async (landedTime: number, movementId: string) => {
@@ -372,8 +383,9 @@ export default class Scheduler implements Service<'scheduler'> {
       });
     } catch (e) {
       // FUTURE: manual lock handling doesn't throw timeoutError, but implement when ready
-      this.generalInfo.showError('Scheduler: ', `Schedule failed - "${e}"`, 4000);
-      console.warn('Scheduler catch block:', e);
+      if (infoId) this.generalInfo.hideInfo(infoId);
+      this.generalInfo.showInfo('Scheduler: ', `Schedule failed - "${e}"`, 'error', 4000);
+      console.warn('[Scheduler]: catch block:', e, getBrowserExecutionContextInfo());
       const dependantSchduleItemIds = item.dependentScheduleItems.map(i => i.scheduleId);
       // usuń zależne elementy
       if (dependantSchduleItemIds.length) {
@@ -382,7 +394,7 @@ export default class Scheduler implements Service<'scheduler'> {
       // usuń ze schedula
       await this.postActionCleanup(item);
     } finally {
-      this.generalInfo.hideInfo();
+      if (infoId) this.generalInfo.hideInfo(infoId);
       lockHandle.release();
       // this.lock.release();
       this.tryRestoreManagers();
@@ -681,19 +693,19 @@ export default class Scheduler implements Service<'scheduler'> {
 
   private set error(error: string | null) {
     if (error) {
-      this.generalInfo.showError('Scheduler: ', error, 4000);
+      this.generalInfo.showInfo('Scheduler: ', error, 'error', 5000);
     }
   }
 
   private set hydrationError(error: string | null) {
     if (error) {
-      this.generalInfo.showError('Scheduler-hydration: ', error, 4000);
+      this.generalInfo.showInfo('Scheduler-hydration: ', error, 'error', 5000);
     }
   }
 
   private set info(info: string | null) {
     if (info) {
-      this.generalInfo.showInfo('Scheduler: ', info, 4000);
+      this.generalInfo.showInfo('Scheduler: ', info, 'info', 5000);
     }
   }
 
@@ -908,7 +920,7 @@ export default class Scheduler implements Service<'scheduler'> {
       // spróbuj zarejestrować - niepowodzenie rzuca error
       await this.tryRegisterSchedule(schedulerItem);
     } catch (e) {
-      console.warn('handleScheduleSubmit catch block:', e);
+      console.warn('[Scheduler]: handleScheduleSubmit catch block:', e, getBrowserExecutionContextInfo());
       if (e instanceof Error) this.error = e.message;
       else this.error = 'Schedule failed for unknkown reason, call your local dev';
     } finally {

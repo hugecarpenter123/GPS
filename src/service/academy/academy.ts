@@ -2,7 +2,16 @@ import type { TConfigChanges } from '~/config-popup/config-popup';
 import { HHMMSS_toMS, waitWhile } from '~/utility/plain-utility';
 import type Service from '~/utility/Service';
 import Lock, { LockOperationCancelledError } from '~/utility/ui-lock';
-import { cancelHover, triggerHover, waitForElementInterval, waitForElementsInterval } from '~/utility/ui-utility';
+import {
+  cancelHover,
+  getBrowserExecutionContextInfo,
+  performOnDocumentVisibilityReturn,
+  triggerHover,
+  waitForElementInterval,
+  waitForElementsInterval,
+} from '~/utility/ui-utility';
+import { Building, buildings } from '../city/builder/buildings';
+import CityBuilder, { BuilderItemDetails } from '../city/builder/city-builder';
 import CitySwitchManager from '../city/city-switch-manager';
 import { CityInfo } from '../city/types';
 import type { ScheduleExecutionDetails } from '../master-queue-rework/inline-queue-navigation';
@@ -11,7 +20,6 @@ import GeneralInfo from '../master/ui/general-info';
 import ResourceManager from '../resources/resource-manager';
 import TradeManager from '../trade/trade-manager';
 import { academyItemBgUrl, academyItems, type AcademyItem } from './academy-items';
-import { styleText } from 'util';
 
 interface ItemDetails {
   researchName: string;
@@ -89,12 +97,14 @@ export class Academy implements Service<'academy'> {
   }
 
   public async execute(operationDetails: ScheduleOperationDetails<ItemDetails>) {
+    let infoId!: number;
     try {
       await this.lock.performWithLock(
         async () => {
-          this.generalInfo.showInfo(
+          infoId = this.generalInfo.showInfo(
             'Academy: ',
             `Performing ${operationDetails.itemDetails.researchName} ${operationDetails.itemDetails.researchName}`,
+            'info',
           );
           await this.performResearchOperation(operationDetails);
           delete this.tryCount[operationDetails.city.name];
@@ -107,36 +117,56 @@ export class Academy implements Service<'academy'> {
       );
     } catch (e) {
       if (!(e instanceof LockOperationCancelledError && e.reason === 'called')) {
-        console.warn('Recruiter.tryRecruitOrStackResources.catch:', e);
+        const browserContext = getBrowserExecutionContextInfo();
+        console.warn('[Academy] execute catch:', e, browserContext);
         const cityName = operationDetails.city.name;
         this.tryCount[cityName] = (this.tryCount[cityName] ?? 0) + 1;
         if (this.tryCount[cityName] < 2) {
-          console.warn('\t-retrying the whole flow');
-          this.performResearchOperation(operationDetails);
+          console.warn(`[Academy]: retry count ${this.tryCount[cityName]}`);
+          if (browserContext.visibilityState === 'hidden') {
+            performOnDocumentVisibilityReturn(() => this.execute(operationDetails));
+          } else {
+            this.execute(operationDetails);
+          }
         } else {
           delete this.tryCount[cityName];
           operationDetails.shiftQueueAndNext();
         }
       }
     } finally {
-      this.generalInfo.hideInfo();
+      this.generalInfo.hideInfo(infoId);
     }
   }
 
   private async performResearchOperation(operationDetails: ScheduleOperationDetails<ItemDetails>) {
+    console.log(
+      '[Academy] Opening academy for city:',
+      operationDetails.city.name,
+      'action type:',
+      operationDetails.itemDetails.actionType,
+      'research:',
+      operationDetails.itemDetails.researchName,
+    );
     await this.openAcademy(operationDetails.city, operationDetails.itemDetails.actionType);
 
-    const actionButton = await waitForElementInterval(
-      `[data-research_id="${operationDetails.itemDetails.researchName}"]`,
-      { retries: 3 },
-    ).catch(() => null);
+    console.log('[Academy] Looking for action button for research:', operationDetails.itemDetails.researchName);
+    const actionButton = await waitForElementInterval(`.research_icon.${operationDetails.itemDetails.researchName}`, {
+      retries: 3,
+    })
+      .then(el => el.nextElementSibling as HTMLDivElement)
+      .catch(() => null);
     // done
     if (actionButton) {
+      console.log('[Academy] Action button found, clicking');
       actionButton.click();
       if (operationDetails.itemDetails.actionType === 'reset') {
+        console.log('[Academy] Reset action - waiting for confirm button');
         await waitForElementInterval('.btn_confirm').then(btn => btn.click());
+        console.log('[Academy] Reset action - waiting for item to disappear from queue');
         await waitWhile(
-          () => !!document.querySelector(`[data-research_id="${operationDetails.itemDetails.researchName}"]`),
+          () =>
+            !!document.querySelector(`.research_icon .${operationDetails.itemDetails.researchName}`)
+              ?.nextElementSibling,
         )
           .then(operationDetails.onFinishCallback)
           .catch(() => {
@@ -147,34 +177,59 @@ export class Academy implements Service<'academy'> {
             operationDetails.shiftQueueAndNext();
           });
       } else {
+        console.log('[Academy] Research action - waiting for item to be added to queue');
         await waitWhile(
-          () => !!document.querySelector(`[data-research_id="${operationDetails.itemDetails.researchName}"]`),
+          () =>
+            !!document.querySelector(`.research_icon .${operationDetails.itemDetails.researchName}`)
+              ?.nextElementSibling,
         );
+        console.log('[Academy] Item added to queue, attempting speed up if possible');
         await this.speedUpNewlyAddedItemIfPossible();
         operationDetails.onFinishCallback();
       }
     }
     // cannot be done now - figure out why
     else {
-      // queue is full
-      if (!document.querySelectorAll('.js-researches-queue .empty_slot').length) {
+      console.log('[Academy] Action button not found, checking why operation cannot be executed');
+
+      // is not active - so either academy is queued in the real/virtual queue or item cannot be executed
+      const researchItem = document.querySelector(
+        `.tech_tree_box .research_icon.${operationDetails.itemDetails.researchName}`,
+      )!;
+
+      if (researchItem.parentElement!.parentElement!.classList.contains('inactive')) {
+        const requiredAcademyLvl = Number(
+          researchItem.parentElement!.parentElement!.querySelector('.level.number')!.textContent,
+        );
+        await this.handleNoRequiredBuildingFlow(operationDetails, buildings.Academy, requiredAcademyLvl);
+      } else if (!document.querySelectorAll('.js-researches-queue .empty_slot').length) {
+        console.log('[Academy] Queue is full, checking time to speed up');
         const timeToSpeedUp = this.getTimeToSpeedUp();
+        console.log('[Academy] Time to speed up:', timeToSpeedUp, 'ms');
         // speed up is viable
         if (timeToSpeedUp <= 0) {
+          console.log('[Academy] Speed up is viable now, clicking speed up button');
           document
             .querySelector<HTMLButtonElement>('.js-researches-queue [data-order_index="0"] .btn_time_reduction')
             ?.click();
           await waitWhile(() => document.querySelectorAll('.js-researches-queue .empty_slot').length === 0);
+          console.log('[Academy] Slot freed, retrying operation');
           await this.performResearchOperation(operationDetails);
           return;
         }
         // speed up in the future
         else {
+          const scheduledTime = Date.now() + timeToSpeedUp + 2000;
+          console.log(
+            '[Academy] Speed up scheduled for:',
+            new Date(scheduledTime).toISOString(),
+            'retrying operation then',
+          );
           operationDetails.setScheduleTimeout(
             async () => {
               this.execute(operationDetails);
             },
-            Date.now() + timeToSpeedUp + 2000,
+            scheduledTime,
             'waiting',
             'slot',
           );
@@ -182,6 +237,7 @@ export class Academy implements Service<'academy'> {
       }
       // check if resources are needed
       else {
+        console.log('[Academy] Queue has empty slots, checking if resources are needed');
         // if item is reset then it doesn't need resources for reset - item is misqueued for some reason
         if (operationDetails.itemDetails.actionType === 'reset') {
           console.warn('item', operationDetails, 'cannot be executed, removing from the queue');
@@ -189,15 +245,23 @@ export class Academy implements Service<'academy'> {
         }
         // check resoures
         else {
-          triggerHover(document.querySelector('div.research_icon.research')!);
+          console.log('[Academy] Checking resources for item:', operationDetails.itemDetails.researchName);
+          // academy_popup
+          document.querySelector('.academy_popup')?.remove();
+          triggerHover(
+            document.querySelector(`div.research_icon.research.${operationDetails.itemDetails.researchName}`)!,
+          );
           const infoPopup = await waitForElementInterval('.academy_popup');
+          console.log('[Academy] Info popup found, extracting resource info');
           const requiredResourceInfo = this.extractResourceInfo(infoPopup);
+          console.log('[Academy] Extracted resource info:', requiredResourceInfo);
           const researchPoints = Number(
             document.querySelector('.research_points.js-research-points')?.textContent?.split('/')[0] ??
               (() => {
                 throw new Error('current research points not parsed');
               })(),
           );
+          console.log('[Academy] Current research points:', researchPoints);
           cancelHover(document.querySelector('div.research_icon.research')!);
           // no info parsed (item already done)
           if (!requiredResourceInfo) {
@@ -208,29 +272,37 @@ export class Academy implements Service<'academy'> {
             );
             operationDetails.shiftQueueAndNext();
           } else if (researchPoints < requiredResourceInfo.researchPoints) {
-            console.warn(
-              'item',
-              operationDetails,
-              'cannot be executed - not enough research points, removing from the queue',
+            console.log(
+              `[Academy]: Not enough research points (${researchPoints} < ${requiredResourceInfo.researchPoints})`,
             );
-            operationDetails.shiftQueueAndNext();
+            await this.handleNoRequiredBuildingFlow(operationDetails, buildings.Academy);
           } else {
+            console.log('[Academy] Research points sufficient, checking lacking resources');
             const lackingResources = await this.resourceManager.getLackingResources(requiredResourceInfo);
+            console.log('[Academy] Lacking resources:', lackingResources);
             if (lackingResources.storageCapacity) {
-              console.warn(
-                'item',
-                operationDetails,
-                'cannot be executed - not storage capacity, removing from the queue',
-              );
-              operationDetails.shiftQueueAndNext();
+              console.log(`[Academy]: Not enough storage capacity (${lackingResources.storageCapacity})`);
+              await this.handleNoRequiredBuildingFlow(operationDetails, buildings.Warehouse);
             } else if (Object.values(lackingResources).some(Boolean)) {
+              console.log('[Academy] Resources are lacking, attempting to stack resources');
+              console.log(
+                '[Academy] Stacking resources for city:',
+                operationDetails.city.name,
+                'supplier cities:',
+                operationDetails.supplierCities.map(c => c.name),
+              );
               const result = await this.tradeManager.stackResources(
                 requiredResourceInfo,
                 operationDetails.city,
                 operationDetails.supplierCities,
                 operationDetails.maxShipmentTime,
               );
+              console.log('[Academy] Stack resources result:', result);
               if (result.fullyStacked) {
+                console.log(
+                  '[Academy] Resources fully stacked, scheduling execution at:',
+                  new Date(result.arrivalTime).toISOString(),
+                );
                 operationDetails.setScheduleTimeout(
                   async () => this.execute(operationDetails),
                   result.arrivalTime,
@@ -238,6 +310,7 @@ export class Academy implements Service<'academy'> {
                   'resources',
                 );
               } else {
+                console.log('[Academy] Resources not fully stacked, scheduling retry in 10 minutes');
                 operationDetails.setScheduleTimeout(
                   async () => this.execute(operationDetails),
                   Date.now() + 600000,
@@ -246,6 +319,7 @@ export class Academy implements Service<'academy'> {
                 );
               }
             } else {
+              console.log('[Academy] All resources available, but unknown condition occurred');
               this.closeAcademyDialog();
               throw new Error('Unknown condition occured when executing');
             }
@@ -256,14 +330,78 @@ export class Academy implements Service<'academy'> {
     this.closeAcademyDialog();
   }
 
+  /**
+   * Handles scenario in which reserach cannot be done due to unbuilt Building by searching virtual and real queue
+   * and subscribing to it's execution finish. If no building is found whatsoever, element is removed from the master queue.
+   * - If lvl is not specified, it searches for the queued building with 1 lvl higher than the current one
+   * - else searches exactly for the specified lvl building
+   */
+  private async handleNoRequiredBuildingFlow(
+    operationDetails: ScheduleOperationDetails<ItemDetails>,
+    building: Building,
+    lvl?: number,
+  ) {
+    const builderInstance = await CityBuilder.getInstance();
+    const targetLvl = lvl ?? (await builderInstance.getBuildingCurrentLvl(building, operationDetails.city)) + 1;
+    console.log(
+      `[Academy] Research blocked - checking for required building: ${building.name} lvl ${targetLvl} in real queue`,
+    );
+    const realQueueBuildingFinishTime = await builderInstance.getBuildingFinishTime(
+      operationDetails.city,
+      building,
+      targetLvl,
+    );
+    if (realQueueBuildingFinishTime) {
+      console.log(
+        `[Academy] Required building found in real queue, scheduling research execution at: ${new Date(realQueueBuildingFinishTime).toLocaleString()}`,
+      );
+      operationDetails.setScheduleTimeout(
+        async () => this.execute(operationDetails),
+        realQueueBuildingFinishTime + 3000,
+        'waiting',
+        'other item',
+      );
+    } else {
+      console.log(
+        `[Academy] Building not found in real queue, checking virtual queue for: ${building.name} lvl ${targetLvl}`,
+      );
+      const requiredScheduledItem = this.masterQueue
+        .getTypeSpecificItemDetailsForCity(operationDetails.city, 'builder')
+        .find(
+          (qItem: { id: string; itemDetails: BuilderItemDetails }) =>
+            qItem.itemDetails?.building?.name === building.name && (lvl ? qItem.itemDetails?.toLvl === lvl : true),
+        );
+      if (requiredScheduledItem) {
+        console.log(
+          `[Academy] Required building found in virtual queue (id: ${requiredScheduledItem.id}), subscribing to execution finish`,
+        );
+        const subscribed = this.masterQueue.subscribeToItemOnExecutionFinish(
+          operationDetails.city,
+          requiredScheduledItem.id,
+          operationDetails.id,
+        );
+        if (!subscribed) {
+          throw new Error(
+            `Subscription of item ${JSON.stringify(operationDetails.itemDetails)} to item ${JSON.stringify(requiredScheduledItem)} failed.`,
+          );
+        }
+      } else {
+        console.log(
+          `[Academy] Required building (${building.name} lvl ${targetLvl}) not found in real nor virtual queue, removing research item from queue`,
+        );
+        operationDetails.shiftQueueAndNext();
+      }
+    }
+  }
+
   private closeAcademyDialog() {
     document.querySelector<HTMLDivElement>('.classic_window.academy .btn_wnd.close')?.click();
   }
 
   private async speedUpNewlyAddedItemIfPossible() {
-    const itemsList = document.querySelectorAll<HTMLDivElement>('.js-researches-queue [data-order_index]');
+    const itemsList = await waitForElementsInterval('.js-researches-queue [data-order_index]');
     // should be present, so throw if it's not
-    const newlyAdded = itemsList[itemsList.length - 1]!;
+    const newlyAdded = itemsList[itemsList.length - 1];
     // index 0 needs to be handled differently than index > 0 - 0 has visible btn and the others need trigger popup
     if (Number(newlyAdded.dataset.order_index) === 0) {
       const speedUpBtn = newlyAdded.querySelector<HTMLButtonElement>('.btn_time_reduction.type_free');
@@ -492,7 +630,7 @@ export class Academy implements Service<'academy'> {
       !this.getScheduleBaseFormValues ||
       this.masterQueue
         .getTypeSpecificItemDetailsForCity(currentCity, 'academy')
-        .some((item: ItemDetails) => item.researchName === researchName)
+        .some(({ itemDetails }: { itemDetails: ItemDetails }) => itemDetails.researchName === researchName)
     ) {
       console.warn('Cannot add to queue: no city or form values or item already queued');
       return;
@@ -536,7 +674,7 @@ export class Academy implements Service<'academy'> {
     };
 
     const extendUICallback = async (container: HTMLDivElement) => {
-      (await waitForElementsInterval('.research_icon', { retries: 3 })).forEach(academyItem => {
+      (await waitForElementsInterval('.tech_tree_box .research_icon', { retries: 3 })).forEach(academyItem => {
         academyItem.appendChild(
           (() => {
             const addBtn = document.createElement('button');
@@ -558,7 +696,7 @@ export class Academy implements Service<'academy'> {
         container.querySelector('div.tab.research:not(.selected)'),
       ].forEach(btn =>
         btn?.addEventListener('click', async () => {
-          await waitWhile(() => !!container.querySelector('.research_icon button'));
+          await waitWhile(() => !!container.querySelector('.tech_tree_box .research_icon button'));
           extendUICallback(container);
         }),
       );

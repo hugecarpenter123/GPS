@@ -1,6 +1,11 @@
 import EventEmitter from 'events';
 import { addDelay, waitWhile } from '../../utility/plain-utility';
-import { waitForElement, waitForElementInterval, waitForElements } from '../../utility/ui-utility';
+import {
+  getBrowserExecutionContextInfo,
+  waitForElement,
+  waitForElementInterval,
+  waitForElements,
+} from '../../utility/ui-utility';
 import GeneralInfo from '../master/ui/general-info';
 
 export type CityInfo = {
@@ -116,67 +121,74 @@ export default class CitySwitchManager extends EventEmitter {
    * Method parses list of city, and creates shortcut access.
    */
   private async initCityList() {
-    this.generalInfo.showInfo('City Switch Manager:', 'City list initialization');
+    let infoId!: number;
+    try {
+      infoId = this.generalInfo.showInfo('City Switch Manager:', 'City list initialization', 'info');
 
-    // gets dropdown trigger that contains city info
-    const dropdownTrigger = await waitForElement('.town_groups_dropdown.btn_toggle_town_groups_menu');
-    dropdownTrigger.click();
-    let townListElement;
-    while (!(townListElement = await waitForElement('.group_towns', 1000).catch(() => null))) {
-      document.querySelector<HTMLElement>('.btn_toggle_town_groups_menu')!.click();
-      await addDelay(100);
-    }
-    // gets all spans with city names
-    const townList = townListElement.querySelectorAll<HTMLElement>('span.town_name');
-    // maps it into {name, cityId} for comparison purposes
-    const DOMCityListInfo = Array.from(townList).map(el => ({
-      name: el.textContent!,
-      cityId: el.parentElement!.getAttribute('data-townid'),
-    }));
+      // gets dropdown trigger that contains city info
+      const dropdownTrigger = await waitForElementInterval('.town_groups_dropdown.btn_toggle_town_groups_menu');
+      dropdownTrigger.click();
+      let townListElement;
+      while (!(townListElement = await waitForElementInterval('.group_towns', { timeout: 1000 }).catch(() => null))) {
+        document.querySelector<HTMLElement>('.btn_toggle_town_groups_menu')!.click();
+        await addDelay(100);
+      }
+      // gets all spans with city names
+      const townList = townListElement.querySelectorAll<HTMLElement>('span.town_name');
+      // maps it into {name, cityId} for comparison purposes
+      const DOMCityListInfo = Array.from(townList).map(el => ({
+        name: el.textContent!,
+        cityId: el.parentElement!.getAttribute('data-townid'),
+      }));
 
-    // gets item from localstorage
-    const storageCityList = localStorage.getItem(CitySwitchManager.LOCAL_STORAGE_CITY_LIST_KEY);
-    // if exists checks its compatibility with the real DOM element
-    if (storageCityList) {
-      const storageCityListParsed: CityInfo[] = JSON.parse(storageCityList);
-      if (storageCityListParsed.length !== townList.length) {
-        /* continue */
-      } else {
-        let matchFlag = true;
-        for (const storageCity of storageCityListParsed) {
-          if (
-            !DOMCityListInfo.find(
-              DOMCityInfo => DOMCityInfo.name === storageCity.name && DOMCityInfo.cityId === storageCity.cityId,
-            )
-          ) {
-            console.log(`storageCity: ${JSON.stringify(storageCity)} didn't match, reinitialize.`);
-            matchFlag = false;
-            break;
+      // gets item from localstorage
+      const storageCityList = localStorage.getItem(CitySwitchManager.LOCAL_STORAGE_CITY_LIST_KEY);
+      // if exists checks its compatibility with the real DOM element
+      if (storageCityList) {
+        const storageCityListParsed: CityInfo[] = JSON.parse(storageCityList);
+        if (storageCityListParsed.length !== townList.length) {
+          /* continue */
+        } else {
+          let matchFlag = true;
+          for (const storageCity of storageCityListParsed) {
+            if (
+              !DOMCityListInfo.find(
+                DOMCityInfo => DOMCityInfo.name === storageCity.name && DOMCityInfo.cityId === storageCity.cityId,
+              )
+            ) {
+              console.log(`storageCity: ${JSON.stringify(storageCity)} didn't match, reinitialize.`);
+              matchFlag = false;
+              break;
+            }
+          }
+          if (matchFlag) {
+            // If all are matched, don't go through all cities on the UI, return cached version
+            this.cityList = this.hydrateCityList(storageCityListParsed);
+            return;
           }
         }
-        if (matchFlag) {
-          // If all are matched, don't go through all cities on the UI, return cached version
-          this.cityList = this.hydrateCityList(storageCityListParsed);
-          this.generalInfo.hideInfo();
-          return;
-        }
+      }
+
+      let cityList: CityInfo[];
+
+      // TODO: with curator needs to be fixed, for now use old raw method
+      // if (await this.isCuratorActive()) {
+      //   cityList = await this.initCityListWithCurator();
+      // } else {
+      //   cityList = await this.initCityListRaw(townList);
+      // }
+
+      cityList = await this.initCityListRaw(townList);
+
+      this.cityList = cityList;
+      this.persist();
+    } catch (error) {
+      throw error;
+    } finally {
+      if (infoId) {
+        this.generalInfo.hideInfo(infoId);
       }
     }
-
-    let cityList: CityInfo[];
-
-    // TODO: with curator needs to be fixed, for now use old raw method
-    // if (await this.isCuratorActive()) {
-    //   cityList = await this.initCityListWithCurator();
-    // } else {
-    //   cityList = await this.initCityListRaw(townList);
-    // }
-
-    cityList = await this.initCityListRaw(townList);
-
-    this.cityList = cityList;
-    this.persist();
-    this.generalInfo.hideInfo();
   }
 
   private async isCuratorActive() {
@@ -231,7 +243,7 @@ export default class CitySwitchManager extends EventEmitter {
           await waitWhile(() => !document.querySelector(`#town_${cityId}`), { delay: 200, maxIterations: 10 });
         }
       } catch (e) {
-        console.warn('switchAction.catch:', e);
+        console.warn('[CitySwitch]: switchAction catch:', e, getBrowserExecutionContextInfo());
       }
     };
   };

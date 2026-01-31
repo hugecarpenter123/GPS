@@ -1,9 +1,9 @@
 import EventEmitter from 'events';
 import { h, render } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { ActionButton } from './components/action-button';
 import QueueItemComp from './components/queue-item';
-import type { CitySchedule, QueueItem } from './master-queue';
+import type { CitySchedule, QueueItem, QueueItemType } from './master-queue';
 import Select from './components/select';
 
 export const componentName = 'master-queue' as const;
@@ -35,6 +35,7 @@ const CityScheduleRow = ({
   onPauseCity,
   onDeleteCity,
   onDeleteItem,
+  onQueuePositionChange,
 }: {
   citySchedule: CitySchedule;
   queueDisplay: QueueDisplay;
@@ -43,9 +44,15 @@ const CityScheduleRow = ({
   onPauseCity: () => void;
   onDeleteCity: () => void;
   onDeleteItem: (item: QueueItem) => void;
+  onQueuePositionChange: (item: QueueItem, newPosition: number, queueType: 'main' | QueueItemType) => void;
 }) => {
+  const draggedItemIdRef = useRef<string | null>(null);
   const selectedScheduleType =
     queueDisplay === 'main' ? citySchedule : citySchedule.nonBlockingQueueComplex[queueDisplay];
+
+  const selectedQueue =
+    queueDisplay === 'main' ? citySchedule.queue : (citySchedule.nonBlockingQueueComplex[queueDisplay]?.queue ?? []);
+
   return (
     // Tr
     <div className="contents" data-city={citySchedule.city.name}>
@@ -59,41 +66,65 @@ const CityScheduleRow = ({
           : '-'}
       </Td>
 
+      {/* timeout purpose */}
       <Td className="relative flex items-center justify-center">
         <div
           className="absolute h-7 w-8 self-center"
-          style={
-            selectedScheduleType?.timeoutData.purpose === 'resources'
-              ? {
-                  backgroundImage: 'url(https://gppl.innogamescdn.com/images/game/layout/resources_2.32.png)',
-                  backgroundRepeat: 'no-repeat',
-                  backgroundPosition: '0 -92px',
-                }
-              : selectedScheduleType?.timeoutData.purpose === 'charms'
-                ? {
-                    backgroundImage: 'url(https://gppl.innogamescdn.com/images/game/layout/resources_2.32.png)',
-                    backgroundRepeat: 'no-repeat',
-                    backgroundPosition: '0 -150px',
-                  }
-                : {}
-          }
+          style={(() => {
+            if (selectedScheduleType?.timeoutData.purpose === 'resources') {
+              return {
+                backgroundImage: 'url(https://gppl.innogamescdn.com/images/game/layout/resources_2.32.png)',
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: '0 -92px',
+              };
+            } else if (selectedScheduleType?.timeoutData.purpose === 'charms') {
+              return {
+                backgroundImage: 'url(https://gppl.innogamescdn.com/images/game/layout/resources_2.32.png)',
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: '0 -150px',
+              };
+            }
+            // else if (selectedScheduleType?.timeoutData.purpose === 'other item') {
+            //   [
+            //     ...citySchedule.queue,
+            //     ...citySchedule.triggerQueue,
+            //     ...Object.values(citySchedule.nonBlockingQueueComplex).flatMap(i => i.queue),
+            //   ].find(item => item.subsequentItemIds?.includes(selectedScheduleType.queue[0]!.id))?.ui.style;
+            // }
+            return {};
+          })()}
         />
-        {['slot', 'error'].includes(selectedScheduleType?.timeoutData.purpose ?? '')
+        {['slot', 'error', 'other item'].includes(selectedScheduleType?.timeoutData.purpose ?? '')
           ? selectedScheduleType?.timeoutData.purpose
           : '-'}
       </Td>
 
       {/* Queue Cell */}
       <Td className="overflow-x-auto">
-        <div className="flex flex-nowrap items-start gap-2">
-          {(
-            (queueDisplay === 'main'
-              ? citySchedule.queue
-              : queueDisplay === 'builder'
-                ? citySchedule.nonBlockingQueueComplex.builder?.queue
-                : citySchedule.nonBlockingQueueComplex.recruiter?.queue) ?? []
-          ).map((item, index) => (
-            <QueueItemComp key={item.id} item={item} index={index} onDelete={() => onDeleteItem(item)} />
+        <div className="flex flex-nowrap items-start gap-2" data-queue-container>
+          {selectedQueue.map((item, index) => (
+            <QueueItemComp
+              key={item.id}
+              item={item}
+              index={index}
+              onDelete={() => onDeleteItem(item)}
+              onDragStart={() => {
+                draggedItemIdRef.current = item.id;
+              }}
+              onDragEnd={() => {
+                draggedItemIdRef.current = null;
+              }}
+              onPositionChange={(targetItem, newPosition) => {
+                // Find the dragged item by ID stored in ref
+                const draggedItemId = draggedItemIdRef.current;
+                if (draggedItemId) {
+                  const draggedItem = selectedQueue.find(i => i.id === draggedItemId);
+                  if (draggedItem && draggedItem.id !== targetItem.id) {
+                    onQueuePositionChange(draggedItem, newPosition, queueDisplay);
+                  }
+                }
+              }}
+            />
           ))}
         </div>
       </Td>
@@ -136,9 +167,15 @@ interface MasterQueueTableProps {
   onPauseCity: (citySchedule: CitySchedule) => void;
   onDeleteCity: (citySchedule: CitySchedule) => void;
   onDeleteItem: (citySchedule: CitySchedule, item: QueueItem) => void;
+  onQueuePositionChange: (
+    citySchedule: CitySchedule,
+    item: QueueItem,
+    newPosition: number,
+    queueType: 'main' | QueueItemType,
+  ) => void;
 }
 
-export type QueueDisplay = 'main' | 'builder' | 'recruiter';
+export type QueueDisplay = 'main' | QueueItemType;
 
 const MasterQueueTable = ({
   eventEmitter,
@@ -152,6 +189,7 @@ const MasterQueueTable = ({
   onPauseCity,
   onDeleteCity,
   onDeleteItem,
+  onQueuePositionChange,
 }: MasterQueueTableProps) => {
   const [open, setOpen] = useState(false);
   const [queue, setQueue] = useState<CitySchedule[]>(initialQueue);
@@ -232,6 +270,7 @@ const MasterQueueTable = ({
                           { value: 'main', label: 'Main' },
                           { value: 'builder', label: 'Builder' },
                           { value: 'recruiter', label: 'Recruiter' },
+                          { value: 'academy', label: 'Academy' },
                         ]}
                         onSelect={value => setQueueDisplay(value as QueueDisplay)}
                         triggerType="text"
@@ -263,6 +302,9 @@ const MasterQueueTable = ({
                     onPauseCity={() => onPauseCity(citySchedule)}
                     onDeleteCity={() => onDeleteCity(citySchedule)}
                     onDeleteItem={item => onDeleteItem(citySchedule, item)}
+                    onQueuePositionChange={(item, newPosition, queueType) =>
+                      onQueuePositionChange(citySchedule, item, newPosition, queueType)
+                    }
                   />
                 ))
               )}
@@ -307,21 +349,7 @@ export const useMasterQueueTable = () => {
   let container: HTMLElement | null = null;
   const eventEmitter = new EventEmitter();
 
-  const mount = (
-    targetContainer: HTMLElement | null,
-    props: {
-      initialQueue: CitySchedule[];
-      onRunAll: () => void;
-      onResetAll: () => void;
-      onDeleteAll: () => void;
-      onPauseAll: () => void;
-      onRunCity: (citySchedule: CitySchedule) => void;
-      onRestartCity: (citySchedule: CitySchedule) => void;
-      onPauseCity: (citySchedule: CitySchedule) => void;
-      onDeleteCity: (citySchedule: CitySchedule) => void;
-      onDeleteItem: (citySchedule: CitySchedule, item: QueueItem) => void;
-    },
-  ) => {
+  const mount = (targetContainer: HTMLElement | null, props: Omit<MasterQueueTableProps, 'eventEmitter'>) => {
     // NOTE: component is done with tailwind, and talwind.css is injected on script load, so it's no necessery anymore
     // use it however when for example lazy loading is preferred
     // addStyleIfNotAdded();

@@ -419,3 +419,48 @@ export const executionWrapper = <T>(
     fn,
   ]);
 };
+
+export interface BrowserExecutionContextInfo {
+  /** Stan widoczności dokumentu: 'visible' | 'hidden' | 'prerender' */
+  visibilityState: DocumentVisibilityState;
+  /** Czy dokument ma fokus */
+  hasFocus: boolean;
+  isOnline: boolean;
+  /** Czy przeglądarka sygnalizuje potrzebę oszczędzania danych */
+  saveDataEnabled: boolean;
+}
+
+/**
+ * Zwraca obiekt z informacjami o kontekście wykonywania skryptów JS w przeglądarce.
+ * Przydatne do diagnostyki problemów z niewykonywaniem się skryptów.
+ */
+export function getBrowserExecutionContextInfo(): BrowserExecutionContextInfo {
+  // Sprawdzenie czy navigator.connection i saveData są dostępne
+  const connection = (navigator as any).connection;
+  const saveDataEnabled = connection?.saveData ?? false;
+
+  // deviceMemory może nie być dostępne we wszystkich przeglądarkach
+  const deviceMemory = (navigator as any).deviceMemory;
+
+  return {
+    // Widoczność zakładki (Page Visibility API)
+    visibilityState: document.visibilityState,
+
+    // Fokus
+    hasFocus: document.hasFocus(),
+
+    // Połączenie sieciowe
+    isOnline: navigator.onLine,
+    saveDataEnabled,
+  };
+}
+
+export const performOnDocumentVisibilityReturn = (clb: () => any) => {
+  const visibilityChangeClb = () => {
+    if (document.visibilityState === 'visible') {
+      document.removeEventListener('visibilitychange', visibilityChangeClb);
+      clb();
+    }
+  };
+  document.addEventListener('visibilitychange', visibilityChangeClb);
+};

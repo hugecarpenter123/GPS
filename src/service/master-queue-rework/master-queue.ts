@@ -16,12 +16,13 @@ import useMasterQueueTable, { MasterQueueTableUtility } from './master-queue-tab
 
 import { TConfigChanges } from '~/config-popup/config-popup';
 import { QueuePriority } from './types';
+import { getBrowserExecutionContextInfo, performOnDocumentVisibilityReturn } from '~/utility/ui-utility';
 export { QueuePriority };
 
 const STANDARD_EXECUTION_TIME_MS = 30000 as const;
 
 export type QueueItemType = 'recruiter' | 'builder' | 'municipal utility' | 'academy';
-export type TimeoutPurpose = 'slot' | 'resources' | 'charms' | 'error';
+export type TimeoutPurpose = 'slot' | 'resources' | 'charms' | 'other item' | 'error';
 export type TimeoutType = 'execution' | 'waiting';
 export type ScheduleOperationDetails<T> = Pick<QueueItem, 'id' | 'supplierCities' | 'maxShipmentTime'> & {
   city: CityInfo;
@@ -59,6 +60,7 @@ export type QueueItem = {
   executionTime?: number;
   repetitionPolicy?: RepetitionPolicy;
   directOperation?: () => Promise<void>;
+  subsequentItemIds?: string[];
 
   priority: QueuePriority;
   maxShipmentTime: number;
@@ -85,6 +87,7 @@ export type CitySchedule = {
   city: CityInfo;
   queue: QueueItem[];
   nonBlockingQueueComplex: NonBlockingQueueComplex;
+  triggerQueue: QueueItem[];
   currentAction?: QueueItemType | null;
   timeoutData: {
     timeoutId?: NodeJS.Timeout;
@@ -111,6 +114,10 @@ export interface QueueExecutor<T> {
     deletedItemDetails: ScheduleOperationDetails<T>['itemDetails'],
   ) => void | Promise<void>;
   // NOTE: rethink if these should modify referenced obj, or return modified copy
+  onPositionChange?: (
+    queue: PostDeleteQueueDetails<T>[],
+    movedItemDetails: ScheduleOperationDetails<T>['itemDetails'],
+  ) => void | Promise<void>;
   hydrateItem: (itemDetails: T) => Promise<T> | T;
   persistItem: (itemDetails: T) => any;
 }
@@ -126,6 +133,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
         queue: [],
         nonBlockingQueueComplex: {},
         timeoutData: {},
+        triggerQueue: [],
       };
       this.queue.push(citySchedule);
     }
@@ -133,6 +141,8 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     useMasterQueueInline().mount(container, {
       schedule: citySchedule,
       onDeleteItem: item => this.removeItem(citySchedule.city, item),
+      onQueuePositionChange: (item, newPosition, queueType) =>
+        this.changeItemPosition(citySchedule, item, newPosition, queueType),
     });
   }
 
@@ -204,7 +214,80 @@ export default class MasterQueue extends EventEmitter implements Service<'master
           }
         }),
       );
+
+      citySchedule.triggerQueue.forEach(item => {
+        if (item.itemType === type) item.itemDetails = executor.hydrateItem(item.itemDetails);
+      });
     });
+  }
+
+  /**
+   * Changes the position of an item in the queue and revalidates affected items
+   * @param citySchedule - The city schedule containing the queue
+   * @param item - The item to move
+   * @param newPosition - The new position (0-based index)
+   */
+  public async changeItemPosition(
+    citySchedule: CitySchedule,
+    item: QueueItem,
+    newPosition: number,
+    queueType: 'main' | QueueItemType,
+  ) {
+    const queue = queueType === 'main' ? citySchedule.queue : citySchedule.nonBlockingQueueComplex[queueType]?.queue;
+    if (!queue) return;
+
+    const currentIndex = queue.findIndex(i => i.id === item.id);
+
+    console.warn(`[MasterQueue] prev position: ${currentIndex}, new position: ${newPosition}`);
+
+    if (currentIndex === -1) {
+      console.warn(`[MasterQueue] Item ${item.id} not found in queue`);
+      return;
+    }
+
+    // Don't do anything if position hasn't changed
+    if (currentIndex === newPosition) {
+      return;
+    }
+
+    // Don't allow moving the currently executing item (index 0 when currentAction is set)
+    if ((currentIndex === 0 || newPosition === 0) && queueType === 'main' && citySchedule.currentAction) {
+      console.warn(`[MasterQueue] Cannot move item that is currently executing`);
+      return;
+    }
+
+    // Clamp newPosition to valid range
+    const clampedPosition = Math.max(0, Math.min(newPosition, queue.length - 1));
+
+    // Remove item from current position
+    const [movedItem] = queue.splice(currentIndex, 1);
+
+    // Position is correct as-is after removal (no adjustment needed)
+    const adjustedPosition = clampedPosition;
+
+    // Insert at new position
+    queue.splice(adjustedPosition, 0, movedItem);
+
+    // Revalidate affected items (items between old and new position)
+    // const startIndex = Math.min(currentIndex, adjustedPosition);
+    // const endIndex = Math.max(currentIndex, adjustedPosition);
+
+    console.log(
+      `[MasterQueue] Item "${item.ui.title}" moved from position ${currentIndex + 1} to ${adjustedPosition + 1}`,
+    );
+
+    // revalidation there
+    await this.executors.get(movedItem.itemType)?.onPositionChange?.(
+      (citySchedule.nonBlockingQueueComplex[movedItem.itemType]?.queue ?? [])
+        .concat(citySchedule.queue.filter(i => i.itemType === movedItem.itemType))
+        .map(item => ({ ui: item.ui, details: item.itemDetails })),
+      movedItem.itemDetails,
+    );
+
+    // Persist changes
+    this.rerenderInjectedQueuesUI(citySchedule);
+    this.tableUIUtility.update(this.queue);
+    this.persistCitySchedule(citySchedule);
   }
 
   public getExecutor<T>(type: QueueItemType): QueueExecutor<T> {
@@ -226,51 +309,52 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     this.tableUIUtility.mount(null, {
       initialQueue: this.queue,
       onRunAll: async () => {
-        // TODO: problem with status labels
+        // TODO: problem with status labels and refreshing
         for (const citySchedule of this.queue) {
           this.safeRunCitySchedule(citySchedule);
         }
-        this.tableUIUtility!.update(this.queue);
-        this.rerenderInjectedQueuesUI();
+        this.refreshUI();
       },
       onResetAll: async () => {
-        this.rerunAllCitySchedules();
-        this.tableUIUtility!.update(this.queue);
-        this.rerenderInjectedQueuesUI();
+        this.rerunAllCitySchedules(true);
       },
       onDeleteAll: () => {
         this.deleteAllSchedules();
-        this.tableUIUtility!.update(this.queue);
-        this.rerenderInjectedQueuesUI();
+        this.refreshUI();
       },
       onPauseAll: () => {
         this.pauseAllSchedules();
-        this.tableUIUtility!.update(this.queue);
-        this.rerenderInjectedQueuesUI();
+        this.refreshUI();
       },
       onRunCity: async (citySchedule: CitySchedule) => {
         await this.safeRunCitySchedule(citySchedule);
-        this.tableUIUtility!.update(this.queue);
-        this.rerenderInjectedQueuesUI();
+        this.refreshUI();
       },
       onRestartCity: async (citySchedule: CitySchedule) => {
         this.stopCityScheduleActions(citySchedule);
+        this.refreshUI();
         await this.safeRunCitySchedule(citySchedule);
-        this.tableUIUtility!.update(this.queue);
-        this.rerenderInjectedQueuesUI();
+        this.refreshUI();
       },
       onPauseCity: (citySchedule: CitySchedule) => {
         this.stopCityScheduleActions(citySchedule);
-        this.tableUIUtility!.update(this.queue);
-        this.rerenderInjectedQueuesUI();
+        this.refreshUI();
       },
       onDeleteCity: (citySchedule: CitySchedule) => {
         this.clearAndRemoveCitySchedule(citySchedule);
-        this.tableUIUtility!.update(this.queue);
-        this.rerenderInjectedQueuesUI();
+        this.refreshUI();
       },
       onDeleteItem: (citySchedule: CitySchedule, item: QueueItem) => {
+        // TODO: find out if that refreshes UI
         this.removeItem(citySchedule.city, item);
+      },
+      onQueuePositionChange: (
+        citySchedule: CitySchedule,
+        item: QueueItem,
+        newPosition: number,
+        queueType: 'main' | QueueItemType,
+      ) => {
+        this.changeItemPosition(citySchedule, item, newPosition, queueType);
       },
     });
     // this.queueInlineUIUtility = useMasterQueueInline();
@@ -363,6 +447,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
           },
         ],
         nonBlockingQueueComplex: {},
+        triggerQueue: [],
         timeoutData: {},
       };
       this.queue.push(citySchedule);
@@ -407,8 +492,8 @@ export default class MasterQueue extends EventEmitter implements Service<'master
           supplierCities: item.supplierCities ?? [],
         });
 
-        /* 
-          jeżeli po dodaniu itemu na koniec, kolejka ma tylko nowo dodany item ALE jakaś async kolejka jest uruchomiona, 
+        /*
+          jeżeli po dodaniu itemu na koniec, kolejka ma tylko nowo dodany item ALE jakaś async kolejka jest uruchomiona,
           to trzeba ręcznie uruchomić kolejkę główną, bo jest idle
         */
         if (
@@ -438,11 +523,15 @@ export default class MasterQueue extends EventEmitter implements Service<'master
   /**
    * @see VALID
    */
-  public clearAndRemoveCitySchedule(citySchedule: CitySchedule) {
-    this.stopCityScheduleActions(citySchedule);
+  public clearAndRemoveCitySchedule(citySchedule: CitySchedule, persist: boolean = true) {
+    this.stopCityScheduleMainQueueAction(citySchedule);
     citySchedule.queue = [];
+    Object.values(citySchedule.nonBlockingQueueComplex).forEach(nbqc => {
+      this.stopNonBlockingQueueAction(nbqc);
+      nbqc.queue = [];
+    });
 
-    this.persistCitySchedule(citySchedule);
+    if (persist) this.persistCitySchedule(citySchedule);
   }
 
   /**
@@ -451,11 +540,9 @@ export default class MasterQueue extends EventEmitter implements Service<'master
    */
   private stopCityScheduleMainQueueAction(citySchedule: CitySchedule) {
     citySchedule.currentAction = null;
-    citySchedule.timeoutData.executionTime = undefined;
-    citySchedule.timeoutData.purpose = undefined;
-    clearTimeout(citySchedule.timeoutData.timeoutId);
-    clearInterval(citySchedule.timeoutData.timeoutId);
-    citySchedule.timeoutData.timeoutId = undefined;
+    clearTimeout(citySchedule.timeoutData?.timeoutId);
+    clearInterval(citySchedule.timeoutData?.timeoutId);
+    citySchedule.timeoutData = {};
   }
 
   /**
@@ -463,10 +550,9 @@ export default class MasterQueue extends EventEmitter implements Service<'master
    * @see VALID
    */
   private stopNonBlockingQueueAction(complex: NonBlockingQueue) {
-    clearTimeout(complex.timeoutData.timeoutId);
-    clearInterval(complex.timeoutData.timeoutId);
-    complex.timeoutData.purpose = undefined;
-    complex.timeoutData.executionTime = undefined;
+    clearTimeout(complex.timeoutData?.timeoutId);
+    clearInterval(complex.timeoutData?.timeoutId);
+    complex.timeoutData = {};
   }
 
   /**
@@ -482,12 +568,14 @@ export default class MasterQueue extends EventEmitter implements Service<'master
    * Stop city schedule actions and runs it again for each city schedule.
    * @see VALID
    */
-  public async rerunAllCitySchedules() {
+  public async rerunAllCitySchedules(refresh: boolean = false) {
     for (const citySchedule of this.queue) {
       // stops actions, and clears info data
       this.stopCityScheduleActions(citySchedule);
+      if (refresh) this.refreshUI();
       // runs next action
       await this.safeRunCitySchedule(citySchedule);
+      if (refresh) this.refreshUI();
     }
   }
 
@@ -524,10 +612,10 @@ export default class MasterQueue extends EventEmitter implements Service<'master
    * @param citySchedule
    * @see VALID - but repetition policy not implemented
    */
-  private async onItemExecutionFinish(citySchedule: CitySchedule) {
+  private async onItemExecutionFinish(citySchedule: CitySchedule, finishedItem?: QueueItem) {
     console.log('onItemExecutionFinish', JSON.parse(JSON.stringify(citySchedule)));
     // TODO: this is the place to handle execution policy (cycles)
-    const finishedItem = citySchedule.queue[0];
+    finishedItem ??= citySchedule.queue[0];
     if (finishedItem?.repetitionPolicy) {
       finishedItem.repetitionPolicy.currentIteration++;
       if (
@@ -548,7 +636,33 @@ export default class MasterQueue extends EventEmitter implements Service<'master
         await this.runNextAction(citySchedule);
       }
     } else {
-      await this.cleanAndRunNext(citySchedule);
+      // if item triggers execution of other items, add them to the queue front and execute
+      if (finishedItem.subsequentItemIds?.length) {
+        // potentially nnecessary call
+        // this.stopCityScheduleMainQueueAction(citySchedule);
+
+        // Remove finishedItem by reference (not by position) to avoid race conditions
+        const finishedIdx = citySchedule.queue.indexOf(finishedItem);
+        if (finishedIdx !== -1) citySchedule.queue.splice(finishedIdx, 1);
+
+        // Get subsequent items from triggerQueue and add them to front
+        const subsequentItems = finishedItem
+          .subsequentItemIds!.splice(0)
+          .map(id => {
+            const idx = citySchedule.triggerQueue.findIndex(item => item.id === id);
+            return idx >= 0 ? citySchedule.triggerQueue.splice(idx, 1)[0] : undefined;
+          })
+          .filter(i => i !== undefined);
+
+        citySchedule.queue.unshift(...subsequentItems);
+
+        this.persistCitySchedule(citySchedule);
+        this.rerenderInjectedQueuesUI(citySchedule);
+        this.tableUIUtility.update(this.queue);
+        await this.runNextAction(citySchedule);
+      } else {
+        await this.cleanAndRunNext(citySchedule, finishedItem);
+      }
     }
   }
 
@@ -563,9 +677,9 @@ export default class MasterQueue extends EventEmitter implements Service<'master
    *
    * @see VALID
    */
-  private async cleanAndRunNext(citySchedule: CitySchedule, id?: string) {
+  private async cleanAndRunNext(citySchedule: CitySchedule, item?: QueueItem) {
     // clean info holders
-    this.cleanUpdateAndPersist(citySchedule, id);
+    this.cleanUpdateAndPersist(citySchedule, item);
 
     // run next action
     await this.runNextAction(citySchedule);
@@ -603,20 +717,25 @@ export default class MasterQueue extends EventEmitter implements Service<'master
         city: citySchedule.city,
         itemDetails: nextQueueItem.itemDetails,
         onFinishCallback: () => {
-          this.onItemExecutionFinish(citySchedule);
+          this.onItemExecutionFinish(citySchedule, nextQueueItem);
         },
         setScheduleTimeout: (operationCallback, executionTime, timeoutType: TimeoutType, purpose) => {
           this.setScheduleTimeout(citySchedule, operationCallback, executionTime, timeoutType, nextQueueItem, purpose);
         },
         shiftQueueAndNext: () => {
-          this.removeItem(citySchedule, citySchedule.queue[0]);
+          this.removeItem(citySchedule, nextQueueItem);
           this.runNextAction(citySchedule);
-          // this.cleanAndRunNext(citySchedule, nextQueueItem.id);
         },
       });
     } catch (error) {
-      console.error(`Failed to execute queue item: ${error}, running next one`);
-      await this.runNextAction(citySchedule);
+      const browserContext = getBrowserExecutionContextInfo();
+      console.error(`[MasterQueue]: Failed to execute queue item, running next one`, error, browserContext);
+
+      if (browserContext.visibilityState === 'hidden') {
+        performOnDocumentVisibilityReturn(() => this.runNextAction(citySchedule));
+      } else {
+        await this.runNextAction(citySchedule);
+      }
     }
   }
 
@@ -626,10 +745,12 @@ export default class MasterQueue extends EventEmitter implements Service<'master
    * @param citySchedule - city schedule to shift
    * @see VALID - QUESTIONABLE - is it for removing items onClick? if so then flow is potentially bad!!!
    */
-  private cleanUpdateAndPersist(citySchedule: CitySchedule, id?: string) {
-    if (!id) citySchedule.queue.shift();
-    else {
-      citySchedule.queue = citySchedule.queue.filter(q => q.id !== id);
+  private cleanUpdateAndPersist(citySchedule: CitySchedule, item?: QueueItem) {
+    if (!item) {
+      citySchedule.queue.shift();
+    } else {
+      const idx = citySchedule.queue.indexOf(item);
+      if (idx !== -1) citySchedule.queue.splice(idx, 1);
     }
     this.stopCityScheduleMainQueueAction(citySchedule);
     this.reevaluateProviderCities();
@@ -753,7 +874,9 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     }
     // non-blocking
     else {
-      console.log(`[MasterQueue] → Non-blocking item - queue continues processing other items`);
+      console.log(
+        `[MasterQueue] → Non-blocking item - checking if should block the queue or be moved to non blocking queue`,
+      );
       // indirect (waiting for charms, slots, etc.) and waiting time is longer than RESOURCES_BLOCKING_TIME
       if (timeoutType === 'waiting' && executionTime - Date.now() > MasterQueue.RESOURCES_BLOCKING_TIME) {
         console.log(
@@ -808,8 +931,8 @@ export default class MasterQueue extends EventEmitter implements Service<'master
               );
               /*
                -move all type-related queue back to the main queue
-              NOTE: to rozwiązanie nie jest idealne, ale jest proste i zapewnia zachowanie kolejności 
-              pierwszy item najprawdpodobniej uda się zrobić bo pojawił się slot, następny zostanie sprawdzony - odomowa - i ta metoda wywoła się od nowa, 
+              NOTE: to rozwiązanie nie jest idealne, ale jest proste i zapewnia zachowanie kolejności
+              pierwszy item najprawdpodobniej uda się zrobić bo pojawił się slot, następny zostanie sprawdzony - odomowa - i ta metoda wywoła się od nowa,
               znów znajdzie przyległe elementy tego samego typu i wrzuci do non-blocking-queue, z ustawionym timeoutem na pierwszy item
               */
               const items = nonBlockingQueueContainerOfType.queue.splice(0);
@@ -859,7 +982,10 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     const firstOtherItemTypeIndex = citySchedule.queue.findIndex(
       item => item.itemType !== citySchedule.queue[0].itemType,
     );
-    return citySchedule.queue.splice(0, firstOtherItemTypeIndex === -1 ? 1 : firstOtherItemTypeIndex);
+    return citySchedule.queue.splice(
+      0,
+      firstOtherItemTypeIndex === -1 ? citySchedule.queue.length : firstOtherItemTypeIndex,
+    );
   }
 
   // NOTE: rethink merge logic with high priority
@@ -870,9 +996,12 @@ export default class MasterQueue extends EventEmitter implements Service<'master
    * @see ALMOST-VALID ( priority makes it complex)
    */
   public async respectfulUnshiftQueueItems(citySchedule: CitySchedule, items: QueueItem[]) {
-    if (citySchedule.currentAction || citySchedule.timeoutData.timeoutId) {
+    if (citySchedule.currentAction) {
       // stop first item if it's waiting for the slot and merge nbq at 0 index
-      if (citySchedule.timeoutData.purpose === 'slot') {
+      if (
+        citySchedule.timeoutData.purpose &&
+        (['slot', 'charms', 'other item'] as Partial<TimeoutPurpose>[]).includes(citySchedule.timeoutData.purpose)
+      ) {
         this.stopCityScheduleMainQueueAction(citySchedule);
         citySchedule.queue.splice(0, 0, ...items);
         await this.runNextAction(citySchedule);
@@ -940,6 +1069,10 @@ export default class MasterQueue extends EventEmitter implements Service<'master
         useMasterQueueInline().mount(el as HTMLElement, {
           schedule: citySchedule,
           onDeleteItem: item => this.removeItem(citySchedule.city, item),
+          // onQueuePositionChange: (item: QueueItem, newPosition: number, qu) =>
+          //   this.changeItemPosition(citySchedule, item, newPosition),
+          onQueuePositionChange: (item, newPosition, queueType) =>
+            this.changeItemPosition(citySchedule, item, newPosition, queueType),
         });
       } else {
         el.innerHTML = '';
@@ -968,7 +1101,11 @@ export default class MasterQueue extends EventEmitter implements Service<'master
       MasterQueue.LOCAL_STORAGE_KEY,
       JSON.stringify(
         this.queue
-          .filter(citySchedule => citySchedule.queue.length > 0)
+          .filter(
+            citySchedule =>
+              citySchedule.queue.length > 0 ||
+              Object.values(citySchedule.nonBlockingQueueComplex).some(c => c.queue.length),
+          )
           .map((citySchedule: CitySchedule) => ({
             city: citySchedule.city,
             queue: citySchedule.queue.map(queueItem => ({
@@ -977,7 +1114,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
             })),
             nonBlockingQueueComplex: Object.fromEntries(
               Object.entries(citySchedule.nonBlockingQueueComplex)
-                .filter(([itemType, complex]) => complex.queue.length > 0)
+                .filter(([itemType, complex]) => complex != null && complex.queue.length > 0)
                 .map(([itemType, complex]) => [
                   itemType,
                   {
@@ -988,7 +1125,11 @@ export default class MasterQueue extends EventEmitter implements Service<'master
                   },
                 ]),
             ),
-          })),
+            triggerQueue: citySchedule.triggerQueue.map(queueItem => ({
+              ...queueItem,
+              itemDetails: this.getExecutor(queueItem.itemType).persistItem(queueItem.itemDetails),
+            })),
+          })) as CitySchedule[],
       ),
     );
   }
@@ -1004,28 +1145,33 @@ export default class MasterQueue extends EventEmitter implements Service<'master
       localStorage.getItem(MasterQueue.LOCAL_STORAGE_KEY) ?? '[]',
     );
 
-    const citySchedulePersistObj = schedule.queue.length
-      ? ({
-          city: schedule.city,
-          queue: schedule.queue.map(queueItem => ({
-            ...queueItem,
-            itemDetails: this.getExecutor(queueItem.itemType).persistItem(queueItem.itemDetails),
-          })),
-          nonBlockingQueueComplex: Object.fromEntries(
-            Object.entries(schedule.nonBlockingQueueComplex)
-              .filter(([itemType, complex]) => complex.queue.length > 0)
-              .map(([itemType, complex]) => [
-                itemType,
-                {
-                  queue: complex.queue.map(queueItem => ({
-                    ...queueItem,
-                    itemDetails: this.getExecutor(queueItem.itemType).persistItem(queueItem.itemDetails),
-                  })),
-                },
-              ]),
-          ),
-        } as CitySchedule)
-      : null;
+    const citySchedulePersistObj =
+      schedule.queue.length || Object.values(schedule.nonBlockingQueueComplex).some(c => c.queue.length)
+        ? ({
+            city: schedule.city,
+            queue: schedule.queue.map(queueItem => ({
+              ...queueItem,
+              itemDetails: this.getExecutor(queueItem.itemType).persistItem(queueItem.itemDetails),
+            })),
+            nonBlockingQueueComplex: Object.fromEntries(
+              Object.entries(schedule.nonBlockingQueueComplex)
+                .filter(([itemType, complex]) => complex.queue.length > 0)
+                .map(([itemType, complex]) => [
+                  itemType,
+                  {
+                    queue: complex.queue.map(queueItem => ({
+                      ...queueItem,
+                      itemDetails: this.getExecutor(queueItem.itemType).persistItem(queueItem.itemDetails),
+                    })),
+                  },
+                ]),
+            ),
+            triggerQueue: schedule.triggerQueue.map(queueItem => ({
+              ...queueItem,
+              itemDetails: this.getExecutor(queueItem.itemType).persistItem(queueItem.itemDetails),
+            })),
+          } as CitySchedule)
+        : null;
 
     const index = alreadyPersistedSchedule.findIndex(e => e.city.name === schedule.city.name);
 
@@ -1059,9 +1205,9 @@ export default class MasterQueue extends EventEmitter implements Service<'master
 
       hydratedSchedule.forEach(citySchedule => {
         citySchedule.queue.unshift(
-          ...Object.entries(citySchedule.nonBlockingQueueComplex).flatMap(([itemType, complex]) =>
-            complex.queue.splice(0),
-          ),
+          ...Object.entries(citySchedule.nonBlockingQueueComplex)
+            .filter(([itemType, complex]) => complex != null)
+            .flatMap(([itemType, complex]) => complex.queue.splice(0)),
         );
       });
       // schedule
@@ -1085,6 +1231,17 @@ export default class MasterQueue extends EventEmitter implements Service<'master
         citySchedule.city = city;
         // during persistance it's not saved, but is required for proper functioning
         citySchedule.timeoutData = {};
+        // Ensure nonBlockingQueueComplex is initialized and doesn't contain undefined values
+        if (!citySchedule.nonBlockingQueueComplex) {
+          citySchedule.nonBlockingQueueComplex = {};
+        } else {
+          // Remove any undefined/null values that might have been deserialized
+          Object.keys(citySchedule.nonBlockingQueueComplex).forEach(key => {
+            if (citySchedule.nonBlockingQueueComplex[key as QueueItemType] == null) {
+              delete citySchedule.nonBlockingQueueComplex[key as QueueItemType];
+            }
+          });
+        }
 
         // supllier cities contain CityInfo which needs to be hydrated
         citySchedule.queue.forEach(queueItem => {
@@ -1109,37 +1266,61 @@ export default class MasterQueue extends EventEmitter implements Service<'master
         });
 
         // smae thing for each element in the non-blocking queue
-        Object.values(citySchedule.nonBlockingQueueComplex).forEach(complex =>
-          complex.queue.forEach(queueItem => {
-            if (queueItem.supplyEvaluation === 'manual') {
-              queueItem.supplierCities = (queueItem.supplierCities ?? [])
-                .map(city => this.citySwitchManager.getCityByName(city.name) ?? null)
-                .filter(Boolean) as CityInfo[];
-            } else {
-              queueItem.supplierCities = [];
-            }
+        Object.values(citySchedule.nonBlockingQueueComplex)
+          .filter((complex): complex is NonBlockingQueue => complex != null)
+          .forEach(complex =>
+            complex.queue.forEach(queueItem => {
+              if (queueItem.supplyEvaluation === 'manual') {
+                queueItem.supplierCities = (queueItem.supplierCities ?? [])
+                  .map(city => this.citySwitchManager.getCityByName(city.name) ?? null)
+                  .filter(Boolean) as CityInfo[];
+              } else {
+                queueItem.supplierCities = [];
+              }
 
-            // Mark for later hydration if executor not yet registered
-            const executor = this.executors.get(queueItem.itemType);
-            if (executor) {
-              queueItem.itemDetails = executor.hydrateItem(queueItem.itemDetails);
-            } else {
-              (queueItem as any).__needsHydration = true;
-            }
-          }),
-        );
+              // Mark for later hydration if executor not yet registered
+              const executor = this.executors.get(queueItem.itemType);
+              if (executor) {
+                queueItem.itemDetails = executor.hydrateItem(queueItem.itemDetails);
+              } else {
+                (queueItem as any).__needsHydration = true;
+              }
+            }),
+          );
+
+        citySchedule.triggerQueue.forEach(queueItem => {
+          // if manual then hydrate cities
+          if (queueItem.supplyEvaluation === 'manual') {
+            queueItem.supplierCities = (queueItem.supplierCities ?? [])
+              .map(city => this.citySwitchManager.getCityByName(city.name) ?? null)
+              .filter(Boolean) as CityInfo[];
+          }
+          // else empty it, runNextAction will attach newly calcualted list
+          else {
+            queueItem.supplierCities = [];
+          }
+
+          // Mark for later hydration if executor not yet registered
+          const executor = this.executors.get(queueItem.itemType);
+          if (executor) {
+            queueItem.itemDetails = executor.hydrateItem(queueItem.itemDetails);
+          } else {
+            (queueItem as any).__needsHydration = true;
+          }
+        });
+
         return citySchedule;
       })
       .filter(Boolean) as CitySchedule[];
   }
 
-  public getTypeSpecificItemDetailsForCity(city: CityInfo, type: QueueItemType): QueueItem['itemDetails'][] {
+  public getTypeSpecificItemDetailsForCity(city: CityInfo, type: QueueItemType): { id: string; itemDetails: any }[] {
     const citySchedule = this.queue.find(citySchedule => citySchedule.city.name === city.name);
     if (type && citySchedule) {
       return (
         (citySchedule.nonBlockingQueueComplex[type]?.queue ?? [])
           .concat(citySchedule.queue.filter(item => item.itemType === type))
-          .map(item => item.itemDetails) ?? []
+          .map(item => ({ id: item.id, itemDetails: item.itemDetails })) ?? []
       );
     }
     return [];
@@ -1157,6 +1338,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
         queue: [],
         nonBlockingQueueComplex: {},
         timeoutData: {},
+        triggerQueue: [],
       };
       this.queue.push(citySchedule);
     }
@@ -1166,37 +1348,39 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     utility.mount(container, {
       onRun: async () => {
         await this.safeRunCitySchedule(citySchedule);
-        this.tableUIUtility!.update(this.queue);
-        this.rerenderInjectedQueuesUI();
+        this.refreshUI();
       },
       onRestart: async () => {
         this.stopCityScheduleActions(citySchedule);
+        this.refreshUI();
         await this.safeRunCitySchedule(citySchedule);
-        this.tableUIUtility!.update(this.queue);
-        this.rerenderInjectedQueuesUI();
+        this.refreshUI();
       },
       onPause: () => {
         this.stopCityScheduleActions(citySchedule);
-        this.tableUIUtility!.update(this.queue);
-        this.rerenderInjectedQueuesUI();
+        this.refreshUI();
       },
       onDelete: () => {
         this.clearAndRemoveCitySchedule(citySchedule);
-        this.tableUIUtility!.update(this.queue);
-        this.rerenderInjectedQueuesUI();
+        this.refreshUI();
       },
     });
     return { getValues: utility.getValues };
   }
 
+  /**
+   * @see VALID
+   */
   private deleteAllSchedules() {
     this.queue.forEach(citySchedule => {
-      this.stopCityScheduleActions(citySchedule);
-      citySchedule.queue = [];
+      this.clearAndRemoveCitySchedule(citySchedule, false);
     });
     this.persistSchedule();
   }
 
+  /**
+   * @see VALID
+   */
   private pauseAllSchedules() {
     this.queue.forEach(citySchedule => {
       this.stopCityScheduleActions(citySchedule);
@@ -1229,10 +1413,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     let removedIndex: number | null = null;
     let queueType: 'main' | 'non-blocking' | null = null;
 
-    const citySchedule =
-      'name' in scheduleIdentifier
-        ? this.queue.find(schedule => schedule.city.name === scheduleIdentifier.name)
-        : scheduleIdentifier;
+    const citySchedule = this.resolveScheduleIdentifier(scheduleIdentifier);
 
     if (!citySchedule) return;
 
@@ -1273,8 +1454,19 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     }
 
     if (removedQueueItem && queue && removedIndex !== null && queueType) {
+      // remove subscribed items
+      if (
+        removedQueueItem.subsequentItemIds &&
+        removedQueueItem.subsequentItemIds.length &&
+        citySchedule.triggerQueue.length
+      ) {
+        citySchedule.triggerQueue = citySchedule.triggerQueue.filter(
+          item => !removedQueueItem!.subsequentItemIds!.includes(item.id),
+        );
+      }
+
       /*
-      If executor has postDeleteActon: merges chronologically queues of given types, slices from removed index and prepares the format. 
+      If executor has postDeleteActon: merges chronologically queues of given types, slices from removed index and prepares the format.
       */
       if (this.getExecutor(removedQueueItem.itemType).postDeleteAction) {
         const itemsToUpdate = (
@@ -1365,5 +1557,67 @@ export default class MasterQueue extends EventEmitter implements Service<'master
   public refreshUI() {
     this.rerenderInjectedQueuesUI();
     this.tableUIUtility!.update(this.queue);
+  }
+
+  private resolveScheduleIdentifier(scheduleIdentifier: CitySchedule | CityInfo) {
+    return 'name' in scheduleIdentifier
+      ? this.queue.find(cs => cs.city.name === scheduleIdentifier.name)
+      : scheduleIdentifier;
+  }
+
+  // TODO: hydration & persistence of triggerQeueue
+  public subscribeToItemOnExecutionFinish(
+    scheduleIdentifier: CitySchedule | CityInfo,
+    referenceItemId: string,
+    triggerItemId: string,
+  ) {
+    const citySchedule = this.resolveScheduleIdentifier(scheduleIdentifier)!;
+
+    let queueType!: 'main' | QueueItemType;
+    let positionInQueue!: number;
+
+    if ((positionInQueue = citySchedule.queue.findIndex(qi => qi.id === triggerItemId)) !== -1) {
+      queueType = 'main';
+    } else if (
+      Object.entries(citySchedule.nonBlockingQueueComplex).some(([type, complex]) => {
+        if ((positionInQueue = complex.queue.findIndex(qi => qi.id === triggerItemId)) !== -1) {
+          queueType = type as QueueItemType;
+          return true;
+        }
+        return false;
+      })
+    ) {
+      /* nothing in here */
+    } else {
+      return false;
+    }
+
+    const referenceItem = [
+      ...citySchedule.queue,
+      ...Object.values(citySchedule.nonBlockingQueueComplex).flatMap(c => c.queue),
+      ...citySchedule.triggerQueue,
+    ].find(i => i.id === referenceItemId)!;
+
+    if (queueType === 'main') {
+      if (positionInQueue === 0 && citySchedule.currentAction) {
+        this.stopCityScheduleMainQueueAction(citySchedule);
+        citySchedule.triggerQueue.push(citySchedule.queue.shift()!);
+        this.runNextAction(citySchedule);
+      } else {
+        citySchedule.triggerQueue.push(citySchedule.queue.splice(positionInQueue, 1)[0]);
+      }
+    } else {
+      citySchedule.triggerQueue.push(
+        citySchedule.nonBlockingQueueComplex[queueType]!.queue.splice(positionInQueue, 1)[0],
+      );
+      if (!citySchedule.nonBlockingQueueComplex[queueType]!.queue.length) {
+        this.stopNonBlockingQueueAction(citySchedule.nonBlockingQueueComplex[queueType]!);
+      }
+    }
+    (referenceItem.subsequentItemIds ??= []).push(triggerItemId);
+    console.log(
+      `[MasterQueue]: subscription of id=${triggerItemId} added to item: ${JSON.stringify(referenceItem.itemDetails)}`,
+    );
+    return true;
   }
 }

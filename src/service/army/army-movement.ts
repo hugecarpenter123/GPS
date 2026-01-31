@@ -2,19 +2,10 @@
  * Stworzyć utility, które będzie śledziło i rejestrowało ruch
  */
 
-import { link } from 'fs';
-import { createInflate } from 'zlib';
 import config from '../../../gps.config';
 import ConfigManager from '../../utility/config-manager';
-import {
-  addDelay,
-  doWhile,
-  getDaysAhead,
-  getTopmostAncestorByClass,
-  msToHHMMSS,
-  waitWhile,
-} from '../../utility/plain-utility';
-import { performComplexClick, setInputValue, waitForElement, waitForElementInterval } from '../../utility/ui-utility';
+import { addDelay, doWhile, getDaysAhead, getTopmostAncestorByClass, waitWhile } from '../../utility/plain-utility';
+import { performComplexClick, waitForElement, waitForElementInterval } from '../../utility/ui-utility';
 import { CharmDetails } from '../charms/charms-utility';
 import { CityInfo } from '../city/city-switch-manager';
 import { AttackStrategy, OperationType, ScheduleItem, SchedulerExecutor } from '../scheduler/Scheduler';

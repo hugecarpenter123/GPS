@@ -4,7 +4,11 @@ import { InfoError } from '../../utility/info-error';
 import { addDelay, HHMMSS_toMS, waitWhile } from '../../utility/plain-utility';
 import Service from '../../utility/Service';
 import Lock, { LockOperationCancelledError } from '../../utility/ui-lock';
-import { waitForElementInterval } from '../../utility/ui-utility';
+import {
+  getBrowserExecutionContextInfo,
+  performOnDocumentVisibilityReturn,
+  waitForElementInterval,
+} from '../../utility/ui-utility';
 import CharmsUtility, { CharmDetails } from '../charms/charms-utility';
 import CitySwitchManager, { CityInfo } from '../city/city-switch-manager';
 import { ScheduleExecutionDetails } from '../master-queue-rework/inline-queue-navigation';
@@ -425,7 +429,7 @@ export default class Recruiter implements Service<'recruiter'> {
           (await this.getEmptySlotsCount(type)) -
           this.masterQueue
             .getTypeSpecificItemDetailsForCity(sourceCity!, 'recruiter')
-            .reduce((acc, itemDetails: ItemDetails) => {
+            .reduce((acc, { itemDetails }: { itemDetails: ItemDetails }) => {
               if (itemDetails.type === type) {
                 if (itemDetails.amountType === 'slots') {
                   return acc + itemDetails.amount;
@@ -567,10 +571,15 @@ export default class Recruiter implements Service<'recruiter'> {
   }
 
   private async tryRecruitOrStackResources(operationDetails: ScheduleOperationDetails<ItemDetails>) {
+    let infoId!: number;
     try {
       await this.lock.performWithLock(
         async () => {
-          GeneralInfo.getInstance().showInfo('Recruiter:', 'Rekrutacja/stakowanie surowców do rekrutacji');
+          infoId = GeneralInfo.getInstance().showInfo(
+            'Recruiter:',
+            'Rekrutacja/stakowanie surowców do rekrutacji',
+            'info',
+          );
           await operationDetails.city.switchAction();
           await this.performRecruitOrStackResources(operationDetails);
           delete this.tryCount[operationDetails.city.name];
@@ -580,12 +589,17 @@ export default class Recruiter implements Service<'recruiter'> {
     } catch (e) {
       // if it's not deliberate Lock cancelation, retry the whole flow
       if (!(e instanceof LockOperationCancelledError && e.reason === 'called')) {
-        console.warn('Recruiter.tryRecruitOrStackResources.catch:', e);
+        const browserContext = getBrowserExecutionContextInfo();
+        console.warn('[Recruiter]: tryRecruitOrStackResources.catch:', e, browserContext);
         const cityName = operationDetails.city.name;
         this.tryCount[cityName] = (this.tryCount[cityName] ?? 0) + 1;
         if (this.tryCount[cityName] < 3) {
           console.log(`\tretry number ${this.tryCount[cityName]} for item:`, operationDetails.itemDetails);
-          this.tryRecruitOrStackResources(operationDetails);
+          if (browserContext.visibilityState === 'hidden') {
+            performOnDocumentVisibilityReturn(() => this.tryRecruitOrStackResources(operationDetails));
+          } else {
+            this.tryRecruitOrStackResources(operationDetails);
+          }
         } else {
           delete this.tryCount[cityName];
           console.log(`\tretry limit exceeded, removing item:`, operationDetails.itemDetails);
@@ -593,7 +607,7 @@ export default class Recruiter implements Service<'recruiter'> {
         }
       }
     } finally {
-      GeneralInfo.getInstance().hideInfo();
+      GeneralInfo.getInstance().hideInfo(infoId);
     }
   }
 
@@ -850,9 +864,10 @@ export default class Recruiter implements Service<'recruiter'> {
     const requiuredCharmsCasted = CharmsUtility.castCityCharms(charms ?? {});
     console.log('requiredCharmsCasted:', requiuredCharmsCasted);
     if (!requiuredCharmsCasted) {
-      GeneralInfo.getInstance().showError(
+      GeneralInfo.getInstance().showInfo(
         'Recruiter',
         'Nie udało się rzucić wymaganych zaklęć, ponowna próba za 10 minut',
+        'error',
         5000,
       );
       await this.closeAllRecruitmentBuildingDialogs();

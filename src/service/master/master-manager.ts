@@ -3,14 +3,13 @@ import { FarmTimeInterval, type Managers, TConfig } from '../../../gps.config';
 import { ConfigPopupUtility, TConfigChanges, useConfigPopup } from '../../config-popup/config-popup';
 import ConfigManager from '../../utility/config-manager';
 import { getCookie, hasAnyValue, setCookie } from '../../utility/plain-utility';
+import { Academy } from '../academy/academy';
 import CityBuilder from '../city/builder/city-builder';
 import CitySwitchManager from '../city/city-switch-manager';
 import Farmer from '../farm/farm-manager';
 import MasterQueue from '../master-queue-rework/master-queue';
 import Recruiter from '../recruiter/recruiter';
 import Scheduler from '../scheduler/Scheduler';
-import GeneralInfo from './ui/general-info';
-import { Academy } from '../academy/academy';
 
 export default class MasterManager {
   private static instance: MasterManager;
@@ -23,7 +22,6 @@ export default class MasterManager {
   private masterQueue!: MasterQueue;
   private academy!: Academy;
   private configPopupWindow!: ConfigPopupUtility;
-  private generalInfo!: GeneralInfo;
 
   private pausedManagersSnapshot: {
     [key in Managers]: boolean;
@@ -42,7 +40,6 @@ export default class MasterManager {
   public static async getInstance(): Promise<MasterManager> {
     if (!MasterManager.instance) {
       MasterManager.instance = new MasterManager();
-      MasterManager.instance.generalInfo = GeneralInfo.getInstance();
       MasterManager.instance.config = ConfigManager.getInstance().getConfig();
       MasterManager.instance.switchManager = await CitySwitchManager.getInstance();
       MasterManager.instance.farmer = await Farmer.getInstance();

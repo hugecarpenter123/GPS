@@ -15,6 +15,7 @@ import {
 } from '../../utility/plain-utility';
 import Lock from '../../utility/ui-lock';
 import {
+  getBrowserExecutionContextInfo,
   performComplexClick,
   waitForElement,
   waitForElementInterval,
@@ -53,6 +54,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
   private lock!: Lock;
   private farmSolution: FarmingSolution = FarmingSolution.Manual;
   private RUN: boolean = false;
+  private tryCount: Record<string, number> = {};
 
   private constructor() {
     super();
@@ -87,11 +89,12 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
 
   public async farmWithCaptain(scheduled: boolean = false) {
     let dialogsSnapshot: Element[] = [];
+    let infoId!: number;
     try {
       await this.lock.performWithLock(
         async () => {
-          this.generalInfo.showInfo('Farm Manager:', 'Farmienie z kapitanem.');
-          console.log('farmWithCaptain at ', new Date());
+          infoId = this.generalInfo.showInfo('Farm Manager:', 'Farmienie z kapitanem.', 'info');
+          console.log('[Farmer]: farmWithCaptain at', new Date());
 
           // checking opened dialogs to find know which will be opened
           dialogsSnapshot = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
@@ -121,7 +124,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
             );
 
             if (!cooldownWrapper.classList.contains('hidden')) {
-              console.log('cooldownWrapper found, not hidden');
+              console.log('[Farmer]: Cooldown wrapper found, not hidden');
               let cooldownTimeTextParsed;
               while (
                 !(cooldownTimeTextParsed = cooldownWrapper
@@ -134,9 +137,12 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
                 calculateTimeToNextOccurrence(cooldownTimeTextParsed!) + this.config.general.timeDifference + 1000;
               const scheduledDate = new Date(Date.now() + timeout);
 
-              console.log('schedule next farming operation for captain on:', scheduledDate);
+              console.log('[Farmer]: Schedule next farming operation for captain on:', scheduledDate);
               const scheduleTimeout = setTimeout(() => {
-                console.log('performing scheduled farming operation for captain, at:', dateToHHMMSS(new Date()));
+                console.log(
+                  '[Farmer]: Performing scheduled farming operation for captain, at:',
+                  dateToHHMMSS(new Date()),
+                );
                 this.farmWithCaptain(true);
               }, timeout);
 
@@ -156,7 +162,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
           }
 
           // selecting cities
-          console.log('clicked select all');
+          console.log('[Farmer]: Clicked select all');
           await waitForElementInterval('#fto_town_wrapper .checkbox.select_all', { retries: 4, interval: 500 })
             .then(el => el.click())
             .then(async () => {
@@ -176,7 +182,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
               if (cityLabel.textContent === city.name) {
                 const checbkox = cityLabel.parentElement!.querySelector<HTMLElement>('.checkbox.town_checkbox')!;
                 if (!checbkox.classList.contains('checked')) {
-                  console.log('clicking town checkbox', city.name);
+                  console.log('[Farmer]: Clicking town checkbox', city.name);
                   checbkox.click();
                   await addDelay(100);
                   break;
@@ -187,7 +193,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
           // end of selecting cities
 
           //selecting farm option
-          console.log('select farm options');
+          console.log('[Farmer]: Select farm options');
           await addDelay(500);
           const farmOptions = document.querySelectorAll<HTMLElement>('.fto_time_checkbox')!;
           const farmOptionIndex = this.getFarmOptionIndex()!;
@@ -198,7 +204,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
           // end of selecting farm option
 
           // collecting resources
-          console.log('collecting resources');
+          console.log('[Farmer]: Collecting resources');
           // document.querySelector<HTMLElement>('#fto_claim_button')!.click();
           await waitForElementInterval('#fto_claim_button', { retries: 4, interval: 400 })
             .then(el => el.click())
@@ -215,7 +221,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
           // end of confirm button click
 
           // finding new cooldown
-          console.log('finding new cooldown');
+          console.log('[Farmer]: Finding new cooldown');
           let newCooldownParsedTimeText;
           let counter = 0;
           while (
@@ -235,9 +241,9 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
           const timeout =
             calculateTimeToNextOccurrence(newCooldownParsedTimeText!) + this.config.general.timeDifference + 1000;
           const scheduledDate = new Date(Date.now() + timeout);
-          console.log('schedule next farming operation for captain on:', scheduledDate);
+          console.log('[Farmer]: Schedule next farming operation for captain on:', scheduledDate);
           const scheduleTimeout = setTimeout(() => {
-            console.log('performing scheduled farming operation for captain, at:', dateToHHMMSS(new Date()));
+            console.log('[Farmer]: Performing scheduled farming operation for captain, at:', dateToHHMMSS(new Date()));
             this.farmWithCaptain(true);
           }, timeout);
 
@@ -246,31 +252,38 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
             timeout: scheduleTimeout,
           };
 
-          console.log('farmManager.farmWithCaptain.succesfullSnapchot', getBrowserStateSnapshot());
+          console.log('[Farmer]: farmWithCaptain successful snapshot', getBrowserStateSnapshot());
+          delete this.tryCount['captain'];
         },
         {
           manager: 'farmer',
         },
       );
     } catch (e) {
-      if (e instanceof InfoError) {
-        console.warn('FarmManager.farmWithCaptain().catch', e.message, e.details, 'will reschedule in 2 minutes');
+      const key = 'captain';
+      this.tryCount[key] = (this.tryCount[key] ?? 0) + 1;
+      console.warn('[Farmer]: farmWithCaptain catch:', e, getBrowserExecutionContextInfo());
+      if (this.tryCount[key] < 3) {
+        console.warn(`[Farmer]: Retry count ${this.tryCount[key]}, will reschedule in 2 minutes`);
+        this.captainSchedule = {
+          timeout: setTimeout(
+            () => {
+              this.farmWithCaptain();
+            },
+            2 * 60 * 1000,
+          ),
+          scheduledDate: new Date(Date.now() + 2 * 60 * 1000),
+        };
       } else {
-        console.warn('FarmManager.farmWithCaptain().catch', e, 'will reschedule in 2 minutes');
+        console.warn(`[Farmer]: Retry limit exceeded for captain, stopping retries`);
+        delete this.tryCount[key];
+        await this.setFarmSolution();
+        this.initFarmAllVillages();
       }
-      this.captainSchedule = {
-        timeout: setTimeout(
-          () => {
-            this.farmWithCaptain();
-          },
-          2 * 60 * 1000,
-        ),
-        scheduledDate: new Date(Date.now() + 2 * 60 * 1000),
-      };
     } finally {
-      console.log('captain scheduler:', this.captainSchedule);
+      console.log('[Farmer]: Captain scheduler:', this.captainSchedule);
       this.tryCloseCurrentDialog(Array.from(dialogsSnapshot));
-      this.generalInfo.hideInfo();
+      this.generalInfo.hideInfo(infoId);
     }
   }
 
@@ -302,29 +315,40 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
   }
 
   private async farmVillages(city: CityInfo) {
+    let infoId!: number;
     try {
-      console.log('farmVillages, wait for lock', city.name);
+      console.log('[Farmer]: farmVillages, wait for lock', city.name);
       await this.lock.performWithLock(
         async () => {
-          this.generalInfo.showInfo('Farm Manager:', `farmienie w mieście: ${city.name}`);
-          console.log('farmVillages, take lock', city.name);
+          infoId = this.generalInfo.showInfo('Farm Manager:', `farmienie w mieście: ${city.name}`, 'info');
+          console.log('[Farmer]: farmVillages, take lock', city.name);
           await this.farmVillagesFlow(city);
+          delete this.tryCount[city.name];
         },
         { manager: 'farmer' },
       );
     } catch (e) {
-      console.warn('FarmManager.farmVillages().catch', e);
+      console.warn('[Farmer]: farmVillages catch:', e, getBrowserExecutionContextInfo());
+      const cityName = city.name;
+      this.tryCount[cityName] = (this.tryCount[cityName] ?? 0) + 1;
+      if (this.tryCount[cityName] < 2) {
+        console.warn(`[Farmer]: Retry count ${this.tryCount[cityName]} for city:`, cityName);
+        this.farmVillages(city);
+      } else {
+        console.warn(`[Farmer]: Retry limit exceeded for city:`, cityName);
+        delete this.tryCount[cityName];
+      }
     } finally {
       this.disconnectObservers();
-      console.log('farmVillages, release lock', city.name);
-      this.generalInfo.hideInfo();
+      console.log('[Farmer]: farmVillages, release lock', city.name);
+      this.generalInfo.hideInfo(infoId);
       this.emit('farmingFinished');
     }
   }
 
   private async farmVillagesFlow(city: CityInfo, forced: boolean = false) {
     try {
-      console.log('farmVillagesFlow, switch to city', city.name, new Date());
+      console.log('[Farmer]: farmVillagesFlow, switch to city', city.name, new Date());
       await city.switchAction();
 
       // Selectors mapping and timeout check
@@ -358,7 +382,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
             interval: 200,
             fromNode: masterWindow!,
           }).then(el => {
-            console.log('\t-clicked next');
+            console.log('[Farmer]: Clicked next');
             el.click();
           });
           await waitWhile(
@@ -386,13 +410,13 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
             }
           })
           .catch(() => {
-            console.log('\t-could not find farm option buttons');
+            console.log('[Farmer]: Could not find farm option buttons');
             farmNotOwned = true;
           });
 
         // adjust criterion by which it is assessed that village is not owned
         if (farmNotOwned) {
-          console.log('\t-village is not owned, skipping');
+          console.log('[Farmer]: Village is not owned, skipping');
           continue;
         }
         await waitWhile(() => !document.querySelector('.actions_locked_banner.cooldown'), {
@@ -402,7 +426,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
         farmedVillageCounter++;
       }
 
-      console.log('post loop actions');
+      console.log('[Farmer]: Post loop actions');
       const cooldownTime = await this.getUnlockTimeOrNull(masterWindow!);
       // const timeoutTime = Math.min(cooldownTime ?? Infinity, this.config.farmConfig.farmInterval);
       await waitForElementInterval('.btn_wnd.close')
@@ -413,7 +437,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
       this.disconnectObservers();
       this.scheduleNextFarmingOperationForCity(cooldownTime ?? this.config.farmer.farmInterval + 1000, city);
     } catch (e) {
-      console.warn('FarmManager.farmVillagesFlow().catch', e);
+      console.warn('[Farmer]: farmVillagesFlow catch:', e, getBrowserExecutionContextInfo());
       await this.forceRepeatFarming(city);
     }
   }
@@ -429,13 +453,13 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
       const cityList = this.config.farmer.farmingCities.map(
         city => this.citySwitch.getCityList().find(c => c.name === city.name)!,
       );
-
+      let infoId!: number;
       try {
-        console.log('initFarmAllVillages, wait for lock', new Date());
+        console.log('[Farmer]: initFarmAllVillages, wait for lock', new Date());
         await this.lock.performWithLock(
           async () => {
-            this.generalInfo.showInfo('Farm Manager:', 'Inicjalizacja/farmienie wszystkich wiosek.');
-            console.log('initFarmAllVillages, take lock', new Date());
+            infoId = this.generalInfo.showInfo('Farm Manager:', 'Inicjalizacja/farmienie wszystkich wiosek.', 'info');
+            console.log('[Farmer]: initFarmAllVillages, take lock', new Date());
             for (const cityInfo of cityList) {
               await this.farmVillagesFlow(cityInfo);
             }
@@ -444,9 +468,9 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
           { manager: 'farmer' },
         );
       } catch (e) {
-        console.warn('FarmManager.initFarmAllVillages().catch', e);
+        console.warn('[Farmer]: initFarmAllVillages catch:', e, getBrowserExecutionContextInfo());
       } finally {
-        this.generalInfo.hideInfo();
+        this.generalInfo.hideInfo(infoId);
         this.messageDialogObserver?.disconnect();
         this.emit('farmingFinished');
       }
@@ -454,7 +478,6 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
   }
 
   private async forceRepeatFarming(city: CityInfo) {
-    await city.switchAction();
     await this.farmVillagesFlow(city, true);
   }
 
@@ -480,7 +503,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
 
     scheduleItem.timeout = timeout;
     this.schedule.push(scheduleItem as ScheduleItem);
-    console.log('scheduler:', this.schedule);
+    console.log('[Farmer]: Scheduler:', this.schedule);
   };
 
   /**
@@ -540,11 +563,11 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
         const getTextInterval = setInterval(() => {
           if (unlcokTimeEl?.textContent) {
             clearInterval(getTextInterval);
-            console.log('next unlock time:', unlcokTimeEl.textContent);
+            console.log('[Farmer]: Next unlock time:', unlcokTimeEl.textContent);
             res(HHMMSS_toMS(unlcokTimeEl.textContent));
           } else if (counter === 10) {
             clearInterval(getTextInterval);
-            console.warn('nie znaleziono czasu odblokowania');
+            console.warn('[Farmer]: Nie znaleziono czasu odblokowania');
             res(null);
           }
           counter++;
@@ -574,7 +597,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
 
   public stop() {
     this.RUN = false;
-    console.log('FarmManager stopped');
+    console.log('[Farmer]: FarmManager stopped');
     // manual related
     this.schedule.forEach(item => {
       clearTimeout(item.timeout);
@@ -587,7 +610,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
 
   public async start() {
     if (!this.RUN) {
-      console.log('FarmManager started');
+      console.log('[Farmer]: FarmManager started');
       this.RUN = true;
       await this.initFarmAllVillages();
     }

@@ -1,14 +1,21 @@
 import { ScheduleExecutionDetails } from '~/service/master-queue-rework/inline-queue-navigation';
 import { TConfigChanges } from '../../../config-popup/config-popup';
-import { addDelay, HHMMSS_toMS, msToFutureHHMMSS } from '../../../utility/plain-utility';
+import { addDelay, HHMMSS_toMS, msToFutureHHMMSS, waitWhile } from '../../../utility/plain-utility';
 import Service from '../../../utility/Service';
 import Lock, { LockOperationCancelledError } from '../../../utility/ui-lock';
-import { cancelHover, triggerHover, waitForElement, waitForElementInterval } from '../../../utility/ui-utility';
+import {
+  cancelHover,
+  getBrowserExecutionContextInfo,
+  performOnDocumentVisibilityReturn,
+  triggerHover,
+  waitForElement,
+  waitForElementInterval,
+  waitForElementsInterval,
+} from '../../../utility/ui-utility';
 import MasterQueue, {
   type QueueItemInput,
   QueuePriority,
   type ScheduleOperationDetails,
-  type TimeoutPurpose,
 } from '../../master-queue-rework/master-queue';
 import GeneralInfo from '../../master/ui/general-info';
 import ResourceManager from '../../resources/resource-manager';
@@ -17,8 +24,9 @@ import CitySwitchManager, { CityInfo } from '../city-switch-manager';
 import builderHtml from './builder-prod.html';
 import { Building, buildings, buildingsSelectors } from './buildings';
 import builderCss from './queue.css?raw';
+import { info } from 'console';
 
-type ItemDetails = {
+export type BuilderItemDetails = {
   building: Building;
   toLvl: number;
 };
@@ -46,6 +54,7 @@ export default class CityBuilder implements Service<'builder'> {
   private masterQueue!: MasterQueue;
   private tradeManager!: TradeManager;
   private getScheduleBaseFormValues: (() => ScheduleExecutionDetails) | undefined;
+  private tryCount: Record<string, number> = {};
 
   private RUN: boolean = false;
 
@@ -69,7 +78,7 @@ export default class CityBuilder implements Service<'builder'> {
   }
 
   private register() {
-    this.masterQueue.registerExecutor<ItemDetails>('builder', {
+    this.masterQueue.registerExecutor<BuilderItemDetails>('builder', {
       execute: async operationDetails => {
         await this.execute(operationDetails);
       },
@@ -80,13 +89,26 @@ export default class CityBuilder implements Service<'builder'> {
           }
         });
       },
-      hydrateItem: function (itemDetails: ItemDetails) {
+      onPositionChange: async (queue, movedItemDetails) => {
+        const itemsToRevalidate = queue.filter(item => item.details.building.name === movedItemDetails.building.name);
+        if (itemsToRevalidate.length > 1) {
+          await this.goToBuildMode();
+          let baseLvl = await this.getBuildingQueuedOrCurrentLvl(movedItemDetails.building);
+          this.exitBuildMode();
+          itemsToRevalidate.forEach(item => {
+            baseLvl++;
+            item.details.toLvl = baseLvl;
+            item.ui.lvlBar = baseLvl.toString();
+          });
+        }
+      },
+      hydrateItem: function (itemDetails: BuilderItemDetails) {
         return {
           toLvl: itemDetails.toLvl,
           building: buildings[itemDetails.building.name as keyof typeof buildings],
         };
       },
-      persistItem: function (itemDetails: ItemDetails) {
+      persistItem: function (itemDetails: BuilderItemDetails) {
         return { toLvl: itemDetails.toLvl, building: { name: itemDetails.building.name } };
       },
     });
@@ -134,7 +156,7 @@ export default class CityBuilder implements Service<'builder'> {
     button.addEventListener('click', () => {
       builderContainer.classList.toggle('hidden');
       if (!builderContainer.classList.contains('hidden')) {
-        this.goToBuildMode('current');
+        this.goToBuildMode();
       } else {
         this.exitBuildMode();
       }
@@ -150,7 +172,7 @@ export default class CityBuilder implements Service<'builder'> {
   </div>
   </div>
   <div id="builder-queue-view">
-  
+
   </div>
   </div>
   <button id="show-builder">Toggle builder</button>
@@ -189,14 +211,18 @@ export default class CityBuilder implements Service<'builder'> {
    * Switches to the given city (if provided else assumes that current city is already switched) and clicks on the build mode button.
    * @param city
    */
-  private async goToBuildMode(city: CityInfo | 'current') {
-    if (city !== 'current') {
+  private async goToBuildMode(city?: CityInfo) {
+    if (city) {
       await city.switchAction();
     }
     document.querySelector<HTMLDivElement>('[name="city_overview"]')?.click();
-    const buildModeButton = await waitForElement('[class="construction_queue_build_button"] div', 2000);
+    const buildModeButton = await waitForElementInterval('[class="construction_queue_build_button"] div', {
+      interval: 150,
+      retries: 12,
+    });
     if (!buildModeButton.classList.contains('active')) {
       buildModeButton.click();
+      await waitWhile(() => !buildModeButton.classList.contains('active'), { maxIterations: 4, delay: 100 });
     }
   }
 
@@ -213,21 +239,21 @@ export default class CityBuilder implements Service<'builder'> {
   private async addToQueue(building: Building) {
     const currentCity = this.citySwitchManager.getCurrentCity()!;
     const itemDetailsArr = this.masterQueue.getTypeSpecificItemDetailsForCity(currentCity, 'builder') as {
-      building: Building;
-      toLvl: number;
+      id: string;
+      itemDetails: {
+        building: Building;
+        toLvl: number;
+      };
     }[];
-    await this.goToBuildMode('current');
+    await this.goToBuildMode();
 
     // assess lvl
     let currentLvl!: number;
-    const buildingElement = await waitForElement(building.elementSelector, 1000).catch(() => null);
+    const buildingElement = document.querySelector(building.elementSelector);
     if (buildingElement) {
-      const buildingcurrentLvlText = await waitForElement(
+      const buildingcurrentLvlText = document.querySelector(
         `${building.elementSelector} ${buildingsSelectors.currentLvl}`,
-        1000,
-      )
-        .then(el => el.textContent)
-        .catch(() => null);
+      )?.textContent;
       currentLvl =
         buildingcurrentLvlText !== 'max' || buildingcurrentLvlText !== null ? Number(buildingcurrentLvlText) : Infinity;
     } else {
@@ -242,7 +268,7 @@ export default class CityBuilder implements Service<'builder'> {
     const { blocking, priority, supplierCityNames, autoSuppliers, maxShipmentTime } = this.getScheduleBaseFormValues!();
 
     // assess lvl
-    const lvlCounter = itemDetailsArr.filter(item => item.building.name === building.name).length + 1;
+    const lvlCounter = itemDetailsArr.filter(item => item.itemDetails.building.name === building.name).length + 1;
     // end of assess lvl
 
     const toLvl = currentLvl + lvlCounter;
@@ -265,13 +291,13 @@ export default class CityBuilder implements Service<'builder'> {
       },
     };
 
-    console.log('cityBuilder.addToQueue() queueItem:', queueItem);
+    console.log('[Builder]: Adding to queue:', queueItem);
 
     // add to master queue
     this.masterQueue.addToQueue(currentCity, queueItem);
   }
 
-  public async execute(operationDetails: ScheduleOperationDetails<ItemDetails>) {
+  public async execute(operationDetails: ScheduleOperationDetails<BuilderItemDetails>) {
     await this.handleBuildSchedule(operationDetails);
   }
 
@@ -280,12 +306,12 @@ export default class CityBuilder implements Service<'builder'> {
    * @param operationDetails
    * @requires Lock
    */
-  private async performBuildSchedule(operationDetails: ScheduleOperationDetails<ItemDetails>) {
+  private async performBuildSchedule(operationDetails: ScheduleOperationDetails<BuilderItemDetails>) {
     if (await this.isEmptySlot(operationDetails.city)) {
-      console.log('\t-isEmptySlot is true, checking if can build');
+      console.log('[Builder]: Empty slot available, checking if can build');
       await this.buildOrScheduleOrRemove(operationDetails);
     } else {
-      console.log('\t-isEmptySlot is false, scheduling speed up');
+      console.log('[Builder]: No empty slot, scheduling speed up');
       await this.setTimeoutForSpeedUpAndPerformBuildSchedule(operationDetails);
     }
   }
@@ -294,7 +320,7 @@ export default class CityBuilder implements Service<'builder'> {
    * Calls API method to shift queue and go for next item, and sets internal speed up flow for given city.
    * @param operationDetails
    */
-  private async onScheduleItemFinished(operationDetails: ScheduleOperationDetails<ItemDetails>) {
+  private async onScheduleItemFinished(operationDetails: ScheduleOperationDetails<BuilderItemDetails>) {
     await this.setInternalSpeedUpFlow(operationDetails.city);
     operationDetails.onFinishCallback();
   }
@@ -305,15 +331,15 @@ export default class CityBuilder implements Service<'builder'> {
    */
   private clearInternalCitySchedule(city: CityInfo) {
     const citySchedule = this.schedule.find(schedule => schedule.city.name === city.name);
-    console.warn('clearInternalCitySchedule for city:', city.name, 'timeoutId:', citySchedule?.timeout);
+    console.log('[Builder]: Clearing internal schedule for city:', city.name, 'timeoutId:', citySchedule?.timeout);
     if (citySchedule && citySchedule.timeout) {
-      console.warn('\t-clearing internal schedule');
+      console.log('[Builder]: Clearing internal schedule timeout');
       clearTimeout(citySchedule.timeout);
       clearInterval(citySchedule.timeout);
       citySchedule.timeout = null;
       citySchedule.executionTime = null;
     } else {
-      console.warn('\t-no schedule found, no timeout cleared');
+      console.log('[Builder]: No schedule found, no timeout to clear');
     }
   }
 
@@ -321,30 +347,37 @@ export default class CityBuilder implements Service<'builder'> {
    * Speeds up first build or schedules it and then performs build schedule. (valid for master queue)
    * @param operationDetails
    */
-  private async setTimeoutForSpeedUpAndPerformBuildSchedule(operationDetails: ScheduleOperationDetails<ItemDetails>) {
-    console.log('setTimeoutForSpeedUpAndPerformBuildSchedule execution()');
+  private async setTimeoutForSpeedUpAndPerformBuildSchedule(
+    operationDetails: ScheduleOperationDetails<BuilderItemDetails>,
+  ) {
+    console.log('[Builder]: setTimeoutForSpeedUpAndPerformBuildSchedule execution');
     const timeToSpeedUp = await this.getTimeToCanSpeedUp(operationDetails.city).catch(() => null);
-    console.log('\t-timeToSpeedUp:', timeToSpeedUp);
+    console.log('[Builder]: Time to speed up:', timeToSpeedUp);
     if (timeToSpeedUp === null) {
-      console.log('\t-timeToSpeedUp is null, performing build schedule to reevaluate conditions');
+      console.log('[Builder]: Time to speed up is null, performing build schedule to reevaluate conditions');
       await this.performBuildSchedule(operationDetails);
     } else if (timeToSpeedUp <= 0) {
-      console.log('\t-will speed up first build immediately');
+      console.log('[Builder]: Will speed up first build immediately');
       await this.speedUpFirstBuild(operationDetails.city);
-      console.log('\t-call performBuildSchedule for the waiting item');
+      console.log('[Builder]: Calling performBuildSchedule for the waiting item');
       await this.performBuildSchedule(operationDetails);
     } else {
-      console.log('\t-time to speed up is:', timeToSpeedUp, 'will be scheduled at:', msToFutureHHMMSS(timeToSpeedUp));
+      console.log(
+        '[Builder]: Time to speed up:',
+        timeToSpeedUp,
+        'will be scheduled at:',
+        msToFutureHHMMSS(timeToSpeedUp),
+      );
       const timeToAction = timeToSpeedUp + 2000;
 
       const executionCallback = async () => {
         try {
           await this.lock.performWithLock(
             async () => {
-              console.log('setTimeoutForNextSpeedUpAndSchedule() inside timeout');
-              console.log('\t-speed up first build');
+              console.log('[Builder]: setTimeoutForNextSpeedUpAndSchedule inside timeout');
+              console.log('[Builder]: Speeding up first build');
               await this.speedUpFirstBuild(operationDetails.city);
-              console.log('\t-performBuildSchedule');
+              console.log('[Builder]: Performing build schedule');
               await this.performBuildSchedule(operationDetails);
             },
             {
@@ -357,15 +390,17 @@ export default class CityBuilder implements Service<'builder'> {
         } catch (e) {
           // if it's not deliberate Lock cancelation, retry the whole flow
           if (!(e instanceof LockOperationCancelledError && e.reason === 'called')) {
-            console.warn('CityBuilder.handleResourcesStackable().catch', e, '\nretrying the whole flow');
-            this.handleBuildSchedule(operationDetails);
+            const browserContext = getBrowserExecutionContextInfo();
+            console.warn('[Builder]: handleResourcesStackable catch:', e, browserContext, 'retrying the whole flow');
+            if (browserContext.visibilityState === 'hidden') {
+              performOnDocumentVisibilityReturn(() => this.handleBuildSchedule(operationDetails));
+            } else {
+              this.handleBuildSchedule(operationDetails);
+            }
           }
         }
       };
-      console.warn(
-        'setting timeout for speed up and schedule (setTimeoutForSpeedUpAndPerformBuildSchedule)',
-        new Date(Date.now() + timeToAction),
-      );
+      console.log('[Builder]: Setting timeout for speed up and schedule at:', new Date(Date.now() + timeToAction));
       operationDetails.setScheduleTimeout(executionCallback, Date.now() + timeToAction, 'waiting', 'slot');
     }
   }
@@ -377,7 +412,7 @@ export default class CityBuilder implements Service<'builder'> {
    * @requires Lock
    */
   private async buildBuilding(building: Building, city?: CityInfo) {
-    await this.goToBuildMode(city ?? 'current');
+    await this.goToBuildMode(city);
     const emptySlots = this.getEmptySlotsCount();
     await waitForElement(building.elementSelector + ' ' + buildingsSelectors.buildButton).then(element =>
       element.click(),
@@ -397,7 +432,7 @@ export default class CityBuilder implements Service<'builder'> {
    * @requires Lock
    */
   private async buildOrScheduleOrRemove(
-    operationDetails: ScheduleOperationDetails<ItemDetails>,
+    operationDetails: ScheduleOperationDetails<BuilderItemDetails>,
     forced: boolean = false,
   ) {
     const building = operationDetails.itemDetails.building;
@@ -405,14 +440,14 @@ export default class CityBuilder implements Service<'builder'> {
 
     // console.log('check if can build item:', item);
     const canBuild = await this.canBuild(building, operationDetails.city);
-    console.log('\t-canBuild:', canBuild);
+    console.log('[Builder]: Can build:', canBuild);
     // NOTE: only point in the code where building gets built
     if (canBuild === true) {
-      console.log('\t-canBuild is true, building...');
+      console.log('[Builder]: Can build is true, building...');
       await this.buildBuilding(building, operationDetails.city);
       await this.onScheduleItemFinished(operationDetails);
     } else if (canBuild === 'maxed') {
-      console.log('\t-canBuild is maxed, shifting queue');
+      console.log('[Builder]: Can build is maxed, shifting queue');
       if (forced) {
         await this.setInternalSpeedUpFlow(operationDetails.city);
         operationDetails.shiftQueueAndNext();
@@ -425,24 +460,24 @@ export default class CityBuilder implements Service<'builder'> {
     else if (canBuild === 'impossible') {
       if (!(await this.isQueueEmpty(operationDetails.city))) {
         console.log(
-          '\t-canBuild is impossible, but queue is not empty, scheduling build because maybe after that it will be possible',
+          '[Builder]: Can build is impossible, but queue is not empty, scheduling build because maybe after that it will be possible',
         );
         // BUG: can be buggy - check it (especially error throwing if speedup is not possible)
         await this.setTimeoutForSpeedUpAndPerformBuildSchedule(operationDetails);
       } else {
-        console.log('\t-canBuild is impossible, and queue is empty, element must be deleted');
+        console.log('[Builder]: Can build is impossible, and queue is empty, element must be deleted');
         await this.setInternalSpeedUpFlow(operationDetails.city);
         operationDetails.shiftQueueAndNext();
       }
     } else {
       const resourcesInfo = await this.areResourcesStackable(building, operationDetails.city);
       if (resourcesInfo.areStackable === true) {
-        console.log('\t-areResourcesStackable is true, stacking/waiting for resources and scheduling build');
+        console.log('[Builder]: Resources are stackable, stacking/waiting for resources and scheduling build');
         await this.handleResourcesStackableFlow(operationDetails, resourcesInfo.requiredResources);
       } else if (resourcesInfo.areStackable === 'population' && this.allowCriticalBuilds) {
-        console.log('\t\t-areResourcesStackable is population, adding farm to queue');
+        console.log('[Builder]: Resources are stackable (population), adding farm to queue');
 
-        const toLvl = (await this.getBuildingCurrentLvl(buildings.Farm)) + 1;
+        const toLvl = (await this.getBuildingQueuedOrCurrentLvl(buildings.Farm)) + 1;
         this.masterQueue.unshiftAndRun(operationDetails.city, {
           itemType: 'builder',
           ui: {
@@ -462,8 +497,8 @@ export default class CityBuilder implements Service<'builder'> {
           },
         });
       } else if (resourcesInfo.areStackable === 'storage' && this.allowCriticalBuilds) {
-        console.log('\t\t-areResourcesStackable is storage, adding storage to queue');
-        const toLvl = (await this.getBuildingCurrentLvl(buildings.Warehouse)) + 1;
+        console.log('[Builder]: Resources are stackable (storage), adding warehouse to queue');
+        const toLvl = (await this.getBuildingQueuedOrCurrentLvl(buildings.Warehouse)) + 1;
         this.masterQueue.unshiftAndRun(operationDetails.city, {
           itemType: 'builder',
           ui: {
@@ -485,10 +520,10 @@ export default class CityBuilder implements Service<'builder'> {
       }
       // surowce zestackowane, nie można zbudować, ale są inne elementy w kolejce, które po zbudowaniu mogą zmienić warunek więc czekaj
       else if (resourcesInfo.areStackable === 'alreadyStacked' && !(await this.isQueueEmpty(operationDetails.city))) {
-        console.log('\t\t-areResourcesStackable is alreadyStacked, waiting for other items to be built');
+        console.log('[Builder]: Resources are already stacked, waiting for other items to be built');
         await this.setTimeoutForSpeedUpAndPerformBuildSchedule(operationDetails);
       } else {
-        console.log('Item cannot be scheduled, because it has not met requirements');
+        console.log('[Builder]: Item cannot be scheduled, because it has not met requirements');
         await this.onScheduleItemFinished(operationDetails);
       }
     }
@@ -500,26 +535,26 @@ export default class CityBuilder implements Service<'builder'> {
    * @requires Lock
    */
   private async setInternalSpeedUpFlow(city: CityInfo) {
-    console.warn('----------setInternalSpeedUpFlow for city:', city.name);
+    console.log('[Builder]: setInternalSpeedUpFlow for city:', city.name);
     if (!(await this.isQueueEmpty(city))) {
       const timeToSpeedUp = await this.getTimeToCanSpeedUp(city).catch(() => null);
       if (timeToSpeedUp === null) {
         return;
       }
       if (timeToSpeedUp <= 0) {
-        console.warn('\t-timeToSpeedUp <= 0, speedUpFirstBuild');
+        console.log('[Builder]: Time to speed up <= 0, speeding up first build');
         await this.speedUpFirstBuild(city);
         // call itself recursively to check if there are any other items in the queue
         await this.setInternalSpeedUpFlow(city);
       } else {
         // set timeout to speed up first build when ready and call itself recursively to check if there are any other items in the queue
         const timeout = setTimeout(async () => {
-          console.warn('\t-speedUpFirstBuild inside timeout, speeding up first build');
+          console.log('[Builder]: SpeedUpFirstBuild inside timeout, speeding up first build');
           await this.speedUpFirstBuild(city);
           await this.setInternalSpeedUpFlow(city);
         }, timeToSpeedUp + 1000);
         const scheduleTime = Date.now() + timeToSpeedUp + 1000;
-        console.warn('\t-(setInternalSpeedUpFlow) setting timeout to speed up first build', timeout, scheduleTime);
+        console.log('[Builder]: Setting timeout to speed up first build at:', new Date(scheduleTime));
         this.setInternalScheduleTimeout(city, timeout, scheduleTime);
       }
     }
@@ -547,10 +582,10 @@ export default class CityBuilder implements Service<'builder'> {
       this.schedule.push(citySchedule);
     }
 
-    console.warn(
-      'setInternalScheduleTimeout for city:',
+    console.log(
+      '[Builder]: setInternalScheduleTimeout for city:',
       city.name,
-      '(schedule):',
+      'schedule:',
       this.schedule.find(queue => queue.city.name === city.name),
     );
   }
@@ -562,11 +597,11 @@ export default class CityBuilder implements Service<'builder'> {
    * @requires Lock
    */
   private async handleResourcesStackableFlow(
-    operationDetails: ScheduleOperationDetails<ItemDetails>,
+    operationDetails: ScheduleOperationDetails<BuilderItemDetails>,
     requiredResources: { wood: number; stone: number; iron: number },
     resourcesArrivalTime?: number,
   ) {
-    console.log('handleResourcesStackableFlow, details:', JSON.parse(JSON.stringify(operationDetails)));
+    console.log('[Builder]: handleResourcesStackableFlow, details:', JSON.parse(JSON.stringify(operationDetails)));
     /**
      * Checks if there are enough resources to build the building.
      * @requires Lock
@@ -593,18 +628,18 @@ export default class CityBuilder implements Service<'builder'> {
     let timeToRetry: number;
     let retrialTime: number;
 
-    /* 
+    /*
     Assess time to retry (either arrival of resources or 10 minutes) - if method receives resourcesArrivalTime, it means that it's a retry
     and no need to stack resources again, because they already are on the way (unless time is in the past)
     */
     if (resourcesArrivalTime && resourcesArrivalTime > Date.now()) {
-      console.log('recursive call, resourcesArrivalTime:', resourcesArrivalTime);
+      console.log('[Builder]: Recursive call, resourcesArrivalTime:', resourcesArrivalTime);
       timeToRetry = resourcesArrivalTime - Date.now();
       retrialTime = resourcesArrivalTime;
     } else {
       // if there are supplier cities, then stack resources
       if (operationDetails.supplierCities.length) {
-        console.log('stacking resources, supplierCities.length:', operationDetails.supplierCities.length);
+        console.log('[Builder]: Stacking resources, supplierCities.length:', operationDetails.supplierCities.length);
         const stackResourcesResult = await this.tradeManager.stackResources(
           requiredResources,
           operationDetails.city,
@@ -623,7 +658,7 @@ export default class CityBuilder implements Service<'builder'> {
       } else {
         timeToRetry = 600000;
         retrialTime = Date.now() + 600000;
-        console.log('retrialTime:', retrialTime, new Date(retrialTime));
+        console.log('[Builder]: Retrial time:', retrialTime, new Date(retrialTime));
       }
     }
 
@@ -646,8 +681,8 @@ export default class CityBuilder implements Service<'builder'> {
       /* w przeciwnym razie sprawdź czy timeToSpeedUp jest krótszy od czasu dostawy surowców
     jeżeli tak, to ustaw timeout na przyspieszenie i wywołaj metodę rekurencyjnie
     */
-      console.warn(
-        '\t-timeToSpeedUp < timeToRetry, setting timeout to speed up first build on',
+      console.log(
+        '[Builder]: TimeToSpeedUp < timeToRetry, setting timeout to speed up first build on:',
         new Date(Date.now() + timeToSpeedUp),
       );
       operationDetails.setScheduleTimeout(
@@ -673,8 +708,13 @@ export default class CityBuilder implements Service<'builder'> {
           } catch (e) {
             // if it's not deliberate Lock cancel error, retry whole flow
             if (!(e instanceof LockOperationCancelledError && e.reason === 'called')) {
-              console.warn('CityBuilder.handleResourcesStackable().catch', e, '\nretrying the whole flow');
-              this.handleBuildSchedule(operationDetails);
+              const browserContext = getBrowserExecutionContextInfo();
+              console.warn('[Builder]: handleResourcesStackable catch:', e, browserContext, 'retrying the whole flow');
+              if (browserContext.visibilityState === 'hidden') {
+                performOnDocumentVisibilityReturn(() => this.handleBuildSchedule(operationDetails));
+              } else {
+                this.handleBuildSchedule(operationDetails);
+              }
             }
           }
         },
@@ -687,8 +727,8 @@ export default class CityBuilder implements Service<'builder'> {
       there is waiting element in the virtual queue, that needs to be checked if can be finally added to real queue.
       Also checking time is shorter than time to speed up, so it will be checked first
       */
-      console.warn(
-        '\t-timeToSpeedUp >= timeToRetry, setting timeout to speed up first build on',
+      console.log(
+        '[Builder]: TimeToSpeedUp >= timeToRetry, setting timeout to check resources on:',
         new Date(Date.now() + timeToSpeedUp),
       );
       operationDetails.setScheduleTimeout(
@@ -712,8 +752,13 @@ export default class CityBuilder implements Service<'builder'> {
           } catch (e) {
             // if it's not deliberate Lock cancel error, retry whole flow
             if (!(e instanceof LockOperationCancelledError && e.reason === 'called')) {
-              console.warn('CityBuilder.handleResourcesStackable().catch', e, '\nretrying the whole flow');
-              this.handleBuildSchedule(operationDetails);
+              const browserContext = getBrowserExecutionContextInfo();
+              console.warn('[Builder]: handleResourcesStackable catch:', e, browserContext, 'retrying the whole flow');
+              if (browserContext.visibilityState === 'hidden') {
+                performOnDocumentVisibilityReturn(() => this.handleBuildSchedule(operationDetails));
+              } else {
+                this.handleBuildSchedule(operationDetails);
+              }
             }
           }
         },
@@ -724,12 +769,26 @@ export default class CityBuilder implements Service<'builder'> {
     }
   }
 
-  private async getBuildingCurrentLvl(building: Building) {
+  public async getBuildingQueuedOrCurrentLvl(building: Building, city?: CityInfo) {
+    await this.goToBuildMode(city);
+
     const buildingcurrentLvlText = (
-      await waitForElement(`${building.elementSelector} ${buildingsSelectors.currentLvl}`)
+      await waitForElementInterval(`${building.elementSelector} ${buildingsSelectors.currentLvl}`, {
+        interval: 250,
+        retries: 6,
+      })
     ).textContent;
     const currentLvl = buildingcurrentLvlText !== 'max' ? Number(buildingcurrentLvlText) : Infinity;
     return currentLvl;
+  }
+
+  public async getBuildingCurrentLvl(building: Building, city?: CityInfo) {
+    return (
+      (await this.getBuildingQueuedOrCurrentLvl(building, city)) -
+      document.querySelectorAll(
+        `.construction_queue_order_container .item_icon.${building.elementSelector.split('.')[2]}`,
+      ).length
+    );
   }
 
   private getEmptySlotsCount() {
@@ -741,7 +800,7 @@ export default class CityBuilder implements Service<'builder'> {
     return new Promise<void>(res => {
       const interval = setInterval(() => {
         if (this.getEmptySlotsCount() === emptySlots) {
-          console.log('\t-emptyslotsAreEqual:', emptySlots);
+          console.log('[Builder]: Empty slots are equal:', emptySlots);
           clearInterval(interval);
           res();
         }
@@ -754,15 +813,21 @@ export default class CityBuilder implements Service<'builder'> {
     cityViewBtn?.click();
   }
 
-  private async handleBuildSchedule(operationDetails: ScheduleOperationDetails<ItemDetails>) {
-    console.log('handleBuildSchedule()');
+  private async handleBuildSchedule(operationDetails: ScheduleOperationDetails<BuilderItemDetails>) {
+    console.log('[Builder]: handleBuildSchedule');
+    let infoId!: number;
     try {
       await this.lock.performWithLock(
         async () => {
-          console.log('inside operation callback');
-          this.generalInfo.showInfo('Builder:', `Obsługa kolejki w mieście: ${operationDetails.city.name}`);
+          console.log('[Builder]: Inside operation callback');
+          infoId = this.generalInfo.showInfo(
+            'Builder:',
+            `Obsługa kolejki w mieście: ${operationDetails.city.name}`,
+            'info',
+          );
           this.clearInternalCitySchedule(operationDetails.city);
           await this.performBuildSchedule(operationDetails);
+          delete this.tryCount[operationDetails.city.name];
         },
         {
           manager: 'builder',
@@ -774,12 +839,26 @@ export default class CityBuilder implements Service<'builder'> {
     } catch (e) {
       // if it's not deliberate Lock cancelation, retry the whole flow
       if (!(e instanceof LockOperationCancelledError && e.reason === 'called')) {
-        console.warn('CityBuilder.handleResourcesStackable().catch', e, '\nretrying the whole flow');
-        this.handleBuildSchedule(operationDetails);
+        const browserContext = getBrowserExecutionContextInfo();
+        console.warn(`[Builder]: handleBuildSchedule catch:`, e, operationDetails.itemDetails, browserContext);
+        const cityName = operationDetails.city.name;
+        this.tryCount[cityName] = (this.tryCount[cityName] ?? 0) + 1;
+        if (this.tryCount[cityName] < 3) {
+          console.warn(`[Builder]: retry count ${this.tryCount[cityName]}`);
+          if (browserContext.visibilityState === 'hidden') {
+            performOnDocumentVisibilityReturn(() => this.handleBuildSchedule(operationDetails));
+          } else {
+            this.handleBuildSchedule(operationDetails);
+          }
+        } else {
+          delete this.tryCount[cityName];
+          console.warn(`[Builder]: retry limit exceeded, removing item:`, operationDetails.itemDetails);
+          operationDetails.shiftQueueAndNext();
+        }
       }
     } finally {
-      console.log('handleBuildSchedule finally block', operationDetails.city.name);
-      this.generalInfo.hideInfo();
+      console.log('[Builder]: handleBuildSchedule finally block for city:', operationDetails.city.name);
+      this.generalInfo.hideInfo(infoId);
     }
   }
 
@@ -800,8 +879,11 @@ export default class CityBuilder implements Service<'builder'> {
       await this.untilEmptyslotsAreEqual(emptySlotsSnapshot + 1);
     } else {
       const el = document.querySelector('[data-order_index="0"]');
-      console.warn('element in the queue', el?.querySelector('.item_icon')?.classList[2]);
-      console.warn('element in the queue time', el?.querySelector('.countdown.js-item-countdown')?.textContent);
+      console.warn('[Builder]: Element in the queue:', el?.querySelector('.item_icon')?.classList[2]);
+      console.warn(
+        '[Builder]: Element in the queue time:',
+        el?.querySelector('.countdown.js-item-countdown')?.textContent,
+      );
       throw new Error('No free button found');
     }
   }
@@ -814,7 +896,9 @@ export default class CityBuilder implements Service<'builder'> {
    */
   private async canBuild(building: Building, city: CityInfo): Promise<boolean | 'maxed' | 'impossible'> {
     await this.goToBuildMode(city);
-    const element = await waitForElement(building.elementSelector, 2000).catch(() => null);
+    const element = await waitForElementInterval(building.elementSelector, { interval: 150, retries: 13 }).catch(
+      () => null,
+    );
     if (!element) {
       return 'impossible';
     }
@@ -853,7 +937,7 @@ export default class CityBuilder implements Service<'builder'> {
     areStackable: boolean | 'storage' | 'population' | 'alreadyStacked' | 'waiting';
     requiredResources: { wood: number; stone: number; iron: number };
   }> {
-    console.log('areResourcesStackable');
+    console.log('[Builder]: areResourcesStackable');
     await this.goToBuildMode(city);
     // const buildButton = await waitForElement(`${building.elementSelector} ${buildingsSelectors.buildButton}`);
     let counter = 0;
@@ -866,7 +950,7 @@ export default class CityBuilder implements Service<'builder'> {
       counter < 4
     );
     if (counter === 4) {
-      console.warn('No popup content found, had to try 4 times. Returning false');
+      console.warn('[Builder]: No popup content found, had to try 4 times. Returning false');
       return { areStackable: false, requiredResources: { wood: 0, stone: 0, iron: 0 } };
     }
 
@@ -886,15 +970,15 @@ export default class CityBuilder implements Service<'builder'> {
 
     const resourcesInfo = await this.resourceManager.getResourcesInfo();
 
-    console.log(`Resource requirements:
-      \t- Required population: ${requiredPopulation}
-      \t- Current population: ${this.resourceManager.getPopulation()}
-      \t- Store capacity: ${await this.resourceManager.getStoreCapacity()}
-      \t- Required wood: ${requiredWood}
-      \t- Required stone: ${requiredStone}
-      \t- Required iron: ${requiredIron}`);
+    console.log(`[Builder]: Resource requirements:
+      - Required population: ${requiredPopulation}
+      - Current population: ${this.resourceManager.getPopulation()}
+      - Store capacity: ${await this.resourceManager.getStoreCapacity()}
+      - Required wood: ${requiredWood}
+      - Required stone: ${requiredStone}
+      - Required iron: ${requiredIron}`);
 
-    console.log('Current resources:', resourcesInfo);
+    console.log('[Builder]: Current resources:', resourcesInfo);
     const requiredResources = {
       wood: requiredWood,
       stone: requiredStone,
@@ -972,10 +1056,10 @@ export default class CityBuilder implements Service<'builder'> {
     }).catch(() => null);
     if (firstOrder) {
       const timeToFirstOrder = HHMMSS_toMS(firstOrder.textContent!) - 5 * 60 * 1000;
-      console.log('getTimeToCanSpeedUp(): calculated time to speed up first order:', timeToFirstOrder);
+      console.log('[Builder]: Calculated time to speed up first order:', timeToFirstOrder);
       return timeToFirstOrder;
     }
-    console.warn('getTimeToCanSpeedUp(): no item in the queue, throwing error');
+    console.warn('[Builder]: No item in the queue, throwing error');
     throw new Error('No item in the queue.');
   }
 
@@ -985,13 +1069,43 @@ export default class CityBuilder implements Service<'builder'> {
     return new Promise(res => setTimeout(() => res(document.querySelector('.empty_queue')) != null, 0));
   }
 
+  public async getBuildingFinishTime(city: CityInfo, building: Building, lvl: number) {
+    await city.switchAction();
+    this.goToCityView();
+    const queueContainer = await waitForElementInterval('.construction_queue_order_container');
+    const queuedElement = Array.from(
+      queueContainer.querySelectorAll<HTMLElement>(`.js-queue-item.${building.elementSelector.split('.')[2]}`),
+    ).find(el => Number(el.querySelector<HTMLDivElement>('.building_level')!.innerText) === lvl);
+    if (queuedElement) {
+      triggerHover(queuedElement);
+      // format hh:mm:ss
+      const timeString = await waitForElementsInterval('.building_queue_item_instant_buy_tooltip .table .row').then(
+        arr => arr[1].innerText.match(/\d{2}:\d{2}:\d{2}/)![0],
+      );
+
+      // Parse time string and calculate execution time
+      const [hours, minutes, seconds] = timeString.split(':').map(Number);
+      const now = new Date();
+      const targetTime = new Date(now);
+
+      targetTime.setHours(hours, minutes, seconds, 0);
+
+      // If the target time is earlier than or equal to the current time, assume it's for the next day
+      if (targetTime <= now) {
+        targetTime.setDate(targetTime.getDate() + 1);
+      }
+
+      return targetTime.getTime();
+    }
+  }
+
   public async start() {
     this.RUN = true;
     document.getElementById(CityBuilder.toggleBuilderButtonId)!.classList.remove('hidden');
   }
 
   public stop() {
-    console.log('Stopping');
+    console.log('[Builder]: Stopping');
     this.RUN = false;
     this.schedule.forEach(cityQueue => {
       if (cityQueue.timeout) {

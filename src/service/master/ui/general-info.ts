@@ -1,14 +1,10 @@
-// TODO: tragically needs rework because it's super lame and faulty at the moment (but works)
-
 import generalInfoStyle from './general-info.css?raw';
-import generalInfoTemplate from './info-template.html?raw';
+import generalInfoTemplate from './template.html?raw';
 
 export default class GeneralInfo {
   private static instance: GeneralInfo;
-  // private info: string = '';
-  // private error: string = '';
-  private infoTimeout: NodeJS.Timeout | undefined = undefined;
-  private errorTimeout: NodeJS.Timeout | undefined = undefined;
+  private container!: HTMLDivElement;
+  private timeoutMap: Record<number, NodeJS.Timeout> = {};
 
   private constructor() {
     this.initInfoContainer();
@@ -28,48 +24,35 @@ export default class GeneralInfo {
     document.head.appendChild(style);
 
     const infoContainer = document.createElement('div');
-    infoContainer.innerHTML = generalInfoTemplate;
+    infoContainer.id = 'general-info';
     document.body.appendChild(infoContainer);
+    this.container = infoContainer;
   }
 
-  public showInfo(title: string, text: string, duration?: number) {
-    clearTimeout(this.infoTimeout);
-    const infoContainer = document.getElementById('info-container')!;
-    infoContainer.querySelector('.info-title')!.textContent = title;
-    infoContainer.querySelector('.info-text')!.textContent = text;
-    infoContainer.classList.remove('hidden');
-    if (duration) {
-      this,
-        (this.infoTimeout = setTimeout(() => {
-          this.hideInfo();
-        }, duration));
-    }
+  public showInfo(title: string, text: string, infoType: 'error' | 'info', duration?: number) {
+    const id = Date.now();
+    const info = document.createElement('div');
+    this.container.appendChild(info);
+
+    info.outerHTML = generalInfoTemplate
+      .replace('{{title}}', title)
+      .replace('{{description}}', text)
+      .replace('{{infoType}}', `general-info-${infoType}`)
+      .replace('{{id}}', id.toString());
+
+    this.timeoutMap[id] = setTimeout(() => {
+      this.hideInfo(id);
+    }, duration ?? 60000);
+    return id;
   }
 
-  public hideInfo() {
-    const infoContainer = document.getElementById('info-container')!;
-    infoContainer.classList.add('hidden');
-    clearTimeout(this.infoTimeout);
-  }
-
-  // TODO: add method for recognizing what manageer used it, in order to allow it to hide the message safely
-  // TODO extend to have many errors at once
-  public showError(title: string, text: string, duration?: number) {
-    clearTimeout(this.errorTimeout);
-    const errorContainer = document.getElementById('error-container')!;
-    errorContainer.querySelector('.error-title')!.textContent = title;
-    errorContainer.querySelector('.error-text')!.textContent = text;
-    errorContainer.classList.remove('hidden');
-    if (duration) {
-      this.errorTimeout = setTimeout(() => {
-        this.hideError();
-      }, duration);
-    }
-  }
-
-  public hideError() {
-    const errorContainer = document.getElementById('error-container')!;
-    errorContainer.classList.add('hidden');
-    clearTimeout(this.errorTimeout);
+  public hideInfo(id: number) {
+    clearTimeout(this.timeoutMap[id]);
+    delete this.timeoutMap[id];
+    const el = document.querySelector(`[data-general-info-id="${id}"]`);
+    el?.classList.replace('general-info-in', 'general-info-out');
+    setTimeout(() => {
+      el?.remove();
+    }, 400);
   }
 }
