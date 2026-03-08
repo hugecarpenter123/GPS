@@ -14,7 +14,6 @@ import {
 } from '../../../utility/ui-utility';
 import MasterQueue, {
   type QueueItemInput,
-  QueuePriority,
   type ScheduleOperationDetails,
 } from '../../master-queue-rework/master-queue';
 import GeneralInfo from '../../master/ui/general-info';
@@ -79,8 +78,9 @@ export default class CityBuilder implements Service<'builder'> {
 
   private register() {
     this.masterQueue.registerExecutor<BuilderItemDetails>('builder', {
-      execute: async operationDetails => {
-        await this.execute(operationDetails);
+      execute: operationDetails => this.execute(operationDetails),
+      cancelExecution: id => {
+        this.lock.cancelQueuedLock({ manager: 'builder', id: id });
       },
       postDeleteAction: (queue, deletedItemDetails) => {
         queue.forEach(item => {
@@ -217,8 +217,8 @@ export default class CityBuilder implements Service<'builder'> {
     }
     document.querySelector<HTMLDivElement>('[name="city_overview"]')?.click();
     const buildModeButton = await waitForElementInterval('[class="construction_queue_build_button"] div', {
-      interval: 150,
-      retries: 12,
+      interval: 250,
+      retries: 10,
     });
     if (!buildModeButton.classList.contains('active')) {
       buildModeButton.click();
@@ -265,7 +265,7 @@ export default class CityBuilder implements Service<'builder'> {
     }
     // end of assess lvl
 
-    const { blocking, priority, supplierCityNames, autoSuppliers, maxShipmentTime } = this.getScheduleBaseFormValues!();
+    const { blocking, supplierCityNames, autoSuppliers, maxShipmentTime } = this.getScheduleBaseFormValues!();
 
     // assess lvl
     const lvlCounter = itemDetailsArr.filter(item => item.itemDetails.building.name === building.name).length + 1;
@@ -281,7 +281,6 @@ export default class CityBuilder implements Service<'builder'> {
         lvlBar: toLvl.toString(),
       },
       blocking,
-      priority,
       maxShipmentTime,
       supplyEvaluation: autoSuppliers ? 'auto' : 'manual',
       supplierCities: supplierCityNames?.map(name => this.citySwitchManager.getCityByName(name)!),
@@ -413,8 +412,8 @@ export default class CityBuilder implements Service<'builder'> {
    */
   private async buildBuilding(building: Building, city?: CityInfo) {
     await this.goToBuildMode(city);
-    const emptySlots = this.getEmptySlotsCount();
-    await waitForElement(building.elementSelector + ' ' + buildingsSelectors.buildButton).then(element =>
+    const emptySlots = await this.getEmptySlotsCount();
+    await waitForElementInterval(building.elementSelector + ' ' + buildingsSelectors.buildButton).then(element =>
       element.click(),
     );
     await this.untilEmptyslotsAreEqual(emptySlots - 1);
@@ -485,9 +484,7 @@ export default class CityBuilder implements Service<'builder'> {
             style: { backgroundImage: buildings.Warehouse.backgroundImageProp },
             lvlBar: toLvl.toString(),
           },
-          // NOTE: some fields are hardcoded -but this feature is FOR SURE not going to be used much and hardocded values seem reasonable
           blocking: true,
-          priority: QueuePriority.High,
           maxShipmentTime: operationDetails.maxShipmentTime,
           supplyEvaluation: 'auto',
           supplierCities: [],
@@ -506,9 +503,7 @@ export default class CityBuilder implements Service<'builder'> {
             style: { backgroundImage: buildings.Warehouse.backgroundImageProp },
             lvlBar: toLvl.toString(),
           },
-          // NOTE: some fields are hardcoded -but this feature is FOR SURE not going to be used much and hardocded values seem reasonable
           blocking: true,
-          priority: QueuePriority.High,
           maxShipmentTime: operationDetails.maxShipmentTime,
           supplyEvaluation: 'auto',
           supplierCities: [],
@@ -549,9 +544,13 @@ export default class CityBuilder implements Service<'builder'> {
       } else {
         // set timeout to speed up first build when ready and call itself recursively to check if there are any other items in the queue
         const timeout = setTimeout(async () => {
-          console.log('[Builder]: SpeedUpFirstBuild inside timeout, speeding up first build');
-          await this.speedUpFirstBuild(city);
-          await this.setInternalSpeedUpFlow(city);
+          try {
+            console.log('[Builder]: SpeedUpFirstBuild inside timeout, speeding up first build');
+            await this.speedUpFirstBuild(city);
+            await this.setInternalSpeedUpFlow(city);
+          } catch (e) {
+            console.error('[Builder]: Error when setting up internal spee-up flow:', city.name, e);
+          }
         }, timeToSpeedUp + 1000);
         const scheduleTime = Date.now() + timeToSpeedUp + 1000;
         console.log('[Builder]: Setting timeout to speed up first build at:', new Date(scheduleTime));
@@ -791,26 +790,23 @@ export default class CityBuilder implements Service<'builder'> {
     );
   }
 
-  private getEmptySlotsCount() {
+  private async getEmptySlotsCount() {
+    await this.goToCityView();
     return document.querySelectorAll('.construction_queue_order_container.instant_buy .js-queue-item.empty_slot')
       .length;
   }
 
   private async untilEmptyslotsAreEqual(emptySlots: number) {
-    return new Promise<void>(res => {
-      const interval = setInterval(() => {
-        if (this.getEmptySlotsCount() === emptySlots) {
-          console.log('[Builder]: Empty slots are equal:', emptySlots);
-          clearInterval(interval);
-          res();
-        }
-      }, 333);
-    });
+    return await waitWhile(async () => (await this.getEmptySlotsCount()) !== emptySlots);
   }
 
-  private goToCityView() {
+  private async goToCityView() {
     const cityViewBtn = document.querySelector<HTMLDivElement>('[name="city_overview"]');
-    cityViewBtn?.click();
+    cityViewBtn!.click();
+    await waitWhile(
+      () => !document.querySelector<HTMLDivElement>('[name="city_overview"]')?.classList.contains('checked'),
+      { maxIterations: 15, delay: 333 },
+    );
   }
 
   private async handleBuildSchedule(operationDetails: ScheduleOperationDetails<BuilderItemDetails>) {
@@ -874,7 +870,7 @@ export default class CityBuilder implements Service<'builder'> {
       interval: 400,
     }).catch(() => null);
     if (freeButton) {
-      const emptySlotsSnapshot = this.getEmptySlotsCount();
+      const emptySlotsSnapshot = await this.getEmptySlotsCount();
       freeButton.click();
       await this.untilEmptyslotsAreEqual(emptySlotsSnapshot + 1);
     } else {
@@ -902,10 +898,11 @@ export default class CityBuilder implements Service<'builder'> {
     if (!element) {
       return 'impossible';
     }
-    const buildButton = await waitForElement(
-      `${building.elementSelector} ${buildingsSelectors.buildButton}`,
-      1000,
-    ).catch(() => null);
+    const buildButton = await waitForElementInterval(`${building.elementSelector} ${buildingsSelectors.buildButton}`, {
+      retries: 3,
+      interval: 333,
+    }).catch(() => null);
+
     if (!buildButton) {
       return 'maxed';
     }
@@ -939,14 +936,16 @@ export default class CityBuilder implements Service<'builder'> {
   }> {
     console.log('[Builder]: areResourcesStackable');
     await this.goToBuildMode(city);
-    // const buildButton = await waitForElement(`${building.elementSelector} ${buildingsSelectors.buildButton}`);
     let counter = 0;
     do {
       triggerHover(document.querySelector(`${building.elementSelector} ${buildingsSelectors.buildButton}`)!);
       await addDelay(333);
       counter++;
     } while (
-      !(await waitForElement('#popup_div img[src*="images/game/res/wood.png"]', 500).catch(() => false)) &&
+      !(await waitForElementsInterval('#popup_div img[src*="images/game/res/wood.png"]', {
+        retries: 2,
+        interval: 333,
+      }).catch(() => false)) &&
       counter < 4
     );
     if (counter === 4) {
@@ -955,16 +954,24 @@ export default class CityBuilder implements Service<'builder'> {
     }
 
     const requiredWood = Number(
-      (await waitForElement('#popup_div img[src*="images/game/res/wood.png"]', 3000)).nextSibling!.textContent!,
+      (
+        await waitForElementInterval('#popup_div img[src*="images/game/res/wood.png"]', {
+          retries: 10,
+          interval: 300,
+        })
+      ).nextSibling!.textContent!,
     );
     const requiredStone = Number(
-      (await waitForElement('#popup_div img[src*="images/game/res/stone.png"]', 0)).nextSibling!.textContent!,
+      (await waitForElementInterval('#popup_div img[src*="images/game/res/stone.png"]', { retries: 1 })).nextSibling!
+        .textContent!,
     );
     const requiredIron = Number(
-      (await waitForElement('#popup_div img[src*="images/game/res/iron.png"]', 0)).nextSibling!.textContent!,
+      (await waitForElementInterval('#popup_div img[src*="images/game/res/iron.png"]', { retries: 1 })).nextSibling!
+        .textContent!,
     );
     const requiredPopulation = Number(
-      (await waitForElement('#popup_div img[src*="images/game/res/pop.png"]', 0)).nextSibling!.textContent!,
+      (await waitForElementInterval('#popup_div img[src*="images/game/res/pop.png"]', { retries: 1 })).nextSibling!
+        .textContent!,
     );
     cancelHover(document.querySelector(`${building.elementSelector} ${buildingsSelectors.buildButton}`)!);
 
@@ -1033,10 +1040,11 @@ export default class CityBuilder implements Service<'builder'> {
   }
 
   private async isEmptySlot(city: CityInfo) {
-    this.goToCityView();
-    await city.switchAction();
-    await addDelay(1000);
-    return await waitForElement('.construction_queue_order_container.instant_buy .js-queue-item.empty_slot', 1000)
+    await Promise.all([city.switchAction(), this.goToCityView()]);
+    // TODO: consider other approach
+    return await waitForElementsInterval('.construction_queue_order_container.instant_buy .js-queue-item.empty_slot', {
+      retries: 3,
+    })
       .then(() => true)
       .catch(() => false);
   }
@@ -1047,9 +1055,7 @@ export default class CityBuilder implements Service<'builder'> {
    * @returns time in ms
    */
   private async getTimeToCanSpeedUp(city?: CityInfo): Promise<number> {
-    this.goToCityView();
-    if (city) await city.switchAction();
-    await addDelay(1000);
+    await Promise.all([this.goToCityView(), city?.switchAction()]);
     const firstOrder = await waitForElementInterval('[data-order_index="0"] .countdown.js-item-countdown', {
       retries: 5,
       interval: 400,
@@ -1064,14 +1070,12 @@ export default class CityBuilder implements Service<'builder'> {
   }
 
   private async isQueueEmpty(city: CityInfo) {
-    await city.switchAction();
-    this.goToCityView();
+    await Promise.all([this.goToCityView(), city.switchAction()]);
     return new Promise(res => setTimeout(() => res(document.querySelector('.empty_queue')) != null, 0));
   }
 
   public async getBuildingFinishTime(city: CityInfo, building: Building, lvl: number) {
-    await city.switchAction();
-    this.goToCityView();
+    await Promise.all([this.goToCityView(), city.switchAction()]);
     const queueContainer = await waitForElementInterval('.construction_queue_order_container');
     const queuedElement = Array.from(
       queueContainer.querySelectorAll<HTMLElement>(`.js-queue-item.${building.elementSelector.split('.')[2]}`),

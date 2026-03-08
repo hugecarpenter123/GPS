@@ -9,7 +9,7 @@ function mouseDownEvent(element) {
   }
 }
 
-async function performComplexClick(element) {
+function performComplexClick(element) {
   mouseDownEvent(element);
   mouseUpEvent(element);
 }
@@ -130,4 +130,18 @@ function performComplexInput(inputElement, value) {
     });
     inputElement.dispatchEvent(keyupEvent);
   }
+}
+
+function setNativeValue(element, value) {
+  const valueSetter = Object.getOwnPropertyDescriptor(element, 'value')?.set;
+  const prototype = Object.getPrototypeOf(element);
+  const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+
+  if (valueSetter && valueSetter !== prototypeValueSetter) {
+    prototypeValueSetter.call(element, value);
+  } else if (valueSetter) {
+    valueSetter.call(element, value);
+  }
+
+  element.dispatchEvent(new Event('input', { bubbles: true }));
 }

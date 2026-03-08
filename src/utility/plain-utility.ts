@@ -113,19 +113,23 @@ export function getCookie(name: string) {
 export function setCookie(
   name: string,
   value: any,
-  options: { expires?: Date; path?: string; domain?: string; secure?: boolean; sameSite?: string } = {},
+  options: {
+    expires?: Date;
+    maxAge?: number;
+    path?: string;
+    domain?: string;
+    secure?: boolean;
+    sameSite?: string;
+  } = {},
 ) {
-  const {
-    expires = new Date(Date.now() + 24 * 60 * 60 * 1000),
-    path = '/',
-    domain = '.grepolis.com',
-    secure = false,
-    sameSite = 'Lax',
-  } = options;
+  const { expires, maxAge, path = '/', domain = '.grepolis.com', secure = false, sameSite = 'Lax' } = options;
   let cookieString = `${name}=${encodeURIComponent(JSON.stringify(value))}; path=${path}; SameSite=${sameSite}`;
 
   if (expires) {
     cookieString += `; expires=${expires.toUTCString()}`;
+  }
+  if (maxAge) {
+    cookieString += `; max-age=${maxAge}`;
   }
   if (domain) {
     cookieString += `; domain=${domain}`;

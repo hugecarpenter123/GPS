@@ -164,13 +164,11 @@ const QueueItem = ({
         {item.ui.description && (
           <span className="max-w-[50px] overflow-hidden text-ellipsis whitespace-nowrap">{item.ui.description}</span>
         )}
-        {(item.blocking === false || item.priority === 'high') && (
+        {item.blocking === false && (
           <div className="flex w-full justify-between border-t">
-            <span className="text-xs">{item.blocking === false && 'async'}</span>
-            <span className="font-bold text-red-600">{item.priority === 'high' && 'H'}</span>
+            <span className="text-xs">async</span>
           </div>
         )}
-        {/* <span>{item.priority === QueuePriority.High ? 'H' : 'N'}</span> */}
       </div>
     </div>
   );

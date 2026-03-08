@@ -1,4 +1,4 @@
-import type { CitySchedule, QueueItem, QueuePriority } from '../../src/service/master-queue-rework/master-queue';
+import type { CitySchedule, QueueItem } from '../../src/service/master-queue-rework/master-queue';
 
 // Mock data for testing MasterQueueTable component
 export const props = {
@@ -10,7 +10,6 @@ export const props = {
           id: 'item-1',
           itemType: 'builder' as const,
           itemDetails: {},
-          priority: 'normal' as QueuePriority,
           maxShipmentTime: 3600000,
           supplyEvaluation: 'auto' as const,
           supplierCities: [],
@@ -24,7 +23,6 @@ export const props = {
           id: 'item-2',
           itemType: 'recruiter' as const,
           itemDetails: {},
-          priority: 'normal' as QueuePriority,
           maxShipmentTime: 3600000,
           supplyEvaluation: 'auto' as const,
           supplierCities: [],
@@ -38,6 +36,7 @@ export const props = {
       ],
       currentAction: null,
       nonBlockingQueueComplex: {},
+      triggerQueue: [],
       timeoutData: {
         executionTime: Date.now() + 200000,
         purpose: 'resources',
@@ -50,7 +49,6 @@ export const props = {
           id: 'item-3',
           itemType: 'builder' as const,
           itemDetails: {},
-          priority: 'high' as QueuePriority,
           maxShipmentTime: 3600000,
           supplyEvaluation: 'auto' as const,
           supplierCities: [],
@@ -69,7 +67,6 @@ export const props = {
               id: 'item-asd',
               itemType: 'recruiter' as const,
               itemDetails: {},
-              priority: 'normal' as QueuePriority,
               maxShipmentTime: 3600000,
               supplyEvaluation: 'auto' as const,
               supplierCities: [],
@@ -84,7 +81,6 @@ export const props = {
               id: 'item-sda',
               itemType: 'recruiter' as const,
               itemDetails: {},
-              priority: 'normal' as QueuePriority,
               maxShipmentTime: 3600000,
               supplyEvaluation: 'auto' as const,
               supplierCities: [],
@@ -102,6 +98,7 @@ export const props = {
           },
         },
       },
+      triggerQueue: [],
       timeoutData: {
         executionTime: Date.now() + 1000 * 60 * 5,
         purpose: 'resources',
@@ -114,7 +111,6 @@ export const props = {
           id: 'item-4',
           itemType: 'recruiter' as const,
           itemDetails: {},
-          priority: 'normal' as QueuePriority,
           maxShipmentTime: 3600000,
           supplyEvaluation: 'auto' as const,
           supplierCities: [],
@@ -129,7 +125,6 @@ export const props = {
           id: 'item-5',
           itemType: 'builder' as const,
           itemDetails: {},
-          priority: 'normal' as QueuePriority,
           maxShipmentTime: 3600000,
           supplyEvaluation: 'auto' as const,
           supplierCities: [],
@@ -142,6 +137,7 @@ export const props = {
       ],
       currentAction: null,
       nonBlockingQueueComplex: {},
+      triggerQueue: [],
       timeoutData: {
         purpose: 'slot',
       },

@@ -19,11 +19,14 @@ const config = {
   },
   masterQueue: {},
   resources: {
-    minPopulationBuffer: 170, // buffer na kolona
+    minPopulationBuffer: 170,
     storeAlmostFullPercentage: 0.9,
   },
+  autoRelogin: {
+    after: 1000 * 60 * 5,
+  },
   general: {
-    timeDifference: 11 * 1000 + 500,
+    timeDifference: 0,
     antyTimingMs: 10000,
     applicationRefreshInterval: 32 * 60 * 1000, // 32 minutes
     forcedRefresh: false,
@@ -33,6 +36,8 @@ const config = {
     recruiter: true,
     scheduler: true,
     academy: true,
+    autoRelogin: false,
+    signoutOnCaptchaFailure: true,
   },
 };
 

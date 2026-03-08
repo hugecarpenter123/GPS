@@ -9,7 +9,7 @@ export class LockOperationCancelledError extends Error {
     public readonly lockInfo: { manager: Managers; id: string },
     public readonly reason: LockCancelReason,
   ) {
-    super(`Lock operation cancelled for ${lockInfo.manager} (${lockInfo.id})`);
+    super(`[Lock] operation cancelled for ${lockInfo.manager} (${lockInfo.id})`);
     this.name = 'LockOperationCancelledError';
   }
 }
@@ -121,25 +121,24 @@ export default class Lock {
 
     if (!this.lock || lockInfo.forced) {
       lockInfo.acquiredAt = new Date();
-      if (lockInfo.forced) {
+      if (lockInfo.forced && this.lock) {
         console.log(
-          `Lock: forceAcquire by`,
+          '[Lock]: acquired (forced):',
           this.mapToLogObj(lockInfo),
-          'on current lock:',
-          this.mapToLogObj(this.lock as LockTaker),
+          '| overriding:',
+          this.mapToLogObj(this.lock),
         );
       } else {
-        console.log(`Lock: acquire by`, this.mapToLogObj(lockInfo));
+        console.log('[Lock]: acquired:', this.mapToLogObj(lockInfo));
       }
       this.lock = lockInfo;
       let timeoutId: NodeJS.Timeout | undefined = undefined;
       try {
-        console.log('perform race');
         return await Promise.race([
           new Promise(
             (_, rej) =>
               (timeoutId = setTimeout(() => {
-                console.log('reject');
+                console.warn('[Lock]: operation timed out:', this.mapToLogObj(lockInfo));
                 rej(new LockOperationCancelledError({ manager: lockInfo.manager, id: lockInfo.id }, 'timeout'));
               }, Lock.LOCK_TIMEOUT)),
           ),
@@ -147,10 +146,10 @@ export default class Lock {
         ]);
       } finally {
         clearTimeout(timeoutId);
-        console.log('Lock: finally block');
         this.internalRelease();
       }
     } else {
+      console.log('[Lock]: added to queue:', this.mapToLogObj(lockInfo), 'queue length:', this.queue.length);
       return new Promise((resolve, reject) => {
         this.queue.push({
           operation,
@@ -167,20 +166,20 @@ export default class Lock {
 
     data.lockInfo.acquiredAt = new Date();
     this.lock = data.lockInfo;
+
     try {
-      await Promise.race([
-        new Promise((_, rej) => {
+      const result = await Promise.race([
+        new Promise<never>((_, rej) => {
           timeoutId = setTimeout(() => {
+            console.warn('[Lock]: operation timed out:', this.mapToLogObj(data.lockInfo));
             rej(new LockOperationCancelledError({ manager: data.lockInfo.manager, id: data.lockInfo.id }, 'timeout'));
           }, Lock.LOCK_TIMEOUT);
         }),
-        new Promise<any>(async res => {
-          const result = await data.operation!();
-          data.resolver.resolve(result);
-          res(undefined);
-        }),
+        data.operation!(),
       ]);
+      data.resolver.resolve(result);
     } catch (error) {
+      console.warn('[Lock]: operation failed:', this.mapToLogObj(data.lockInfo), error);
       data.resolver.reject(error);
     } finally {
       clearTimeout(timeoutId);
@@ -189,21 +188,27 @@ export default class Lock {
   }
 
   private internalRelease() {
+    const queueLength = this.queue.length;
+
+    // Mark release time
+    this.lock!.releasedAt = new Date();
+
     // Release the next waiting task in the queue
-    if (this.queue.length > 0) {
+    if (queueLength > 0) {
       const nextLock = this.queue.shift()!;
 
-      // update state before logging and releasing
-      this.lock!.releasedAt = new Date();
-      console.log('Lock: release:', this.mapToLogObj(this.lock!));
+      console.log(
+        `[Lock]: released:`,
+        this.mapToLogObj(this.lock!),
+        `→ next in queue (${queueLength - 1} remaining):`,
+        this.mapToLogObj(nextLock.lockInfo),
+      );
 
       // Check if it's a manual acquire or performWithLock
       if (nextLock.isManual) {
         // Manual acquire - just set the lock and resolve with handle
         nextLock.lockInfo.acquiredAt = new Date();
         this.lock = nextLock.lockInfo;
-
-        console.log('\t-next manual acquire takes the lock:', this.mapToLogObj(this.lock));
 
         // Resolve with handle
         const handle: LockHandle = {
@@ -216,7 +221,7 @@ export default class Lock {
 
         // watch it not to exceed allowed ammount of time
         nextLock.timeoutId = setTimeout(() => {
-          console.log('Manually taken lock timeoud out, force release:', this.mapToLogObj(nextLock.lockInfo));
+          console.warn('[Lock]: manual lock timed out, force release:', this.mapToLogObj(nextLock.lockInfo));
           handle.release();
         }, Lock.LOCK_TIMEOUT);
 
@@ -226,12 +231,9 @@ export default class Lock {
         this.performQueued(nextLock);
       }
     } else {
-      // NOTE: this condition should be redundant
+      // No items in queue - fully release the lock
       if (this.lock) {
-        this.lock.releasedAt = new Date();
-        console.log(`Lock: release: `, this.mapToLogObj(this.lock!));
-      } else {
-        console.warn('for some reason lock is already free, released at:', new Date().toLocaleString().split(', ')[1]);
+        console.log('[Lock]: released (queue empty):', this.mapToLogObj(this.lock));
       }
       this.lock = null;
     }
@@ -246,7 +248,10 @@ export default class Lock {
       // Clear timeout if exists - should never exist at this point, but let it be
       clearTimeout(cancelledOperation.timeoutId);
 
+      console.log('[Lock]: cancelQueuedLock - cancelled:', this.mapToLogObj(cancelledOperation.lockInfo));
       cancelledOperation.resolver.reject(new LockOperationCancelledError(arg, 'called'));
+    } else {
+      console.warn('[Lock]: cancelQueuedLock - not found in queue:', arg);
     }
   };
 
@@ -287,17 +292,17 @@ export default class Lock {
       if (lockInfo.forced) {
         if (this.lock) {
           console.log(
-            `Lock: acquire (force) by`,
+            `[Lock]: acquire (force) by`,
             this.mapToLogObj(lockInfo),
             'on current lock:',
             this.mapToLogObj(this.lock as LockTaker),
           );
         } else {
-          console.log(`Lock: acquire (force) by`, this.mapToLogObj(lockInfo));
+          console.log(`[Lock]: acquire (force) by`, this.mapToLogObj(lockInfo));
         }
       }
       this.lock = lockInfo;
-      console.log(`Lock: acquire (manual)`, this.mapToLogObj(lockInfo));
+      console.log(`[Lock]: acquire (manual)`, this.mapToLogObj(lockInfo));
       return createHandle();
     }
 
@@ -309,7 +314,7 @@ export default class Lock {
         isManual: true,
       });
 
-      console.log(`Lock: acquire (manual) - queued`, this.mapToLogObj(lockInfo));
+      console.log(`[Lock]: acquire (manual) - queued`, this.mapToLogObj(lockInfo));
     });
   }
 
@@ -318,12 +323,49 @@ export default class Lock {
    * @param lockId - ID of the lock to release
    */
   public release(lockId: string): void {
-    if (!this.lock || this.lock.id !== lockId) {
-      console.warn(`Lock: release (manual) called for non-current lock ID: ${lockId}`);
+    if (!this.lock) {
+      console.warn(`[Lock]: release (manual) - no lock to release, requested id: ${lockId}`);
       return;
     }
 
-    console.log('Lock: release (manual) called at', new Date().toLocaleString().split(', ')[1]);
+    if (this.lock.id !== lockId) {
+      console.warn(`[Lock]: release (manual) - id mismatch, requested: ${lockId}, current: ${this.lock.id}`);
+      return;
+    }
+
+    console.log('[Lock]: release (manual) - releasing:', this.mapToLogObj(this.lock));
     this.internalRelease();
   }
+
+  public getLogInfo() {
+    return {
+      isTaken: this.isTaken(),
+      queue: this.queue,
+    };
+  }
+
+  public forceReleaseAll = () => {
+    console.warn(
+      '[Lock]: forceReleaseAll - clearing queue length:',
+      this.queue.length,
+      'current lock:',
+      this.lock ? this.mapToLogObj(this.lock) : 'none',
+    );
+
+    this.queue.forEach(lockRequest => {
+      console.log('[Lock]: forceReleaseAll - rejecting queued:', this.mapToLogObj(lockRequest.lockInfo));
+      lockRequest.resolver.reject(
+        new LockOperationCancelledError(
+          { manager: lockRequest.lockInfo.manager, id: lockRequest.lockInfo.id },
+          'called',
+        ),
+      );
+    });
+    this.queue = [];
+
+    if (this.lock) {
+      console.log('[Lock]: forceReleaseAll - releasing current lock');
+      this.lock = null;
+    }
+  };
 }

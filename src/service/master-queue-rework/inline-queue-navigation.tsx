@@ -1,6 +1,5 @@
 import { h, render } from 'preact';
 import { useState } from 'preact/hooks';
-import { QueuePriority } from './types';
 import { type CityInfo } from '../city/types';
 
 export const componentName = 'master-queue-city-navigation' as const;
@@ -19,15 +18,13 @@ export interface ScheduleExecutionDetails {
   blocking: boolean;
   autoSuppliers: boolean;
   supplierCityNames?: string[];
-  priority: QueuePriority;
   maxShipmentTime: number;
 }
 
-const defaultValues = {
+const defaultValues: ScheduleExecutionDetails = {
   blocking: true,
   autoSuppliers: true,
   supplierCityNames: [],
-  priority: QueuePriority.Normal,
   maxShipmentTime: 1500000, // 5 minutes default
 };
 
@@ -108,23 +105,6 @@ const InlineQueueNavigation = ({
         )}
       </div>
 
-      {/* Priority select */}
-      <div className="flex items-center gap-2">
-        <label htmlFor="priority-select">Priority:</label>
-        <select
-          id="priority-select"
-          value={data.priority}
-          onChange={e => {
-            const target = e.target as HTMLSelectElement;
-            if (target) setDataWrapper({ ...data, priority: target.value as QueuePriority });
-          }}
-          className="rounded border text-sm"
-        >
-          <option value={QueuePriority.Normal}>normal</option>
-          <option value={QueuePriority.High}>high</option>
-        </select>
-      </div>
-
       {/* Max shipment time select */}
       <div className="flex items-center gap-2">
         <label htmlFor="max-shipment-time-select">Max shipment time:</label>
@@ -148,8 +128,8 @@ const InlineQueueNavigation = ({
       {/* Navigation buttons */}
       <div className={className ?? 'mt-2 flex w-fit gap-0 text-sm'}>
         <button onClick={onRun}>Run</button>
-        <button onClick={onPause}>Restart</button>
-        <button onClick={onRestart}>Pause</button>
+        <button onClick={onRestart}>Restart</button>
+        <button onClick={onPause}>Pause</button>
         <button onClick={onDelete}>Delete</button>
       </div>
     </div>

@@ -93,7 +93,7 @@ export function waitForElements(selector: string, timeoutMs: number = 8000): Pro
   });
 }
 
-export function waitForElement(selector: string, timeout: number = 8000): Promise<HTMLElement> {
+export function waitForElement(selector: string, timeout: number = 3000): Promise<HTMLElement> {
   return new Promise((resolve, reject) => {
     const element = document.querySelector(selector) as HTMLElement;
 
@@ -111,7 +111,7 @@ export function waitForElement(selector: string, timeout: number = 8000): Promis
             for (const node of mutation.addedNodes) {
               if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).matches(selector)) {
                 observer.disconnect();
-                clearTimeout(timeout);
+                clearTimeout(timeoutId);
                 resolve(node as HTMLElement);
               }
             }
@@ -426,8 +426,7 @@ export interface BrowserExecutionContextInfo {
   /** Czy dokument ma fokus */
   hasFocus: boolean;
   isOnline: boolean;
-  /** Czy przeglądarka sygnalizuje potrzebę oszczędzania danych */
-  saveDataEnabled: boolean;
+  windowSize: { width: number; height: number };
 }
 
 /**
@@ -451,16 +450,31 @@ export function getBrowserExecutionContextInfo(): BrowserExecutionContextInfo {
 
     // Połączenie sieciowe
     isOnline: navigator.onLine,
-    saveDataEnabled,
+    windowSize: { width: window.innerWidth, height: window.innerHeight },
   };
 }
 
 export const performOnDocumentVisibilityReturn = (clb: () => any) => {
   const visibilityChangeClb = () => {
     if (document.visibilityState === 'visible') {
+      console.log('[VISIBILITY]:', 'document visible, performing callback, removing event');
       document.removeEventListener('visibilitychange', visibilityChangeClb);
       clb();
     }
   };
   document.addEventListener('visibilitychange', visibilityChangeClb);
 };
+
+export function setNativeValue(element: HTMLInputElement, value: string) {
+  const valueSetter = Object.getOwnPropertyDescriptor(element, 'value')?.set;
+  const prototype = Object.getPrototypeOf(element);
+  const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+
+  if (valueSetter && valueSetter !== prototypeValueSetter && prototypeValueSetter) {
+    prototypeValueSetter.call(element, value);
+  } else if (valueSetter) {
+    valueSetter.call(element, value);
+  }
+
+  element.dispatchEvent(new Event('input', { bubbles: true }));
+}

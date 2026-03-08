@@ -1,10 +1,10 @@
 /*
 TODO
 - update table state (non-blocking exists but main is empty)
+- add signals and stop manually rerendering
 */
 
 import EventEmitter from 'events';
-import { findLastIndex } from '~/utility/plain-utility';
 import gpsConfig from '../../../gps.config';
 import ConfigManager from '../../utility/config-manager';
 import ResourceLock from '../../utility/resource-lock';
@@ -15,9 +15,7 @@ import useMasterQueueInline, { componentName as MasterQueueInlineName } from './
 import useMasterQueueTable, { MasterQueueTableUtility } from './master-queue-table';
 
 import { TConfigChanges } from '~/config-popup/config-popup';
-import { QueuePriority } from './types';
 import { getBrowserExecutionContextInfo, performOnDocumentVisibilityReturn } from '~/utility/ui-utility';
-export { QueuePriority };
 
 const STANDARD_EXECUTION_TIME_MS = 30000 as const;
 
@@ -59,10 +57,9 @@ export type QueueItem = {
   blocking?: boolean;
   executionTime?: number;
   repetitionPolicy?: RepetitionPolicy;
-  directOperation?: () => Promise<void>;
+  directOperation?: () => Promise<void> | void;
   subsequentItemIds?: string[];
 
-  priority: QueuePriority;
   maxShipmentTime: number;
   supplyEvaluation: 'auto' | 'manual';
   supplierCities: CityInfo[];
@@ -108,6 +105,7 @@ export interface PostDeleteQueueDetails<T> {
 
 export interface QueueExecutor<T> {
   execute(operation: ScheduleOperationDetails<T>): Promise<void>;
+  cancelExecution(id: QueueItem['id']): Promise<void> | void;
   // executor dostaje referencje do ui i details, które może updatować zgodnie ze swoim widzi mi się
   postDeleteAction?: (
     queue: PostDeleteQueueDetails<T>[],
@@ -146,7 +144,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     });
   }
 
-  private static readonly LOCAL_STORAGE_KEY = 'master-queue';
+  public static readonly LOCAL_STORAGE_KEY = 'master-queue';
   // public static readonly RESOURCES_BLOCKING_TIME = 1800000; // 30 min
   public static readonly RESOURCES_BLOCKING_TIME = 300000; // 5 min testing
   public static MASTER_QUEUE_CHANGE_EVENT = 'master-qeueue-change';
@@ -364,12 +362,15 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     return this.RUN;
   }
 
-  public async start() {
+  public async start(autorun: boolean = false) {
     this.RUN = true;
     // QUESTION: consider not calling it there, but make sure it doesn't affect the integrity
     // this.reevaluateProviderCities();
     this.addResourceLockChangeListener();
     this.addOncityChangeListener();
+    if (autorun) {
+      this.rerunAllCitySchedules();
+    }
   }
 
   public pause() {
@@ -453,40 +454,23 @@ export default class MasterQueue extends EventEmitter implements Service<'master
       this.queue.push(citySchedule);
     } else {
       /*
-      jeżeli kolejka główna jest pusta, ale w async kolejce typu kolejka istnieje to żeby nie uruchamiać
-      specjalnie kolejki głównej żeby item został dodany na koniec async kolejki zrób to tutaj od razu.
+      Jeżeli kolejka główna jest pusta, ale w async kolejce danego typu istnieją elementy,
+      to dodaj nowy item na koniec async kolejki bez uruchamiania głównej.
       */
       if (!citySchedule.queue.length && citySchedule.nonBlockingQueueComplex[item.itemType]?.queue.length) {
-        const asyncQueueOfType = citySchedule.nonBlockingQueueComplex[item.itemType]!.queue;
-        asyncQueueOfType.splice(
-          item.priority === QueuePriority.High
-            ? findLastIndex<QueueItem>(asyncQueueOfType, queueItem => queueItem.priority === QueuePriority.High) + 1
-            : asyncQueueOfType.length,
-          0,
-          {
-            id: crypto.randomUUID(),
-            ...item,
-            supplierCities: item.supplierCities ?? [],
-          },
-        );
+        citySchedule.nonBlockingQueueComplex[item.itemType]!.queue.push({
+          id: crypto.randomUUID(),
+          ...item,
+          supplierCities: item.supplierCities ?? [],
+        });
 
         this.rerenderInjectedQueuesUI(citySchedule);
         this.tableUIUtility.update(this.queue);
         this.persistCitySchedule(citySchedule);
         return citySchedule;
       } else {
-        // index kolejki dla nowego itemu, który uwzględnia priorytet i to czy kolejka jest w trakcie działania
-        const insertIndex =
-          item.priority === QueuePriority.High
-            ? (() => {
-                const afterLastHPIndex =
-                  findLastIndex<QueueItem>(citySchedule.queue, queueItem => queueItem.priority === QueuePriority.High) +
-                  1;
-                return citySchedule.currentAction ? afterLastHPIndex || 1 : afterLastHPIndex;
-              })()
-            : citySchedule.queue.length;
-
-        citySchedule.queue.splice(insertIndex, 0, {
+        // Dodaj na koniec kolejki
+        citySchedule.queue.push({
           id: crypto.randomUUID(),
           ...item,
           supplierCities: item.supplierCities ?? [],
@@ -524,6 +508,10 @@ export default class MasterQueue extends EventEmitter implements Service<'master
    * @see VALID
    */
   public clearAndRemoveCitySchedule(citySchedule: CitySchedule, persist: boolean = true) {
+    // when start was called for many city schedules, ui lock got queued. And when stop is clicked this queue must be freed.
+    const firstItem = citySchedule.queue[0];
+    if (firstItem) this.getExecutor(firstItem.itemType).cancelExecution(firstItem.id);
+
     this.stopCityScheduleMainQueueAction(citySchedule);
     citySchedule.queue = [];
     Object.values(citySchedule.nonBlockingQueueComplex).forEach(nbqc => {
@@ -556,9 +544,12 @@ export default class MasterQueue extends EventEmitter implements Service<'master
   }
 
   /**
-   * @see VALID - BUT should call reworked UILock instance to remove queued element
+   * @see VALID
    */
   private stopCityScheduleActions(citySchedule: CitySchedule) {
+    // when start was called for many city schedules, ui lock got queued. And when stop is clicked this queue must be freed.
+    const firstItem = citySchedule.queue[0];
+    if (firstItem) this.getExecutor(firstItem.itemType).cancelExecution(firstItem.id);
     this.stopCityScheduleMainQueueAction(citySchedule);
     Object.values(citySchedule.nonBlockingQueueComplex).forEach(complex => this.stopNonBlockingQueueAction(complex));
   }
@@ -583,27 +574,22 @@ export default class MasterQueue extends EventEmitter implements Service<'master
   /**
    * Starts safely citySchedule taking into account non-blocking queues which are merged into main queue
    * if for some reason are lacking the registered action.
-   * @see VALID
    */
   private async safeRunCitySchedule(citySchedule: CitySchedule) {
-    if ((citySchedule.queue.length && !citySchedule.timeoutData.timeoutId) || !citySchedule.queue.length) {
-      Object.values(citySchedule.nonBlockingQueueComplex).forEach(complex => {
-        if (complex.queue.length && !complex.timeoutData.timeoutId) {
-          let startIndex = findLastIndex<QueueItem>(citySchedule.queue, i => i.priority === QueuePriority.High) + 1;
-          citySchedule.queue.splice(startIndex, 0, ...complex.queue.splice(0));
-        }
-      });
-      if (citySchedule.queue.length) await this.runNextAction(citySchedule);
-    } else {
-      // kolejka istnieje i chodzi na pewno
-      Object.values(citySchedule.nonBlockingQueueComplex).forEach(complex => {
-        if (complex.queue.length && !complex.timeoutData.timeoutId) {
-          let startIndex = findLastIndex<QueueItem>(citySchedule.queue, i => i.priority === QueuePriority.High) + 1;
-          // jeżeli nie znaleziono nic z wysokim priorytetem (więc jest na 0), to daj na 1 indeks bo kolejka chodzi
-          if (startIndex === 0) startIndex = 1;
-          citySchedule.queue.splice(startIndex, 0, ...complex.queue.splice(0));
-        }
-      });
+    const isQueueRunning = citySchedule.queue.length && citySchedule.timeoutData.timeoutId;
+
+    // Merge orphaned non-blocking queue items into main queue
+    Object.values(citySchedule.nonBlockingQueueComplex).forEach(complex => {
+      if (complex.queue.length && !complex.timeoutData.timeoutId) {
+        // Insert at position 1 if queue is running (to not interrupt current item), otherwise at 0
+        const insertIndex = isQueueRunning ? 1 : 0;
+        citySchedule.queue.splice(insertIndex, 0, ...complex.queue.splice(0));
+      }
+    });
+
+    // Start queue if it has items and is not running
+    if (citySchedule.queue.length && !isQueueRunning) {
+      await this.runNextAction(citySchedule);
     }
   }
 
@@ -723,6 +709,10 @@ export default class MasterQueue extends EventEmitter implements Service<'master
           this.setScheduleTimeout(citySchedule, operationCallback, executionTime, timeoutType, nextQueueItem, purpose);
         },
         shiftQueueAndNext: () => {
+          console.error(
+            `[MasterQueue]: Removing element (shiftQueueAndNext):`,
+            JSON.parse(JSON.stringify(nextQueueItem)),
+          );
           this.removeItem(citySchedule, nextQueueItem);
           this.runNextAction(citySchedule);
         },
@@ -897,7 +887,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
           console.log(
             `[MasterQueue] → Async queue for "${queueItem.itemType}" already exists (${nonBlockingQueueContainerOfType.queue.length} items) - adding item to queue`,
           );
-          queueItem.directOperation = async () => await operationCallback();
+          queueItem.directOperation = operationCallback;
           nonBlockingQueueContainerOfType.queue.push(queueItem);
           this.persistCitySchedule(citySchedule);
         }
@@ -907,7 +897,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
             `[MasterQueue] → First item of type "${queueItem.itemType}" in async queue - extracting adjacent items of same type`,
           );
           // it will be executed instead of plain "execute" method
-          queueItem.directOperation = async () => await operationCallback();
+          queueItem.directOperation = operationCallback;
           // eliminates the need to check execution possibility for each item of the same type after the first one which is already not possible
           const adjacentQueueItemsOfType = this.extractAdjacentQueueItemsOfSameType(citySchedule);
           console.log(
@@ -988,12 +978,10 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     );
   }
 
-  // NOTE: rethink merge logic with high priority
   /**
-   * Puts queue items to the queue front with respect to running or high priority items in the main queue and runs if idle.
+   * Puts queue items to the queue front with respect to running items in the main queue and runs if idle.
    * @param citySchedule on which operation occurs
    * @param items list of queue items to be attached to the main queue
-   * @see ALMOST-VALID ( priority makes it complex)
    */
   public async respectfulUnshiftQueueItems(citySchedule: CitySchedule, items: QueueItem[]) {
     if (citySchedule.currentAction) {
@@ -1003,23 +991,15 @@ export default class MasterQueue extends EventEmitter implements Service<'master
         (['slot', 'charms', 'other item'] as Partial<TimeoutPurpose>[]).includes(citySchedule.timeoutData.purpose)
       ) {
         this.stopCityScheduleMainQueueAction(citySchedule);
-        citySchedule.queue.splice(0, 0, ...items);
+        citySchedule.queue.unshift(...items);
         await this.runNextAction(citySchedule);
       } else {
-        citySchedule.queue.splice(
-          findLastIndex<QueueItem>(citySchedule.queue, item => item.priority === QueuePriority.High) + 1 || 1,
-          0,
-          ...items,
-        );
+        // Queue is actively executing - insert after current item
+        citySchedule.queue.splice(1, 0, ...items);
       }
     } else {
-      // main queue is idle and at this point should be empty (bacause otherwise this condition wouldn't fire),
-      // either way execution should be started
-      citySchedule.queue.splice(
-        findLastIndex<QueueItem>(citySchedule.queue, item => item.priority === QueuePriority.High) + 1,
-        0,
-        ...items,
-      );
+      // Queue is idle - insert at front and start
+      citySchedule.queue.unshift(...items);
       await this.runNextAction(citySchedule);
     }
   }
@@ -1188,12 +1168,9 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     localStorage.setItem(MasterQueue.LOCAL_STORAGE_KEY, JSON.stringify(alreadyPersistedSchedule));
   }
 
-  // NOTE: during non-blocking queue joining, it doesn't take into account the priority
   /**
    * Loads schedule from localStorage, hydrates executor specific part with executor's method, moves all non-blocking queues
    * into master queue to the front.
-   *
-   * @see VALID - apart from priority
    */
   private loadSchedule() {
     const schedule = localStorage.getItem(MasterQueue.LOCAL_STORAGE_KEY);
@@ -1619,5 +1596,30 @@ export default class MasterQueue extends EventEmitter implements Service<'master
       `[MasterQueue]: subscription of id=${triggerItemId} added to item: ${JSON.stringify(referenceItem.itemDetails)}`,
     );
     return true;
+  }
+  // FUTURE: to resume only those actions which were running before relog or something
+  public getActiveQueueCityNameList = () => {
+    return this.queue.reduce((acc: string[], cq: CitySchedule) => {
+      if (
+        cq.currentAction ||
+        cq?.timeoutData.timeoutId ||
+        Object.values(cq.nonBlockingQueueComplex).some(nbqc => nbqc.timeoutData.timeoutId)
+      ) {
+        acc.push(cq.city.name);
+      }
+      return acc;
+    }, []);
+  };
+
+  private runDistinctCitySchedules(citySchedulesNameList: string[]) {
+    citySchedulesNameList.forEach(cityName => {
+      const city = this.citySwitchManager.getCityByName(cityName);
+      if (city) {
+        const citySchedule = this.getCitySchedule(city);
+        if (citySchedule) {
+          this.runNextAction(citySchedule);
+        }
+      }
+    });
   }
 }

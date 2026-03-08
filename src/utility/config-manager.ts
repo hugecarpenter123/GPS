@@ -3,6 +3,7 @@ import { addDelay } from './plain-utility';
 import StorageManager from './storage-manager';
 
 export default class ConfigManager {
+  public static readonly LOCAL_STORAGE_KEY = 'config';
   private static instance: ConfigManager;
   private config!: typeof gpsConfig;
   private storageManager!: StorageManager;
@@ -37,7 +38,7 @@ export default class ConfigManager {
   }
 
   private initConfig(): typeof gpsConfig {
-    const config = this.storageManager.readFromLocalStorage('config');
+    const config = this.storageManager.readFromLocalStorage(ConfigManager.LOCAL_STORAGE_KEY);
     if (!config || !this.isConfigStructureEqual(config, gpsConfig, ['farmingCities'])) {
       this.storageManager.writeToLocalStorage('config', gpsConfig);
       return gpsConfig;
@@ -65,7 +66,7 @@ export default class ConfigManager {
   }
 
   public persist(): void {
-    this.storageManager.writeToLocalStorage('config', this.config);
+    this.storageManager.writeToLocalStorage(ConfigManager.LOCAL_STORAGE_KEY, this.config);
   }
 
   public getConfigValue(key: keyof typeof gpsConfig): any {

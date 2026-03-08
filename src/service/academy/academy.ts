@@ -15,7 +15,7 @@ import CityBuilder, { BuilderItemDetails } from '../city/builder/city-builder';
 import CitySwitchManager from '../city/city-switch-manager';
 import { CityInfo } from '../city/types';
 import type { ScheduleExecutionDetails } from '../master-queue-rework/inline-queue-navigation';
-import MasterQueue, { QueuePriority, type ScheduleOperationDetails } from '../master-queue-rework/master-queue';
+import MasterQueue, { type ScheduleOperationDetails } from '../master-queue-rework/master-queue';
 import GeneralInfo from '../master/ui/general-info';
 import ResourceManager from '../resources/resource-manager';
 import TradeManager from '../trade/trade-manager';
@@ -87,6 +87,9 @@ export class Academy implements Service<'academy'> {
       execute: async operationDetails => {
         await this.execute(operationDetails);
       },
+      cancelExecution: id => {
+        this.lock.cancelQueuedLock({ manager: 'academy', id: id });
+      },
       hydrateItem: function (itemDetails: ItemDetails) {
         return itemDetails;
       },
@@ -131,6 +134,7 @@ export class Academy implements Service<'academy'> {
         } else {
           delete this.tryCount[cityName];
           operationDetails.shiftQueueAndNext();
+          this.closeAcademyDialog();
         }
       }
     } finally {
@@ -636,7 +640,7 @@ export class Academy implements Service<'academy'> {
       return;
     }
 
-    const { blocking, priority, supplierCityNames, autoSuppliers, maxShipmentTime } = this.getScheduleBaseFormValues();
+    const { blocking, supplierCityNames, autoSuppliers, maxShipmentTime } = this.getScheduleBaseFormValues();
 
     const queueItem = {
       itemType: 'academy' as const,
@@ -650,7 +654,6 @@ export class Academy implements Service<'academy'> {
         description: actionType,
       },
       blocking,
-      priority: priority as QueuePriority,
       maxShipmentTime,
       supplyEvaluation: autoSuppliers ? ('auto' as const) : ('manual' as const),
       supplierCities:

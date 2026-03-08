@@ -96,6 +96,9 @@ export default class Recruiter implements Service<'recruiter'> {
       execute: async (operation: ScheduleOperationDetails<ItemDetails>): Promise<void> => {
         await this.tryRecruitOrStackResources(operation);
       },
+      cancelExecution: (id): void => {
+        this.lock.cancelQueuedLock({ manager: 'recruiter', id: id });
+      },
       hydrateItem: function (itemDetails: ItemDetails): ItemDetails {
         return itemDetails;
       },
@@ -419,7 +422,7 @@ export default class Recruiter implements Service<'recruiter'> {
       const sourceCity = this.citySwitchManager.getCurrentCity();
       // const shipmentTime = Number(shipmentTimeSelect!.value);
       const charms = this.getSelectedCharms();
-      const { maxShipmentTime, priority, blocking, autoSuppliers, supplierCityNames } =
+      const { maxShipmentTime, blocking, autoSuppliers, supplierCityNames } =
         this.getScheduleBaseFormValues!();
 
       const { unitImageClass } = this.currentUnitContext!;
@@ -464,12 +467,10 @@ export default class Recruiter implements Service<'recruiter'> {
           blocking,
           supplierCities: supplierCityNames?.map(cn => this.citySwitchManager.getCityByName(cn)).filter(e => !!e),
           maxShipmentTime,
-          priority,
           supplyEvaluation: autoSuppliers ? 'auto' : 'manual',
         });
       } else if (amountType === 'units') {
         this.masterQueue.addToQueue(sourceCity!, {
-          // TODO
           ui: {
             title: unitImageClass.split(' ')[1],
             className: unitImageClass,
@@ -487,7 +488,6 @@ export default class Recruiter implements Service<'recruiter'> {
           blocking,
           supplierCities: supplierCityNames?.map(cn => this.citySwitchManager.getCityByName(cn)).filter(e => !!e),
           maxShipmentTime,
-          priority,
           supplyEvaluation: autoSuppliers ? 'auto' : 'manual',
         });
       } else if (amountType === 'slots') {
@@ -509,7 +509,6 @@ export default class Recruiter implements Service<'recruiter'> {
           blocking,
           supplierCities: supplierCityNames?.map(cn => this.citySwitchManager.getCityByName(cn)).filter(e => !!e),
           maxShipmentTime,
-          priority,
           supplyEvaluation: autoSuppliers ? 'auto' : 'manual',
         });
       }

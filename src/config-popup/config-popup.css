@@ -75,7 +75,13 @@
   cursor: pointer;
 }
 
-#config-popup-container.minimized {
+#config-popup-trigger {
+  z-index: 2;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: Arial, Helvetica, sans-serif;
+  position: absolute;
   top: auto;
   transform: none;
   bottom: 50px;
@@ -84,17 +90,22 @@
   height: 40px;
   border-radius: 50%;
   box-shadow: none;
-}
-
-#config-popup-container .show-trigger {
-  display: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-shadow: 0px 1px 1px rgba(165, 125, 11, 1);
+  background-color: antiquewhite;
+  border: 1px solid rgba(165, 125, 11, 1);
 }
 
 #close-popup {
   cursor: pointer;
   position: absolute;
-  right: 10px;
-  top: 10px;
+  right: 0px;
+  top: 0px;
   transition-duration: 125ms;
   color: tomato;
   text-shadow: 0px 0px 2px black;
@@ -102,30 +113,6 @@
 
 #close-popup:hover {
   animation: freak 1s ease-in both infinite;
-}
-
-#config-popup-container.minimized #config-popup-content {
-  display: none;
-}
-
-#config-popup-container.minimized #config-popup-header {
-  display: none;
-}
-
-#config-popup-container.minimized {
-  padding: 0;
-}
-
-#config-popup-container.minimized .show-trigger {
-  cursor: pointer;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.7rem;
-  font-weight: 600;
-  text-shadow: 0px 1px 1px rgba(165, 125, 11, 1);
 }
 
 #config-popup-container .section-header {

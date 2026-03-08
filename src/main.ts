@@ -1,7 +1,9 @@
 import MasterManager from './service/master/master-manager';
-import { setCookie } from './utility/plain-utility';
-import { onPageLoad } from './utility/ui-utility';
+import { addDelay, getCookie, setCookie } from './utility/plain-utility';
+import { onPageLoad, setNativeValue, waitForElementInterval } from './utility/ui-utility';
 import tailwindCssRaw from '~/styles/tailwind.css';
+
+let timeoutId: NodeJS.Timeout | undefined = undefined;
 
 // https://pl-play.grepolis.com/?logout=true&lps_flow=after_glps_shim
 const main = async () => {
@@ -14,19 +16,72 @@ const main = async () => {
   document.head.appendChild(tailwindCssStyle);
 
   const currentUrl = window.location.href;
-  if (/.*grepolis.com\/game\/.*/.test(currentUrl)) {
+  const isInGameRegex = /.*grepolis.com\/game\/.*/;
+  if (isInGameRegex.test(currentUrl)) {
     // actual boot
     await MasterManager.getInstance();
-  } else if (currentUrl.includes('start?nosession')) {
-    // TODO: for now it's not actually well implemented
-    console.log('will try to reconnect in 5 minutes');
-    setInterval(
-      () => {
-        setCookie('forceRestart', true);
-        document.querySelector<HTMLElement>('.world_name.end_game_type_world_wonder')?.click();
-      },
-      1 * 1000 * 60 * 5,
-    );
+  } else {
+    const autoRelogin = getCookie('autoRelogin') as { value: boolean; after: number } | null;
+    const forcedRefresh = getCookie('forcedRefresh') as boolean;
+
+    if (currentUrl.includes('/start/index') && (forcedRefresh || autoRelogin?.value)) {
+      waitForElementInterval(`[data-worldname="${getCookie('worldname')}"]`, {
+        retries: 15,
+        interval: 500,
+      })
+        .then(el => el.click())
+        .catch(e => {
+          console.error("[AutoRelogin]: could't enter the world:", e);
+        });
+    }
+
+    if (currentUrl.includes('start?nosession')) {
+      if (autoRelogin?.value || forcedRefresh) {
+        console.log(`will try to reconnect in ${autoRelogin?.after || 0} seconds`);
+        timeoutId = setTimeout(
+          () => {
+            if (isInGameRegex.test(window.location.href)) {
+              return;
+            }
+            setCookie('autoStart', 1);
+            waitForElementInterval(`[data-worldname="${getCookie('worldname')}"]`, {
+              retries: 15,
+              interval: 500,
+            })
+              .then(el => el.click())
+              .catch();
+          },
+          autoRelogin?.after ? autoRelogin.after * 1000 : 0,
+        );
+      }
+    }
+    // signed out entirely
+    else if (
+      currentUrl.includes('logout') &&
+      document.querySelector('#page_login_always-visible_input_player-identifier')
+    ) {
+      const credentials = getCookie('cr3');
+      if (credentials && (autoRelogin?.value || forcedRefresh)) {
+        console.log(`will try to reconnect in ${autoRelogin?.after || 0} seconds`);
+        timeoutId = setTimeout(
+          async () => {
+            if (isInGameRegex.test(window.location.href)) {
+              return;
+            }
+            setCookie('autoStart', 1);
+            const [login, pwd] = atob(credentials).split(':');
+            setNativeValue(
+              document.querySelector<HTMLInputElement>('#page_login_always-visible_input_player-identifier')!,
+              login,
+            );
+            setNativeValue(document.querySelector<HTMLInputElement>('#page_login_always-visible_input_password')!, pwd);
+            await addDelay(1000);
+            document.querySelector<HTMLButtonElement>('#page_login_always-visible_button_login')!.click();
+          },
+          autoRelogin?.after ? autoRelogin.after * 1000 : 0,
+        );
+      }
+    }
   }
 };
 

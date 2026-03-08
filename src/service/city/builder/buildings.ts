@@ -2,7 +2,7 @@ export type Building = {
   backgroundImageProp: string;
   elementSelector: string;
   currentLvlElSelector: string;
-  name: string;
+  name: keyof typeof buildings;
 };
 
 export const buildingsSelectors = {
@@ -91,3 +91,5 @@ export const buildings = {
     name: 'Temple',
   },
 } as const;
+
+export const getBuildingByName = (name: keyof typeof buildings) => buildings[name];

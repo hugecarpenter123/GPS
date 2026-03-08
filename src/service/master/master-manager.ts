@@ -2,7 +2,7 @@ import type Service from '~/utility/Service';
 import { FarmTimeInterval, type Managers, TConfig } from '../../../gps.config';
 import { ConfigPopupUtility, TConfigChanges, useConfigPopup } from '../../config-popup/config-popup';
 import ConfigManager from '../../utility/config-manager';
-import { getCookie, hasAnyValue, setCookie } from '../../utility/plain-utility';
+import { addDelay, getCookie, hasAnyValue, setCookie, waitWhile } from '../../utility/plain-utility';
 import { Academy } from '../academy/academy';
 import CityBuilder from '../city/builder/city-builder';
 import CitySwitchManager from '../city/city-switch-manager';
@@ -10,6 +10,7 @@ import Farmer from '../farm/farm-manager';
 import MasterQueue from '../master-queue-rework/master-queue';
 import Recruiter from '../recruiter/recruiter';
 import Scheduler from '../scheduler/Scheduler';
+import { unescape } from 'querystring';
 
 export default class MasterManager {
   private static instance: MasterManager;
@@ -22,6 +23,7 @@ export default class MasterManager {
   private masterQueue!: MasterQueue;
   private academy!: Academy;
   private configPopupWindow!: ConfigPopupUtility;
+  private captchaObserver!: NodeJS.Timeout;
 
   private pausedManagersSnapshot: {
     [key in Managers]: boolean;
@@ -48,11 +50,35 @@ export default class MasterManager {
       MasterManager.instance.recruiter = await Recruiter.getInstance();
       MasterManager.instance.academy = await Academy.getInstance();
       MasterManager.instance.masterQueue = await MasterQueue.getInstance();
-      // MasterManager.instance.initCaptchaPrevention();
+      MasterManager.instance.initCaptchaPrevention();
       // MasterManager.instance.initRefreshUtility();
       MasterManager.instance.initConfigDialog();
     }
     return MasterManager.instance;
+  }
+
+  private initCaptchaPrevention() {
+    this.captchaObserver = setInterval(async () => {
+      const captcha = Array.from(document.querySelectorAll('body>[id*="captcha"]')).find(el => el.hasChildNodes());
+      if (captcha) {
+        console.warn('captcha detected at:', new Date().toISOString());
+        await addDelay(3000);
+        captcha.querySelector<HTMLDivElement>('#checkbox')?.click();
+        await addDelay(4000);
+        captcha.querySelector<HTMLDivElement>('.btn_confirm')?.click();
+        await waitWhile(() => captcha.isConnected, {
+          delay: 1000,
+          maxIterations: 6,
+          // TODO: refresh or disconnect from the webapp - currently disconnect
+          onError: () => {
+            clearInterval(this.captchaObserver);
+            if (this.config.general.signoutOnCaptchaFailure) {
+              window.location.replace('about:blank');
+            }
+          },
+        });
+      }
+    }, 20000);
   }
 
   // private initRefreshUtility(timeout?: number) {
@@ -81,12 +107,17 @@ export default class MasterManager {
   //   );
   // }
 
-  private async runManagersFromConfig(configChanges?: TConfigChanges): Promise<void> {
+  /**
+   *
+   * @param configChanges
+   * @param autorun some managers in order to execute operations need argument to "start" method
+   */
+  private async runManagersFromConfig(configChanges?: TConfigChanges, autorun?: boolean): Promise<void> {
     if (configChanges) {
       (
         Object.keys(configChanges)
           // exclude general config
-          .filter(k => k !== 'general') as Managers[]
+          .filter(k => !['general', 'autoRelogin'].includes(k)) as Managers[]
       ).forEach(k => {
         if (hasAnyValue(configChanges[k], true)) {
           this[k].onConfigChange(configChanges[k]);
@@ -94,10 +125,31 @@ export default class MasterManager {
       });
 
       (Object.keys(configChanges.general) as Managers[]).forEach(managerKey => {
+        // so that only managers are handled by below's logic
+        if (!this[managerKey]) return;
+
         if (this.config.general[managerKey]) {
           if (!this[managerKey].isRunning()) {
             console.log(`${managerKey} will be started...`);
-            this[managerKey].start();
+            this[managerKey].start(autorun);
+          }
+        } else {
+          if (this[managerKey].isRunning()) {
+            console.log(`${managerKey} will be stopped...`);
+            this[managerKey].stop();
+          }
+        }
+      });
+    } else {
+      // BUGgy - works for now but not ideal
+      (Object.keys(this.config.general) as Managers[]).forEach(managerKey => {
+        // so that only managers are handled by below's logic
+        if (!this[managerKey]) return;
+
+        if (this.config.general[managerKey]) {
+          if (!this[managerKey].isRunning()) {
+            console.log(`${managerKey} will be started...`);
+            this[managerKey].start(autorun);
           }
         } else {
           if (this[managerKey].isRunning()) {
@@ -120,22 +172,19 @@ export default class MasterManager {
     this.configPopupWindow.addListener('managersChange', async (configChanges: TConfigChanges) => {
       await this.runManagersFromConfig(configChanges);
     });
+
+    const autoStart = getCookie('autoStart') === 1;
     /*
     NOTE: na ten moment utility samo decyduje jak renderować ustawienia każdego z managerów (w tym posługuje się np CitySwitchem), 
     samo komunikuje się z configManagerem by zapisać zmiany itp.
     */
-    await this.configPopupWindow.mount(this.config);
+    await this.configPopupWindow.mount({ initialConfig: this.config, open: !autoStart });
 
-    if (this.config.general.forcedRefresh || getCookie('forceRestart')) {
-      console.log('forcedRefresh/forceRestart', this.config.general.forcedRefresh, getCookie('forceRestart'));
-      this.config.general.forcedRefresh = false;
-      setCookie('forceRestart', false);
-
-      this.config.farmer.farmInterval = FarmTimeInterval.FirstOption;
-      ConfigManager.getInstance().persist();
-
-      this.configPopupWindow.minimize();
-      await this.runManagersFromConfig();
+    if (autoStart) {
+      console.log('autoStart', this.config.general.forcedRefresh, autoStart);
+      setCookie('autoStart', '0', { maxAge: -1 });
+      // autorun for MasterQueue to execute scheduld operations
+      await this.runManagersFromConfig(undefined, true);
     }
   }
 

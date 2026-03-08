@@ -1,4 +1,5 @@
 import EventEmitter from 'events';
+import Service from '~/utility/Service';
 import gpsConfig, { FarmTimeInterval } from '../../../gps.config';
 import ConfigManager from '../../utility/config-manager';
 import { InfoError } from '../../utility/info-error';
@@ -13,17 +14,16 @@ import {
   HHMMSS_toMS,
   waitWhile,
 } from '../../utility/plain-utility';
-import Lock from '../../utility/ui-lock';
+import Lock, { LockOperationCancelledError } from '../../utility/ui-lock';
 import {
   getBrowserExecutionContextInfo,
   performComplexClick,
-  waitForElement,
+  performOnDocumentVisibilityReturn,
   waitForElementInterval,
   waitForElementsInterval,
 } from '../../utility/ui-utility';
 import CitySwitchManager, { CityInfo } from '../city/city-switch-manager';
 import GeneralInfo from '../master/ui/general-info';
-import Service from '~/utility/Service';
 
 type ScheduleItem = {
   scheduledDate: Date;
@@ -52,7 +52,6 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
   private messageDialogObserver: MutationObserver | null = null;
   private humanMessageDialogObserver: MutationObserver | null = null;
   private lock!: Lock;
-  private farmSolution: FarmingSolution = FarmingSolution.Manual;
   private RUN: boolean = false;
   private tryCount: Record<string, number> = {};
 
@@ -68,26 +67,23 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
       Farmer.instance.citySwitch = await CitySwitchManager.getInstance();
       Farmer.instance.config = ConfigManager.getInstance().getConfig();
       Farmer.instance.lock = Lock.getInstance();
-      await Farmer.instance.setFarmSolution();
     }
     return Farmer.instance;
   }
 
-  private async setFarmSolution() {
-    const captainPresent = await waitForElement('.advisor_frame.captain .advisor', 4000)
-      .then(el => el.classList.contains('captain_active'))
-      .catch(() => false);
-
-    this.farmSolution = captainPresent ? FarmingSolution.Captain : FarmingSolution.Manual;
+  private getFarmingWay() {
+    return document.querySelector('.advisor_frame.captain .advisor')?.classList.contains('captain_active')
+      ? FarmingSolution.Captain
+      : FarmingSolution.Manual;
   }
 
   public getFarmScheduleTimes() {
-    return this.farmSolution === FarmingSolution.Captain
+    return this.getFarmingWay() === FarmingSolution.Captain
       ? [this.captainSchedule?.scheduledDate]
       : this.schedule.map(item => item.scheduledDate);
   }
 
-  public async farmWithCaptain(scheduled: boolean = false) {
+  public async farmWithCaptain() {
     let dialogsSnapshot: Element[] = [];
     let infoId!: number;
     try {
@@ -133,9 +129,9 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
               ) {
                 await addDelay(250);
               }
-              const timeout =
+              const timeoutMS =
                 calculateTimeToNextOccurrence(cooldownTimeTextParsed!) + this.config.general.timeDifference + 1000;
-              const scheduledDate = new Date(Date.now() + timeout);
+              const scheduledDate = new Date(Date.now() + timeoutMS);
 
               console.log('[Farmer]: Schedule next farming operation for captain on:', scheduledDate);
               const scheduleTimeout = setTimeout(() => {
@@ -143,8 +139,10 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
                   '[Farmer]: Performing scheduled farming operation for captain, at:',
                   dateToHHMMSS(new Date()),
                 );
-                this.farmWithCaptain(true);
-              }, timeout);
+                this.farmWithCaptain();
+              }, timeoutMS);
+
+              if (this.captainSchedule?.timeout) clearTimeout(this.captainSchedule.timeout);
 
               this.captainSchedule = {
                 scheduledDate,
@@ -244,15 +242,16 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
           console.log('[Farmer]: Schedule next farming operation for captain on:', scheduledDate);
           const scheduleTimeout = setTimeout(() => {
             console.log('[Farmer]: Performing scheduled farming operation for captain, at:', dateToHHMMSS(new Date()));
-            this.farmWithCaptain(true);
+            this.farmWithCaptain();
           }, timeout);
 
+          if (this.captainSchedule?.timeout) clearTimeout(this.captainSchedule.timeout);
           this.captainSchedule = {
             scheduledDate,
             timeout: scheduleTimeout,
           };
 
-          console.log('[Farmer]: farmWithCaptain successful snapshot', getBrowserStateSnapshot());
+          console.log('[Farmer]: farmWithCaptain successful snapshot');
           delete this.tryCount['captain'];
         },
         {
@@ -261,24 +260,37 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
       );
     } catch (e) {
       const key = 'captain';
-      this.tryCount[key] = (this.tryCount[key] ?? 0) + 1;
-      console.warn('[Farmer]: farmWithCaptain catch:', e, getBrowserExecutionContextInfo());
-      if (this.tryCount[key] < 3) {
-        console.warn(`[Farmer]: Retry count ${this.tryCount[key]}, will reschedule in 2 minutes`);
-        this.captainSchedule = {
-          timeout: setTimeout(
-            () => {
-              this.farmWithCaptain();
-            },
-            2 * 60 * 1000,
-          ),
-          scheduledDate: new Date(Date.now() + 2 * 60 * 1000),
-        };
-      } else {
-        console.warn(`[Farmer]: Retry limit exceeded for captain, stopping retries`);
-        delete this.tryCount[key];
-        await this.setFarmSolution();
-        this.initFarmAllVillages();
+      const browserContext = getBrowserExecutionContextInfo();
+      console.warn('[Farmer]: farmWithCaptain catch:', e, browserContext);
+
+      if (!(e instanceof LockOperationCancelledError && e.reason === 'called')) {
+        if (this.getFarmingWay() === FarmingSolution.Manual) {
+          console.warn('[Farmer]: premium farming finished, switching to manual farming:');
+          this.initFarmAllVillages();
+        } else {
+          console.warn('[Farmer]: visibility hidden, scheduling farming on visibility return:');
+          if (browserContext.visibilityState === 'hidden') {
+            performOnDocumentVisibilityReturn(() => this.farmWithCaptain());
+          } else {
+            this.tryCount[key] = (this.tryCount[key] ?? 0) + 1;
+            if (this.tryCount[key] < 3) {
+              console.warn(`[Farmer]: Retry count ${this.tryCount[key]}, will reschedule in 2 minutes`);
+              if (this.captainSchedule?.timeout) clearTimeout(this.captainSchedule.timeout);
+              this.captainSchedule = {
+                timeout: setTimeout(
+                  () => {
+                    this.farmWithCaptain();
+                  },
+                  2 * 60 * 1000,
+                ),
+                scheduledDate: new Date(Date.now() + 2 * 60 * 1000),
+              };
+            } else {
+              console.error(`[Farmer]: Critical error, retry limit exceeded for captain, stopping retries.`);
+              delete this.tryCount[key];
+            }
+          }
+        }
       }
     } finally {
       console.log('[Farmer]: Captain scheduler:', this.captainSchedule);
@@ -322,31 +334,39 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
         async () => {
           infoId = this.generalInfo.showInfo('Farm Manager:', `farmienie w mieście: ${city.name}`, 'info');
           console.log('[Farmer]: farmVillages, take lock', city.name);
-          await this.farmVillagesFlow(city);
+          await this.performManualFarming(city);
           delete this.tryCount[city.name];
         },
         { manager: 'farmer' },
       );
     } catch (e) {
+      const browserContext = getBrowserExecutionContextInfo();
       console.warn('[Farmer]: farmVillages catch:', e, getBrowserExecutionContextInfo());
-      const cityName = city.name;
-      this.tryCount[cityName] = (this.tryCount[cityName] ?? 0) + 1;
-      if (this.tryCount[cityName] < 2) {
-        console.warn(`[Farmer]: Retry count ${this.tryCount[cityName]} for city:`, cityName);
-        this.farmVillages(city);
-      } else {
-        console.warn(`[Farmer]: Retry limit exceeded for city:`, cityName);
-        delete this.tryCount[cityName];
+
+      if (!(e instanceof LockOperationCancelledError && e.reason === 'called')) {
+        if (browserContext.visibilityState === 'hidden') {
+          console.warn('[Farmer]:', 'visibility hidden, schedule farming after visibility is back');
+          performOnDocumentVisibilityReturn(() => this.farmVillages(city));
+        } else {
+          this.tryCount[city.name] = (this.tryCount[city.name] ?? 0) + 1;
+          if (this.tryCount[city.name] < 3) {
+            console.warn(`[Farmer]: Retry count ${this.tryCount[city.name]}, will reschedule in 2 minutes`);
+            this.scheduleNextFarmingOperationForCity(120000, city);
+          } else {
+            console.warn(
+              `[Farmer]: Critical Error, retry count exceeded ${this.tryCount[city.name]}, stopping schedule for city.`,
+            );
+            delete this.tryCount[city.name];
+          }
+        }
       }
     } finally {
-      this.disconnectObservers();
-      console.log('[Farmer]: farmVillages, release lock', city.name);
       this.generalInfo.hideInfo(infoId);
       this.emit('farmingFinished');
     }
   }
 
-  private async farmVillagesFlow(city: CityInfo, forced: boolean = false) {
+  private async performManualFarming(city: CityInfo) {
     try {
       console.log('[Farmer]: farmVillagesFlow, switch to city', city.name, new Date());
       await city.switchAction();
@@ -433,12 +453,11 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
         .then(el => el.click())
         .catch(() => {});
 
-      // NOTE: check if this is called in the finally block (remove duplicate if so)
-      this.disconnectObservers();
       this.scheduleNextFarmingOperationForCity(cooldownTime ?? this.config.farmer.farmInterval + 1000, city);
     } catch (e) {
-      console.warn('[Farmer]: farmVillagesFlow catch:', e, getBrowserExecutionContextInfo());
-      await this.forceRepeatFarming(city);
+      throw e;
+    } finally {
+      this.disconnectObservers();
     }
   }
 
@@ -447,7 +466,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
    * Po przejściu powraca do pierwszego miasta, zwraca locka, a wioski będą farmione przez osobną metodę: 'farmVillages'.
    */
   private async initFarmAllVillages() {
-    if (this.farmSolution === FarmingSolution.Captain) {
+    if (this.getFarmingWay() === FarmingSolution.Captain) {
       await this.farmWithCaptain();
     } else {
       const cityList = this.config.farmer.farmingCities.map(
@@ -461,24 +480,36 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
             infoId = this.generalInfo.showInfo('Farm Manager:', 'Inicjalizacja/farmienie wszystkich wiosek.', 'info');
             console.log('[Farmer]: initFarmAllVillages, take lock', new Date());
             for (const cityInfo of cityList) {
-              await this.farmVillagesFlow(cityInfo);
+              await this.performManualFarming(cityInfo);
             }
+            delete this.tryCount['initial'];
             if (cityList.length !== 1) await cityList[0].switchAction();
           },
           { manager: 'farmer' },
         );
       } catch (e) {
-        console.warn('[Farmer]: initFarmAllVillages catch:', e, getBrowserExecutionContextInfo());
+        const browserContext = getBrowserExecutionContextInfo();
+        console.warn('[Farmer]: initFarmAllVillages catch:', e, browserContext);
+        if (!(e instanceof LockOperationCancelledError && e.reason === 'called')) {
+          if (browserContext.visibilityState === 'hidden') {
+            console.warn('[Farmer]:', 'visibility hidden, initializing schedule farming after visibility is back');
+            performOnDocumentVisibilityReturn(() => this.initFarmAllVillages());
+          } else {
+            this.tryCount['initial'] = (this.tryCount['initial'] ?? 0) + 1;
+            console.warn('[Farmer]: retry count:', this.tryCount['initial']);
+            if (this.tryCount['initial'] < 3) {
+              this.initFarmAllVillages();
+            } else {
+              delete this.tryCount['initial'];
+              console.warn('[Farmer]: critical error, retry count exceeded, abandoning the execution');
+            }
+          }
+        }
       } finally {
         this.generalInfo.hideInfo(infoId);
-        this.messageDialogObserver?.disconnect();
         this.emit('farmingFinished');
       }
     }
-  }
-
-  private async forceRepeatFarming(city: CityInfo) {
-    await this.farmVillagesFlow(city, true);
   }
 
   private disconnectObservers() {
@@ -496,14 +527,22 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
       city,
     };
 
-    const timeout = setTimeout(async () => {
-      this.schedule = this.schedule.filter(item => item !== scheduleItem);
+    this.schedule = this.schedule.filter(s => {
+      if (s.city.name === city.name) {
+        console.warn('[Farmer]: removing duplicate farming schedule for city before assigning new one');
+        clearTimeout(s.timeout);
+        return false;
+      }
+      return true;
+    });
+
+    scheduleItem.timeout = setTimeout(async () => {
+      this.schedule = this.schedule.filter(item => item.city.name !== scheduleItem.city.name);
       this.farmVillages(city);
     }, timeInterval);
 
-    scheduleItem.timeout = timeout;
     this.schedule.push(scheduleItem as ScheduleItem);
-    console.log('[Farmer]: Scheduler:', this.schedule);
+    console.log('[Farmer]: schedule:', this.schedule);
   };
 
   /**
@@ -552,7 +591,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
 
   private async getUnlockTimeOrNull(node: HTMLElement): Promise<number | null> {
     const cooldownBar = await waitForElementInterval('.actions_locked_banner.cooldown', {
-      retries: 10,
+      retries: 5,
       interval: 200,
       fromNode: node,
     }).catch(() => null);
@@ -604,7 +643,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
     });
     this.schedule = [];
     // captain related
-    this.captainSchedule && clearTimeout(this.captainSchedule.timeout);
+    if (this.captainSchedule?.timeout) clearTimeout(this.captainSchedule.timeout);
     this.captainSchedule = null;
   }
 
@@ -624,7 +663,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
     }
   }
   public async resume() {
-    if (this.farmSolution === FarmingSolution.Captain) {
+    if (this.getFarmingWay() === FarmingSolution.Captain) {
       await this.farmWithCaptain();
     } else {
       this.schedule.forEach(citySchedule => {
@@ -643,7 +682,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
 
   public onConfigChange(configChanges: Partial<{ farmInterval: boolean; humanize: boolean; farmingCities: boolean }>) {
     if (configChanges.farmingCities) {
-      if (this.farmSolution === FarmingSolution.Manual) {
+      if (this.getFarmingWay() === FarmingSolution.Manual) {
         this.schedule.forEach(s => clearTimeout(s.timeout));
         this.schedule = [];
         this.initFarmAllVillages();

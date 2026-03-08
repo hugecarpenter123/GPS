@@ -163,6 +163,7 @@ export default class Scheduler implements Service<'scheduler'> {
   public static readonly TURN_OFF_MANAGERS_TIME_MS = 15 * 1000;
   public static readonly TIME_TO_RESTORE_MANAGERS_AFTER_ACTION = 1000 * 60; // 1min
   public static readonly PREPARATION_TIME_MS = 4 * 1000;
+  public static readonly LOCAL_STORAGE_KEY = 'scheduler';
 
   private static instance: Scheduler;
   private lock!: Lock;
@@ -659,7 +660,7 @@ export default class Scheduler implements Service<'scheduler'> {
   }
 
   private loadScheduleFromStorage() {
-    const storageScheduler = JSON.parse(localStorage.getItem('scheduler') || '[]') as ScheduleItem[];
+    const storageScheduler = JSON.parse(localStorage.getItem(Scheduler.LOCAL_STORAGE_KEY) || '[]') as ScheduleItem[];
     console.log('storageScheduler:', storageScheduler);
     const hyratedSchedule = storageScheduler
       .map(preHydratedItem => this.hydrateSchedulerItem(preHydratedItem))
@@ -929,7 +930,7 @@ export default class Scheduler implements Service<'scheduler'> {
   };
 
   private persist() {
-    localStorage.setItem('scheduler', JSON.stringify(this.schedule));
+    localStorage.setItem(Scheduler.LOCAL_STORAGE_KEY, JSON.stringify(this.schedule));
   }
 
   /**

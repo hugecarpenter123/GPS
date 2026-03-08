@@ -2,7 +2,7 @@ import { TConfigChanges } from '../config-popup/config-popup';
 
 export default interface Service<K extends keyof TConfigChanges> {
   isRunning: () => boolean;
-  start: () => void | Promise<void>;
+  start: (autorun?: boolean) => void | Promise<void>;
   stop: () => void | Promise<void>;
   pause: () => void | Promise<void>;
   resume: () => void | Promise<void>;
