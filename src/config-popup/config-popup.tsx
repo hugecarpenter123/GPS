@@ -36,6 +36,7 @@ export type TConfigChanges = {
     academy: boolean;
     signoutOnCaptchaFailure: boolean;
     autoRelogin: boolean;
+    cyclicalRefresh: boolean;
   };
   builder: {};
   recruiter: {};
@@ -43,6 +44,9 @@ export type TConfigChanges = {
   academy: {};
   autoRelogin: {
     after: boolean;
+  };
+  cyclicalRefresh: {
+    interval: boolean;
   };
 };
 
@@ -160,7 +164,11 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList, initialOpen
   const [captcha, setCaptcha] = useState(initialConfig.general.signoutOnCaptchaFailure);
   const [autoRelogin, setAutoRelogin] = useState({
     checked: initialConfig.general.autoRelogin,
-    after: initialConfig.autoRelogin.after,
+    after: initialConfig.autoRelogin.after / 1000,
+  });
+  const [cyclicalRefresh, setCyclicalRefresh] = useState({
+    checked: initialConfig.general.cyclicalRefresh,
+    interval: initialConfig.cyclicalRefresh.interval / 1000,
   });
 
   // Farm specific
@@ -284,6 +292,7 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList, initialOpen
         academy: initialConfig.general.academy !== academy,
         signoutOnCaptchaFailure: initialConfig.general.signoutOnCaptchaFailure !== captcha,
         autoRelogin: initialConfig.general.autoRelogin !== autoRelogin.checked,
+        cyclicalRefresh: initialConfig.general.cyclicalRefresh !== cyclicalRefresh.checked,
       },
       builder: {},
       scheduler: {},
@@ -291,6 +300,9 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList, initialOpen
       academy: {},
       autoRelogin: {
         after: initialConfig.autoRelogin.after !== autoRelogin.after,
+      },
+      cyclicalRefresh: {
+        interval: initialConfig.cyclicalRefresh.interval !== cyclicalRefresh.interval,
       },
     };
 
@@ -312,12 +324,19 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList, initialOpen
 
       config.general.signoutOnCaptchaFailure = captcha;
       if (config.general.autoRelogin !== autoRelogin.checked || config.autoRelogin.after !== autoRelogin.after) {
-        setCookie('autoRelogin', autoRelogin.checked ? { value: autoRelogin.checked, after: autoRelogin.after } : '', {
-          maxAge: autoRelogin.checked ? 60 * 60 * 24 * 365 : -1,
-        });
+        setCookie(
+          'autoRelogin',
+          autoRelogin.checked ? { value: autoRelogin.checked, after: autoRelogin.after * 1000 } : '',
+          {
+            maxAge: autoRelogin.checked ? 60 * 60 * 24 * 365 : -1,
+          },
+        );
       }
       config.general.autoRelogin = autoRelogin.checked;
       config.autoRelogin.after = autoRelogin.after;
+
+      config.general.cyclicalRefresh = cyclicalRefresh.checked;
+      config.cyclicalRefresh.interval = cyclicalRefresh.interval * 1000;
 
       configManager.persist();
     }
@@ -530,6 +549,30 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList, initialOpen
                 >
                   Add credentials
                 </button>
+              </div>
+            }
+          />
+
+          <InputWrapper
+            id="cyclicalRefresh"
+            label="Cyclical refresh"
+            checked={cyclicalRefresh.checked}
+            onChange={v =>
+              setCyclicalRefresh(prev => {
+                return { ...prev, checked: !prev.checked };
+              })
+            }
+            expandableContent={
+              <div className="input-wrapper">
+                <label htmlFor={'cyclical-refresh-interval'}>Interval:</label>
+                <input
+                  type="number"
+                  id="cyclical-refresh-interval"
+                  value={cyclicalRefresh.interval}
+                  onChange={e =>
+                    setCyclicalRefresh(prev => ({ ...prev, interval: Number((e.target as HTMLInputElement).value) }))
+                  }
+                />
               </div>
             }
           />

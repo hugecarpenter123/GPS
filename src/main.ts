@@ -22,9 +22,8 @@ const main = async () => {
     await MasterManager.getInstance();
   } else {
     const autoRelogin = getCookie('autoRelogin') as { value: boolean; after: number } | null;
-    const forcedRefresh = getCookie('forcedRefresh') as boolean;
 
-    if (currentUrl.includes('/start/index') && (forcedRefresh || autoRelogin?.value)) {
+    if (currentUrl.includes('/start/index') && autoRelogin?.value) {
       waitForElementInterval(`[data-worldname="${getCookie('worldname')}"]`, {
         retries: 15,
         interval: 500,
@@ -36,7 +35,7 @@ const main = async () => {
     }
 
     if (currentUrl.includes('start?nosession')) {
-      if (autoRelogin?.value || forcedRefresh) {
+      if (autoRelogin?.value) {
         console.log(`will try to reconnect in ${autoRelogin?.after || 0} seconds`);
         timeoutId = setTimeout(
           () => {
@@ -51,7 +50,7 @@ const main = async () => {
               .then(el => el.click())
               .catch();
           },
-          autoRelogin?.after ? autoRelogin.after * 1000 : 0,
+          (autoRelogin?.after || 0) * 1000,
         );
       }
     }
@@ -61,7 +60,7 @@ const main = async () => {
       document.querySelector('#page_login_always-visible_input_player-identifier')
     ) {
       const credentials = getCookie('cr3');
-      if (credentials && (autoRelogin?.value || forcedRefresh)) {
+      if (credentials && autoRelogin?.value) {
         console.log(`will try to reconnect in ${autoRelogin?.after || 0} seconds`);
         timeoutId = setTimeout(
           async () => {

@@ -25,11 +25,13 @@ const config = {
   autoRelogin: {
     after: 1000 * 60 * 5,
   },
+  cyclicalRefresh: {
+    interval: 60 * 60 * 1000, // 1h
+  },
   general: {
     timeDifference: 0,
     antyTimingMs: 10000,
-    applicationRefreshInterval: 32 * 60 * 1000, // 32 minutes
-    forcedRefresh: false,
+    cyclicalRefresh: false,
     farmer: true,
     builder: true,
     masterQueue: true,

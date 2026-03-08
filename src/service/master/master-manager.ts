@@ -24,6 +24,7 @@ export default class MasterManager {
   private academy!: Academy;
   private configPopupWindow!: ConfigPopupUtility;
   private captchaObserver!: NodeJS.Timeout;
+  private refreshTimeoutId?: NodeJS.Timeout;
 
   private pausedManagersSnapshot: {
     [key in Managers]: boolean;
@@ -51,7 +52,6 @@ export default class MasterManager {
       MasterManager.instance.academy = await Academy.getInstance();
       MasterManager.instance.masterQueue = await MasterQueue.getInstance();
       MasterManager.instance.initCaptchaPrevention();
-      // MasterManager.instance.initRefreshUtility();
       MasterManager.instance.initConfigDialog();
     }
     return MasterManager.instance;
@@ -81,86 +81,113 @@ export default class MasterManager {
     }, 20000);
   }
 
-  // private initRefreshUtility(timeout?: number) {
-  //   setTimeout(
-  //     async () => {
-  //       const scheduler = await Scheduler.getInstance();
-  //       const canRefresh = !scheduler.isRunning() || scheduler.canSafelyRefresh();
+  private createRefreshTimeout(timeout?: number) {
+    this.refreshTimeoutId = setTimeout(
+      async () => {
+        const canRefresh = [
+          this.farmer,
+          this.masterQueue,
+          this.recruiter,
+          this.builder,
+          this.scheduler,
+          this.academy,
+        ].every(manager => {
+          return manager
+            .getScheduledActionTimes()
+            .filter(([start, duration]) => start + (duration ?? 60000) < Date.now())
+            .every(([start]) => {
+              return Date.now() + 60000 < start;
+            });
+        });
 
-  //       if (canRefresh) {
-  //         console.log('canRefresh, will refresh', canRefresh);
-  //         console.log(
-  //           'timeout ?? this.config.general.applicationRefreshInterval',
-  //           timeout ?? this.config.general.applicationRefreshInterval,
-  //         );
-  //         console.log('this.config.general.applicationRefreshInterval', this.config.general.applicationRefreshInterval);
-  //         this.config.general.forcedRefresh = true;
-  //         ConfigManager.getInstance().persistConfig();
-  //         await addDelay(10000);
-  //         window.location.reload();
-  //       } else {
-  //         console.log('canRefresh', canRefresh);
-  //         this.initRefreshUtility(5 * 1000 * 60);
-  //       }
-  //     },
-  //     timeout ?? (this.config.general.applicationRefreshInterval + (Math.floor(Math.random() * 121) - 60)) * 1000,
-  //   );
-  // }
+        if (canRefresh) {
+          setCookie('autoStart', 1);
+          window.location.reload();
+        } else {
+          console.log('[cyclicalRefresh]: cannot refresh now, retry in 2 minutes');
+          this.createRefreshTimeout(2 * 1000 * 60);
+        }
+      },
+      timeout ?? (this.config.cyclicalRefresh.interval + (Math.floor(Math.random() * 121) - 60)) * 1000,
+    );
+  }
 
   /**
    *
    * @param configChanges
    * @param autorun some managers in order to execute operations need argument to "start" method
    */
-  private async runManagersFromConfig(configChanges?: TConfigChanges, autorun?: boolean): Promise<void> {
-    if (configChanges) {
-      (
-        Object.keys(configChanges)
-          // exclude general config
-          .filter(k => !['general', 'autoRelogin'].includes(k)) as Managers[]
-      ).forEach(k => {
-        if (hasAnyValue(configChanges[k], true)) {
-          this[k].onConfigChange(configChanges[k]);
-        }
-      });
+  private async runManagersFromConfig(autorun?: boolean) {
+    // BUGgy - works for now but not ideal
+    (Object.keys(this.config.general) as Managers[]).forEach(managerKey => {
+      // so that only managers are handled by below's logic
+      if (!this[managerKey]) return;
 
-      (Object.keys(configChanges.general) as Managers[]).forEach(managerKey => {
-        // so that only managers are handled by below's logic
-        if (!this[managerKey]) return;
+      this.initCyclicalRefresh();
 
-        if (this.config.general[managerKey]) {
-          if (!this[managerKey].isRunning()) {
-            console.log(`${managerKey} will be started...`);
-            this[managerKey].start(autorun);
-          }
-        } else {
-          if (this[managerKey].isRunning()) {
-            console.log(`${managerKey} will be stopped...`);
-            this[managerKey].stop();
-          }
+      if (this.config.general[managerKey]) {
+        if (!this[managerKey].isRunning()) {
+          console.log(`${managerKey} will be started...`);
+          this[managerKey].start(autorun);
         }
-      });
+      } else {
+        if (this[managerKey].isRunning()) {
+          console.log(`${managerKey} will be stopped...`);
+          this[managerKey].stop();
+        }
+      }
+    });
+  }
+
+  private handleConfigChanges(configChanges: TConfigChanges) {
+    (
+      Object.keys(configChanges)
+        // exclude non managers config
+        .filter(k => !['general', 'autoRelogin', 'cyclicalRefresh'].includes(k)) as Managers[]
+    ).forEach(k => {
+      if (hasAnyValue(configChanges[k], true)) {
+        this[k].onConfigChange(configChanges[k]);
+      }
+    });
+
+    // NOTE: autoRelogin configChange handling happens inside the popup
+    if (configChanges.general.cyclicalRefresh || configChanges.cyclicalRefresh.interval) {
+      this.initCyclicalRefresh();
+    }
+
+    (Object.keys(configChanges.general) as Managers[]).forEach(managerKey => {
+      // so that only managers are handled by below's logic
+      if (!this[managerKey]) return;
+
+      if (this.config.general[managerKey]) {
+        if (!this[managerKey].isRunning()) {
+          console.log(`${managerKey} will be started...`);
+          this[managerKey].start();
+        }
+      } else {
+        if (this[managerKey].isRunning()) {
+          console.log(`${managerKey} will be stopped...`);
+          this[managerKey].stop();
+        }
+      }
+    });
+  }
+
+  /**
+   * Based on the config either removes the timeout or sets it (overwrite).
+   */
+  private initCyclicalRefresh() {
+    if (this.config.cyclicalRefresh) {
+      clearTimeout(this.refreshTimeoutId);
+      this.createRefreshTimeout();
     } else {
-      // BUGgy - works for now but not ideal
-      (Object.keys(this.config.general) as Managers[]).forEach(managerKey => {
-        // so that only managers are handled by below's logic
-        if (!this[managerKey]) return;
-
-        if (this.config.general[managerKey]) {
-          if (!this[managerKey].isRunning()) {
-            console.log(`${managerKey} will be started...`);
-            this[managerKey].start(autorun);
-          }
-        } else {
-          if (this[managerKey].isRunning()) {
-            console.log(`${managerKey} will be stopped...`);
-            this[managerKey].stop();
-          }
-        }
-      });
+      clearTimeout(this.refreshTimeoutId);
     }
   }
 
+  /**
+   * The very entry of the **Master Manager**.
+   */
   private async initConfigDialog() {
     /*
      TODO: tutaj zostanie przekazana instancja klasy renderującej konfiguracji każdego menadżera
@@ -170,7 +197,7 @@ export default class MasterManager {
      */
     this.configPopupWindow = useConfigPopup();
     this.configPopupWindow.addListener('managersChange', async (configChanges: TConfigChanges) => {
-      await this.runManagersFromConfig(configChanges);
+      this.handleConfigChanges(configChanges);
     });
 
     const autoStart = getCookie('autoStart') === 1;
@@ -181,10 +208,10 @@ export default class MasterManager {
     await this.configPopupWindow.mount({ initialConfig: this.config, open: !autoStart });
 
     if (autoStart) {
-      console.log('autoStart', this.config.general.forcedRefresh, autoStart);
+      console.log('autoStart', this.config.general.cyclicalRefresh, autoStart);
       setCookie('autoStart', '0', { maxAge: -1 });
       // autorun for MasterQueue to execute scheduld operations
-      await this.runManagersFromConfig(undefined, true);
+      await this.runManagersFromConfig(true);
     }
   }
 
@@ -254,7 +281,7 @@ export default class MasterManager {
   }
 
   public forceRefresh(): void {
-    this.config.general.forcedRefresh = true;
+    this.config.general.cyclicalRefresh = true;
     ConfigManager.getInstance().persist();
     window.location.reload();
   }
