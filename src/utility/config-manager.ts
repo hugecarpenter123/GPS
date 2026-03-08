@@ -1,11 +1,16 @@
-import gpsConfig from '../../gps.config';
+import gpsConfig, { TConfig } from '../../gps.config';
 import { addDelay } from './plain-utility';
 import StorageManager from './storage-manager';
+
+interface RuntimeState {
+  timeDifference: number;
+}
 
 export default class ConfigManager {
   public static readonly LOCAL_STORAGE_KEY = 'config';
   private static instance: ConfigManager;
-  private config!: typeof gpsConfig;
+  private config!: TConfig;
+  private runtime: RuntimeState = { timeDifference: 0 };
   private storageManager!: StorageManager;
 
   private constructor() {}
@@ -15,61 +20,68 @@ export default class ConfigManager {
       ConfigManager.instance = new ConfigManager();
       ConfigManager.instance.storageManager = StorageManager.getInstance();
       ConfigManager.instance.config = ConfigManager.instance.initConfig();
-      ConfigManager.instance.setTimeDifference(); // TODO: should be blocking actually
+      ConfigManager.instance.initTimeDifference();
     }
     return ConfigManager.instance;
   }
-  private async setTimeDifference() {
-    let timeText = document.querySelector('.server_time_area')!.textContent!.split(' ')[0];
+
+  private async initTimeDifference() {
+    let timeText = document.querySelector('.server_time_area')?.textContent?.split(' ')[0] ?? '';
     while (!timeText.match(/\d{2}:\d{2}:\d{2}/)) {
       await addDelay(333);
-      timeText = document.querySelector('.server_time_area')!.textContent!.split(' ')[0];
+      timeText = document.querySelector('.server_time_area')?.textContent?.split(' ')[0] ?? '';
     }
-    let time = timeText.split(':');
-    let appNow = new Date();
+    const time = timeText.split(':');
+    const appNow = new Date();
     appNow.setHours(parseInt(time[0]));
     appNow.setMinutes(parseInt(time[1]));
     appNow.setSeconds(parseInt(time[2]));
-    this.config.general.timeDifference = Date.now() - appNow.getTime();
+    this.runtime.timeDifference = Date.now() - appNow.getTime();
 
     console.log(
-      `server time: ${appNow}\nreal time: ${new Date()}\ndiff in [s]: ${this.config.general.timeDifference / 1000}`,
+      `server time: ${appNow}\nreal time: ${new Date()}\ndiff in [s]: ${this.runtime.timeDifference / 1000}`,
     );
   }
 
-  private initConfig(): typeof gpsConfig {
-    const config = this.storageManager.readFromLocalStorage(ConfigManager.LOCAL_STORAGE_KEY);
-    if (!config || !this.isConfigStructureEqual(config, gpsConfig, ['farmingCities'])) {
-      this.storageManager.writeToLocalStorage('config', gpsConfig);
-      return gpsConfig;
+  private initConfig(): TConfig {
+    const stored = this.storageManager.readFromLocalStorage(ConfigManager.LOCAL_STORAGE_KEY);
+    if (!stored || !this.isConfigStructureEqual(stored, gpsConfig, ['farmingCities'])) {
+      this.storageManager.writeToLocalStorage(ConfigManager.LOCAL_STORAGE_KEY, gpsConfig);
+      return structuredClone(gpsConfig);
     }
-    return config;
+    return stored;
   }
 
-  private isConfigStructureEqual(config: any, gpsConfig: any, exceptKeys: string[] = []): boolean {
+  private isConfigStructureEqual(config: any, reference: any, exceptKeys: string[] = []): boolean {
     return (
-      Object.keys(config).length === Object.keys(gpsConfig).length &&
+      Object.keys(config).length === Object.keys(reference).length &&
       Object.keys(config).every(key => {
-        if (!(key in gpsConfig)) {
-          return false;
-        }
+        if (!(key in reference)) return false;
         if (!exceptKeys.includes(key) && typeof config[key] === 'object' && config[key] !== null) {
-          return this.isConfigStructureEqual(config[key], gpsConfig[key], exceptKeys);
+          return this.isConfigStructureEqual(config[key], reference[key], exceptKeys);
         }
-        return typeof config[key] === typeof gpsConfig[key];
+        return typeof config[key] === typeof reference[key];
       })
     );
   }
 
-  public getConfig(): typeof gpsConfig {
+  public getConfig(): TConfig {
     return this.config;
+  }
+
+  public getRuntime(): RuntimeState {
+    return this.runtime;
+  }
+
+  public getTimeDifference(): number {
+    return this.runtime.timeDifference;
   }
 
   public persist(): void {
     this.storageManager.writeToLocalStorage(ConfigManager.LOCAL_STORAGE_KEY, this.config);
   }
 
-  public getConfigValue(key: keyof typeof gpsConfig): any {
+  public getConfigValue<K extends keyof TConfig>(key: K): TConfig[K] {
     return this.config[key];
   }
 }

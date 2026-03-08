@@ -1,6 +1,5 @@
 /*
 FUTURE: for now it's bad that it uses API on it's own like ConfigManager, CitySwitch etc - should be more unaware of what it is doing - i think.
-TODO: let toggle icon be visible always
 */
 
 /** @jsx h */
@@ -21,32 +20,37 @@ import Lock from '~/utility/ui-lock';
 import configPopupCss from './config-popup.css?raw';
 
 export type TConfigChanges = {
-  masterQueue: {};
   farmer: {
+    enabled: boolean;
     farmInterval: boolean;
     humanize: boolean;
     farmingCities: boolean;
   };
-  general: {
-    farmer: boolean;
-    builder: boolean;
-    recruiter: boolean;
-    masterQueue: boolean;
-    scheduler: boolean;
-    academy: boolean;
-    signoutOnCaptchaFailure: boolean;
-    autoRelogin: boolean;
-    cyclicalRefresh: boolean;
+  builder: {
+    enabled: boolean;
   };
-  builder: {};
-  recruiter: {};
-  scheduler: {};
-  academy: {};
+  recruiter: {
+    enabled: boolean;
+  };
+  scheduler: {
+    enabled: boolean;
+  };
+  academy: {
+    enabled: boolean;
+  };
+  masterQueue: {
+    enabled: boolean;
+  };
   autoRelogin: {
-    after: boolean;
+    enabled: boolean;
+    delayMs: boolean;
   };
   cyclicalRefresh: {
-    interval: boolean;
+    enabled: boolean;
+    intervalMs: boolean;
+  };
+  app: {
+    signoutOnCaptchaFailure: boolean;
   };
 };
 
@@ -154,21 +158,21 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList, initialOpen
     };
   }, [eventEmitter]);
 
-  // General toggles
-  const [farmer, setFarmer] = useState(initialConfig.general.farmer);
-  const [recruiter, setRecruiter] = useState(initialConfig.general.recruiter);
-  const [builder, setBuilder] = useState(initialConfig.general.builder);
-  const [masterQueue, setMasterQueue] = useState(initialConfig.general.masterQueue);
-  const [scheduler, setScheduler] = useState(initialConfig.general.scheduler);
-  const [academy, setAcademy] = useState(initialConfig.general.academy);
-  const [captcha, setCaptcha] = useState(initialConfig.general.signoutOnCaptchaFailure);
+  // Manager toggles
+  const [farmer, setFarmer] = useState(initialConfig.farmer.enabled);
+  const [recruiter, setRecruiter] = useState(initialConfig.recruiter.enabled);
+  const [builder, setBuilder] = useState(initialConfig.builder.enabled);
+  const [masterQueue, setMasterQueue] = useState(initialConfig.masterQueue.enabled);
+  const [scheduler, setScheduler] = useState(initialConfig.scheduler.enabled);
+  const [academy, setAcademy] = useState(initialConfig.academy.enabled);
+  const [captcha, setCaptcha] = useState(initialConfig.app.signoutOnCaptchaFailure);
   const [autoRelogin, setAutoRelogin] = useState({
-    checked: initialConfig.general.autoRelogin,
-    after: initialConfig.autoRelogin.after / 1000,
+    enabled: initialConfig.autoRelogin.enabled,
+    after: initialConfig.autoRelogin.delayMs / 1000,
   });
   const [cyclicalRefresh, setCyclicalRefresh] = useState({
-    checked: initialConfig.general.cyclicalRefresh,
-    interval: initialConfig.cyclicalRefresh.interval / 1000,
+    enabled: initialConfig.cyclicalRefresh.enabled,
+    interval: initialConfig.cyclicalRefresh.intervalMs / 1000,
   });
 
   // Farm specific
@@ -277,32 +281,37 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList, initialOpen
     );
 
     const managersConfigChanges: TConfigChanges = {
-      masterQueue: {},
       farmer: {
+        enabled: initialConfig.farmer.enabled !== farmer,
         farmInterval: initialConfig.farmer.farmInterval !== farmInterval,
         humanize: initialConfig.farmer.humanize !== humanize,
         farmingCities: conflictingCitiesChanged,
       },
-      general: {
-        farmer: initialConfig.general.farmer !== farmer,
-        masterQueue: initialConfig.general.masterQueue !== masterQueue,
-        builder: initialConfig.general.builder !== builder,
-        recruiter: initialConfig.general.recruiter !== recruiter,
-        scheduler: initialConfig.general.scheduler !== scheduler,
-        academy: initialConfig.general.academy !== academy,
-        signoutOnCaptchaFailure: initialConfig.general.signoutOnCaptchaFailure !== captcha,
-        autoRelogin: initialConfig.general.autoRelogin !== autoRelogin.checked,
-        cyclicalRefresh: initialConfig.general.cyclicalRefresh !== cyclicalRefresh.checked,
+      builder: {
+        enabled: initialConfig.builder.enabled !== builder,
       },
-      builder: {},
-      scheduler: {},
-      recruiter: {},
-      academy: {},
+      recruiter: {
+        enabled: initialConfig.recruiter.enabled !== recruiter,
+      },
+      scheduler: {
+        enabled: initialConfig.scheduler.enabled !== scheduler,
+      },
+      academy: {
+        enabled: initialConfig.academy.enabled !== academy,
+      },
+      masterQueue: {
+        enabled: initialConfig.masterQueue.enabled !== masterQueue,
+      },
       autoRelogin: {
-        after: initialConfig.autoRelogin.after !== autoRelogin.after,
+        enabled: initialConfig.autoRelogin.enabled !== autoRelogin.enabled,
+        delayMs: initialConfig.autoRelogin.delayMs !== autoRelogin.after * 1000,
       },
       cyclicalRefresh: {
-        interval: initialConfig.cyclicalRefresh.interval !== cyclicalRefresh.interval,
+        enabled: initialConfig.cyclicalRefresh.enabled !== cyclicalRefresh.enabled,
+        intervalMs: initialConfig.cyclicalRefresh.intervalMs !== cyclicalRefresh.interval * 1000,
+      },
+      app: {
+        signoutOnCaptchaFailure: initialConfig.app.signoutOnCaptchaFailure !== captcha,
       },
     };
 
@@ -311,32 +320,40 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList, initialOpen
       const configManager = ConfigManager.getInstance();
       const config = configManager.getConfig();
 
+      // Managers
+      config.farmer.enabled = farmer;
       config.farmer.farmInterval = farmInterval;
       config.farmer.humanize = humanize;
       config.farmer.farmingCities = Object.values(uniquelySelectedFarmingCitiesPerIsle);
 
-      config.general.farmer = farmer;
-      config.general.builder = builder;
-      config.general.recruiter = recruiter;
-      config.general.masterQueue = masterQueue;
-      config.general.scheduler = scheduler;
-      config.general.academy = academy;
+      config.builder.enabled = builder;
+      config.recruiter.enabled = recruiter;
+      config.masterQueue.enabled = masterQueue;
+      config.scheduler.enabled = scheduler;
+      config.academy.enabled = academy;
 
-      config.general.signoutOnCaptchaFailure = captcha;
-      if (config.general.autoRelogin !== autoRelogin.checked || config.autoRelogin.after !== autoRelogin.after) {
+      // App settings
+      config.app.signoutOnCaptchaFailure = captcha;
+
+      // Auto relogin
+      if (
+        config.autoRelogin.enabled !== autoRelogin.enabled ||
+        config.autoRelogin.delayMs !== autoRelogin.after * 1000
+      ) {
         setCookie(
           'autoRelogin',
-          autoRelogin.checked ? { value: autoRelogin.checked, after: autoRelogin.after * 1000 } : '',
+          autoRelogin.enabled ? { value: autoRelogin.enabled, after: autoRelogin.after * 1000 } : '',
           {
-            maxAge: autoRelogin.checked ? 60 * 60 * 24 * 365 : -1,
+            maxAge: autoRelogin.enabled ? 60 * 60 * 24 * 365 : -1,
           },
         );
       }
-      config.general.autoRelogin = autoRelogin.checked;
-      config.autoRelogin.after = autoRelogin.after;
+      config.autoRelogin.enabled = autoRelogin.enabled;
+      config.autoRelogin.delayMs = autoRelogin.after * 1000;
 
-      config.general.cyclicalRefresh = cyclicalRefresh.checked;
-      config.cyclicalRefresh.interval = cyclicalRefresh.interval * 1000;
+      // Cyclical refresh
+      config.cyclicalRefresh.enabled = cyclicalRefresh.enabled;
+      config.cyclicalRefresh.intervalMs = cyclicalRefresh.interval * 1000;
 
       configManager.persist();
     }
@@ -354,15 +371,50 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList, initialOpen
     setAcademy(false);
   };
 
-  //   useEffect(() => {
-  //     const config = ConfigManager.getInstance().getConfig();
-  //     setFarm(config.general.farm);
-  //     setBuilder(config.general.builder);
-  //     setGuard(config.general.guard);
-  //     setRecruiter(config.general.recruiter);
-  //     setMasterQueue(config.general.masterQueue);
-  //     setScheduler(config.general.scheduler);
-  //   }, [isMinimized]);
+  useEffect(() => {
+    if (!open) {
+      const config = ConfigManager.getInstance().getConfig();
+
+      // Manager toggles
+      setFarmer(config.farmer.enabled);
+      setBuilder(config.builder.enabled);
+      setRecruiter(config.recruiter.enabled);
+      setMasterQueue(config.masterQueue.enabled);
+      setScheduler(config.scheduler.enabled);
+      setAcademy(config.academy.enabled);
+
+      // App settings
+      setCaptcha(config.app.signoutOnCaptchaFailure);
+
+      // Auto relogin & cyclical refresh
+      setAutoRelogin({
+        enabled: config.autoRelogin.enabled,
+        after: config.autoRelogin.delayMs / 1000,
+      });
+      setCyclicalRefresh({
+        enabled: config.cyclicalRefresh.enabled,
+        interval: config.cyclicalRefresh.intervalMs / 1000,
+      });
+
+      // Farm specific
+      setFarmInterval(config.farmer.farmInterval);
+      setHumanize(config.farmer.humanize);
+
+      // Reset conflicting cities selection based on saved config
+      const initialSelection: Record<string, CityInfo> = {};
+      conflictingCitiesState.arrayOfArraysOfCitiesOnTheSameIsland.forEach(arrayOfCities => {
+        if (arrayOfCities.length === 1) {
+          initialSelection[arrayOfCities[0].isleId] = arrayOfCities[0];
+        } else {
+          const savedCity = arrayOfCities.find(
+            city => city.name === config.farmer.farmingCities.find(c => c.isleId === arrayOfCities[0].isleId)?.name,
+          );
+          initialSelection[arrayOfCities[0].isleId] = savedCity ?? arrayOfCities[0];
+        }
+      });
+      setUniquelySelectedFarmingCitiesPerIsle(initialSelection);
+    }
+  }, [open]);
 
   const handleConflictingCityChange = (isleId: string, cityName: string) => {
     const cityArray = conflictingCitiesState.arrayOfArraysOfCitiesOnTheSameIsland.find(arr => arr[0].isleId === isleId);
@@ -500,14 +552,14 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList, initialOpen
           <InputWrapper
             id="auto-relogin"
             label="Auto signin back"
-            checked={autoRelogin.checked}
+            checked={autoRelogin.enabled}
             onChange={v =>
               setAutoRelogin(prev => {
-                if (!prev.checked) {
+                if (!prev.enabled) {
                   setCookie('cr3', '', { maxAge: -1 });
                   setCookie('worldname', '', { maxAge: -1 });
                 }
-                return { ...prev, checked: !prev.checked };
+                return { ...prev, enabled: !prev.enabled };
               })
             }
             expandableContent={
@@ -527,17 +579,17 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList, initialOpen
                   onClick={() => {
                     const login = window.prompt('login:');
                     if (!login) {
-                      setAutoRelogin(prev => ({ ...prev, checked: false }));
+                      setAutoRelogin(prev => ({ ...prev, enabled: false }));
                       return;
                     }
                     const pwd = window.prompt('Password:');
                     if (!pwd) {
-                      setAutoRelogin(prev => ({ ...prev, checked: false }));
+                      setAutoRelogin(prev => ({ ...prev, enabled: false }));
                       return;
                     }
                     const worldname = window.prompt('World name:');
                     if (!worldname) {
-                      setAutoRelogin(prev => ({ ...prev, checked: false }));
+                      setAutoRelogin(prev => ({ ...prev, enabled: false }));
                       return;
                     }
 
@@ -556,15 +608,15 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList, initialOpen
           <InputWrapper
             id="cyclicalRefresh"
             label="Cyclical refresh"
-            checked={cyclicalRefresh.checked}
+            checked={cyclicalRefresh.enabled}
             onChange={v =>
               setCyclicalRefresh(prev => {
-                return { ...prev, checked: !prev.checked };
+                return { ...prev, enabled: !prev.enabled };
               })
             }
             expandableContent={
               <div className="input-wrapper">
-                <label htmlFor={'cyclical-refresh-interval'}>Interval:</label>
+                <label htmlFor={'cyclical-refresh-interval'}>Interval [s]:</label>
                 <input
                   type="number"
                   id="cyclical-refresh-interval"

@@ -169,6 +169,7 @@ export default class Scheduler implements Service<'scheduler'> {
   private lock!: Lock;
   private generalInfo!: GeneralInfo;
   private masterManager!: MasterManager;
+  private configManager!: ConfigManager;
   private config!: TConfig;
   private citySwitchManager!: CitySwitchManager;
   private schedule: ScheduleItem[] = [];
@@ -190,7 +191,8 @@ export default class Scheduler implements Service<'scheduler'> {
       Scheduler.instance.armyMovement = ArmyMovement.getInstance();
       Scheduler.instance.masterManager = await MasterManager.getInstance();
       Scheduler.instance.citySwitchManager = await CitySwitchManager.getInstance();
-      Scheduler.instance.config = ConfigManager.getInstance().getConfig();
+      Scheduler.instance.configManager = ConfigManager.getInstance();
+      Scheduler.instance.config = Scheduler.instance.configManager.getConfig();
       // ui
       Scheduler.instance.schedulerUIExtensionUI = useSchedulerUIExtensionUI();
       Scheduler.instance.schedulerTableUI = useSchedulerTable();
@@ -244,7 +246,7 @@ export default class Scheduler implements Service<'scheduler'> {
     return this.schedule.map(s => [s.timeDetails.exclusionTime, s.timeDetails.exclusionDuration]) as [number, number][];
   };
 
-  public onConfigChange = (configChanges: TConfigChanges['scheduler']) => {};
+  public onConfigChange = (_configChanges: Partial<TConfigChanges['scheduler']>) => {};
   // END service implementation --------
 
   private stopAllSchedules() {
@@ -375,11 +377,11 @@ export default class Scheduler implements Service<'scheduler'> {
               },
               // jeżeli item obejmuje wyłączenie managerów, to odczekaj czas potrzebny do ich wyłączenia i wywołaj execute w momencie preparation
               // jezeli item nie obejmuje wyłączenia managerów, to oznacza że exclusionTime === preparationTime -> więc wykonaj natychmiast
-              item.timeDetails.preparationTime + this.config.general.timeDifference - Date.now(),
+              item.timeDetails.preparationTime + this.configManager.getTimeDifference() - Date.now(),
             );
           },
           // exclustion time = preparation time || managers switch off time, timeDiff w przypadku gdy czas JS jest inny od czasu aplikacji
-          item.timeDetails.exclusionTime + this.config.general.timeDifference - Date.now(),
+          item.timeDetails.exclusionTime + this.configManager.getTimeDifference() - Date.now(),
         );
       });
     } catch (e) {
@@ -1007,7 +1009,7 @@ export default class Scheduler implements Service<'scheduler'> {
         const preparationTime =
           registeredItem.timeDetails.targetTimeStart -
           registeredItem.timeDetails.movementDuration -
-          this.config.general.antyTimingMs -
+          this.config.app.antyTimingMs -
           Scheduler.PREPARATION_TIME_MS;
 
         registeredItem.timeDetails.preparationTime = preparationTime;
@@ -1022,7 +1024,7 @@ export default class Scheduler implements Service<'scheduler'> {
         registeredItem.timeDetails.exclusionDuration =
           registeredItem.timeDetails.targetTimeStart +
           registeredItem.timeDetails.targetTimeDuration +
-          this.config.general.antyTimingMs -
+          this.config.app.antyTimingMs -
           registeredItem.timeDetails.movementDuration -
           registeredItem.timeDetails.exclusionTime;
       }
@@ -1068,7 +1070,7 @@ export default class Scheduler implements Service<'scheduler'> {
         const preparationTime =
           registeredItem.timeDetails.targetTimeStart -
           registeredItem.timeDetails.movementDuration -
-          this.config.general.antyTimingMs -
+          this.config.app.antyTimingMs -
           Scheduler.PREPARATION_TIME_MS;
 
         registeredItem.timeDetails.preparationTime = preparationTime;
@@ -1083,7 +1085,7 @@ export default class Scheduler implements Service<'scheduler'> {
         registeredItem.timeDetails.exclusionDuration =
           registeredItem.timeDetails.targetTimeStart +
           registeredItem.timeDetails.targetTimeDuration +
-          this.config.general.antyTimingMs -
+          this.config.app.antyTimingMs -
           registeredItem.timeDetails.movementDuration -
           registeredItem.timeDetails.exclusionTime;
       }
@@ -1216,7 +1218,7 @@ export default class Scheduler implements Service<'scheduler'> {
       const preparationTime =
         item.timeDetails.targetTimeStart -
         item.timeDetails.movementDuration -
-        this.config.general.antyTimingMs -
+        this.config.app.antyTimingMs -
         Scheduler.PREPARATION_TIME_MS;
 
       item.timeDetails.preparationTime = preparationTime;
@@ -1231,7 +1233,7 @@ export default class Scheduler implements Service<'scheduler'> {
       item.timeDetails.exclusionDuration =
         item.timeDetails.targetTimeStart +
         item.timeDetails.targetTimeDuration +
-        this.config.general.antyTimingMs -
+        this.config.app.antyTimingMs -
         item.timeDetails.movementDuration -
         item.timeDetails.exclusionTime;
     }
@@ -1310,12 +1312,12 @@ export default class Scheduler implements Service<'scheduler'> {
           item.timeDetails.targetTimeStart -
             item.timeDetails.movementDuration -
             Scheduler.PREPARATION_TIME_MS -
-            (isPrecise ? this.config.general.antyTimingMs : 0),
+            (isPrecise ? this.config.app.antyTimingMs : 0),
         ).toLocaleString(),
         executionStartTime: new Date(
           item.timeDetails.targetTimeStart -
             item.timeDetails.movementDuration -
-            (isPrecise ? this.config.general.antyTimingMs : 0),
+            (isPrecise ? this.config.app.antyTimingMs : 0),
         ).toLocaleString(),
       },
       precision: item.precision

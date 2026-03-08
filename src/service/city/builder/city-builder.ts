@@ -1134,7 +1134,7 @@ export default class CityBuilder implements Service<'builder'> {
   }
 
   public getScheduledActionTimes() {
-    return this.schedule.map(s => [s.executionTime, undefined]).filter(([t1]) => Boolean(t1)) as [number, undefined][];
+    return this.schedule.map(s => [s.executionTime, 10000]).filter(([t1]) => Boolean(t1)) as [number, undefined][];
   }
   public onConfigChange(configChanges: Partial<TConfigChanges['builder']>) {
     // nothing

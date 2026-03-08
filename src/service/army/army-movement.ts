@@ -2,7 +2,7 @@
  * Stworzyć utility, które będzie śledziło i rejestrowało ruch
  */
 
-import config from '../../../gps.config';
+import { TConfig } from '../../../gps.config';
 import ConfigManager from '../../utility/config-manager';
 import { addDelay, doWhile, getDaysAhead, getTopmostAncestorByClass, waitWhile } from '../../utility/plain-utility';
 import { performComplexClick, waitForElement, waitForElementInterval } from '../../utility/ui-utility';
@@ -45,7 +45,8 @@ import { AttackStrategy, OperationType, ScheduleItem, SchedulerExecutor } from '
 
 export default class ArmyMovement implements SchedulerExecutor {
   private error: string | null = null;
-  private config!: typeof config;
+  private configManager!: ConfigManager;
+  private config!: TConfig;
 
   private static instance: ArmyMovement;
   private constructor() {}
@@ -53,7 +54,8 @@ export default class ArmyMovement implements SchedulerExecutor {
   public static getInstance(): ArmyMovement {
     if (!ArmyMovement.instance) {
       ArmyMovement.instance = new ArmyMovement();
-      ArmyMovement.instance.config = ConfigManager.getInstance().getConfig();
+      ArmyMovement.instance.configManager = ConfigManager.getInstance();
+      ArmyMovement.instance.config = ArmyMovement.instance.configManager.getConfig();
       // ArmyMovement.instance.mountObserver();
     }
     return ArmyMovement.instance;
@@ -253,7 +255,7 @@ export default class ArmyMovement implements SchedulerExecutor {
 
     if (item.precision) {
       let totalTtrials = 0;
-      const timeToRealExecution = item.timeDetails.executionStartTime + this.config.general.timeDifference - Date.now();
+      const timeToRealExecution = item.timeDetails.executionStartTime + this.configManager.getTimeDifference() - Date.now();
       utils.assignTimeout(
         setTimeout(async () => {
           try {
@@ -317,7 +319,7 @@ export default class ArmyMovement implements SchedulerExecutor {
     }
     // no precision operation
     else {
-      const timeToRealExecution = item.timeDetails.executionStartTime + this.config.general.timeDifference - Date.now();
+      const timeToRealExecution = item.timeDetails.executionStartTime + this.configManager.getTimeDifference() - Date.now();
 
       utils.assignTimeout(
         setTimeout(async () => {

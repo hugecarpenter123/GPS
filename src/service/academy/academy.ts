@@ -60,9 +60,9 @@ export class Academy implements Service<'academy'> {
     this.RUN = true;
   }
 
+  // managed by master-manger
   public getScheduledActionTimes() {
-    throw new Error('to implement');
-    return [];
+    return [] as [number, number][];
   }
   public onConfigChange(configChanges: Partial<TConfigChanges['academy']>) {
     // nothing

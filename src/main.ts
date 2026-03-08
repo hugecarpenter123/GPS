@@ -36,22 +36,19 @@ const main = async () => {
 
     if (currentUrl.includes('start?nosession')) {
       if (autoRelogin?.value) {
-        console.log(`will try to reconnect in ${autoRelogin?.after || 0} seconds`);
-        timeoutId = setTimeout(
-          () => {
-            if (isInGameRegex.test(window.location.href)) {
-              return;
-            }
-            setCookie('autoStart', 1);
-            waitForElementInterval(`[data-worldname="${getCookie('worldname')}"]`, {
-              retries: 15,
-              interval: 500,
-            })
-              .then(el => el.click())
-              .catch();
-          },
-          (autoRelogin?.after || 0) * 1000,
-        );
+        console.log(`will try to reconnect in ${autoRelogin?.after / 1000 || 0} seconds`);
+        timeoutId = setTimeout(() => {
+          if (isInGameRegex.test(window.location.href)) {
+            return;
+          }
+          setCookie('autoStart', 1);
+          waitForElementInterval(`[data-worldname="${getCookie('worldname')}"]`, {
+            retries: 15,
+            interval: 500,
+          })
+            .then(el => el.click())
+            .catch();
+        }, autoRelogin?.after || 0);
       }
     }
     // signed out entirely
@@ -61,24 +58,21 @@ const main = async () => {
     ) {
       const credentials = getCookie('cr3');
       if (credentials && autoRelogin?.value) {
-        console.log(`will try to reconnect in ${autoRelogin?.after || 0} seconds`);
-        timeoutId = setTimeout(
-          async () => {
-            if (isInGameRegex.test(window.location.href)) {
-              return;
-            }
-            setCookie('autoStart', 1);
-            const [login, pwd] = atob(credentials).split(':');
-            setNativeValue(
-              document.querySelector<HTMLInputElement>('#page_login_always-visible_input_player-identifier')!,
-              login,
-            );
-            setNativeValue(document.querySelector<HTMLInputElement>('#page_login_always-visible_input_password')!, pwd);
-            await addDelay(1000);
-            document.querySelector<HTMLButtonElement>('#page_login_always-visible_button_login')!.click();
-          },
-          autoRelogin?.after ? autoRelogin.after * 1000 : 0,
-        );
+        console.log(`will try to reconnect in ${autoRelogin?.after / 1000 || 0} seconds`);
+        timeoutId = setTimeout(async () => {
+          if (isInGameRegex.test(window.location.href)) {
+            return;
+          }
+          setCookie('autoStart', 1);
+          const [login, pwd] = atob(credentials).split(':');
+          setNativeValue(
+            document.querySelector<HTMLInputElement>('#page_login_always-visible_input_player-identifier')!,
+            login,
+          );
+          setNativeValue(document.querySelector<HTMLInputElement>('#page_login_always-visible_input_password')!, pwd);
+          await addDelay(1000);
+          document.querySelector<HTMLButtonElement>('#page_login_always-visible_button_login')!.click();
+        }, autoRelogin?.after || 0);
       }
     }
   }

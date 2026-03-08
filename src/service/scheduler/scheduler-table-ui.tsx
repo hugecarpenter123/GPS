@@ -36,7 +36,7 @@ const SchedulerTable: React.FC<SchedulerTableProps> = ({ scheduleList, onCancel,
     (acc, id, index) => ({ ...acc, [id]: COLORS[index % COLORS.length] }),
     {},
   );
-  const AT = ConfigManager.getInstance().getConfig().general.antyTimingMs;
+  const AT = ConfigManager.getInstance().getConfig().app.antyTimingMs;
   return (
     <>
       <div id="scheduler-table-container" class={open ? '' : 'hidden'}>

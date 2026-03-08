@@ -5,7 +5,7 @@ TODO
 */
 
 import EventEmitter from 'events';
-import gpsConfig from '../../../gps.config';
+import { TConfig } from '../../../gps.config';
 import ConfigManager from '../../utility/config-manager';
 import ResourceLock from '../../utility/resource-lock';
 import Service from '../../utility/Service';
@@ -149,7 +149,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
   public static readonly RESOURCES_BLOCKING_TIME = 300000; // 5 min testing
   public static MASTER_QUEUE_CHANGE_EVENT = 'master-qeueue-change';
 
-  private config!: typeof gpsConfig;
+  private config!: TConfig;
   private queue: CitySchedule[];
   private citySwitchManager!: CitySwitchManager;
   private resourceLock!: ResourceLock;
@@ -168,7 +168,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     this.queue = [];
   }
 
-  public onConfigChange(configChanges: Partial<TConfigChanges['recruiter']>) {}
+  public onConfigChange(configChanges: Partial<TConfigChanges['masterQueue']>) {}
 
   private static instance: MasterQueue;
 

@@ -1,48 +1,53 @@
 import { CityInfo } from './src/service/city/city-switch-manager';
 
 export enum FarmTimeInterval {
-  FirstOption = 5 * 60 * 1000,
-  SecondOption = 20 * 60 * 1000,
-  ThirdOption = 90 * 60 * 1000,
-  FourthOption = 4 * 60 * 60 * 1000,
+  FirstOption = 5 * 60_1000,
+  SecondOption = 20 * 60_1000,
+  ThirdOption = 90 * 60_1000,
+  FourthOption = 4 * 60 * 60_1000,
 }
 
 const config = {
-  scheduler: {},
-  recruiter: {},
-  builder: {},
-  academy: {},
   farmer: {
+    enabled: true,
     farmInterval: FarmTimeInterval.FirstOption,
     humanize: false,
     farmingCities: [] as CityInfo[],
   },
-  masterQueue: {},
+  builder: {
+    enabled: true,
+  },
+  recruiter: {
+    enabled: true,
+  },
+  scheduler: {
+    enabled: true,
+  },
+  academy: {
+    enabled: true,
+  },
+  masterQueue: {
+    enabled: true,
+  },
+  autoRelogin: {
+    enabled: false,
+    delayMs: 5 * 60 * 1000,
+  },
+  cyclicalRefresh: {
+    enabled: false,
+    intervalMs: 60 * 60 * 1000,
+  },
+  app: {
+    antyTimingMs: 10000,
+    signoutOnCaptchaFailure: true,
+  },
   resources: {
     minPopulationBuffer: 170,
     storeAlmostFullPercentage: 0.9,
   },
-  autoRelogin: {
-    after: 1000 * 60 * 5,
-  },
-  cyclicalRefresh: {
-    interval: 60 * 60 * 1000, // 1h
-  },
-  general: {
-    timeDifference: 0,
-    antyTimingMs: 10000,
-    cyclicalRefresh: false,
-    farmer: true,
-    builder: true,
-    masterQueue: true,
-    recruiter: true,
-    scheduler: true,
-    academy: true,
-    autoRelogin: false,
-    signoutOnCaptchaFailure: true,
-  },
 };
 
-export type Managers = 'scheduler' | 'builder' | 'recruiter' | 'academy' | 'farmer' | 'masterQueue';
+export const MANAGER_KEYS = ['farmer', 'builder', 'recruiter', 'scheduler', 'academy', 'masterQueue'] as const;
+export type Managers = (typeof MANAGER_KEYS)[number];
 export type TConfig = typeof config;
 export default config;

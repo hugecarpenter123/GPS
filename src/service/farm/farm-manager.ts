@@ -1,6 +1,7 @@
 import EventEmitter from 'events';
+import { TConfigChanges } from '~/config-popup/config-popup';
 import Service from '~/utility/Service';
-import gpsConfig, { FarmTimeInterval } from '../../../gps.config';
+import { FarmTimeInterval, TConfig } from '../../../gps.config';
 import ConfigManager from '../../utility/config-manager';
 import { InfoError } from '../../utility/info-error';
 import {
@@ -46,7 +47,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
   private citySwitch!: CitySwitchManager;
   private configManager!: ConfigManager;
   private generalInfo!: GeneralInfo;
-  private config!: typeof gpsConfig;
+  private config!: TConfig;
   private schedule: ScheduleItem[] = [];
   private captainSchedule: CaptainSchedulerItem | null = null;
   private messageDialogObserver: MutationObserver | null = null;
@@ -65,7 +66,8 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
       Farmer.instance = new Farmer();
       Farmer.instance.generalInfo = GeneralInfo.getInstance();
       Farmer.instance.citySwitch = await CitySwitchManager.getInstance();
-      Farmer.instance.config = ConfigManager.getInstance().getConfig();
+      Farmer.instance.configManager = ConfigManager.getInstance();
+      Farmer.instance.config = Farmer.instance.configManager.getConfig();
       Farmer.instance.lock = Lock.getInstance();
     }
     return Farmer.instance;
@@ -130,7 +132,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
                 await addDelay(250);
               }
               const timeoutMS =
-                calculateTimeToNextOccurrence(cooldownTimeTextParsed!) + this.config.general.timeDifference + 1000;
+                calculateTimeToNextOccurrence(cooldownTimeTextParsed!) + this.configManager.getTimeDifference() + 1000;
               const scheduledDate = new Date(Date.now() + timeoutMS);
 
               console.log('[Farmer]: Schedule next farming operation for captain on:', scheduledDate);
@@ -237,7 +239,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
 
           // calculating time to next occurrence
           const timeout =
-            calculateTimeToNextOccurrence(newCooldownParsedTimeText!) + this.config.general.timeDifference + 1000;
+            calculateTimeToNextOccurrence(newCooldownParsedTimeText!) + this.configManager.getTimeDifference() + 1000;
           const scheduledDate = new Date(Date.now() + timeout);
           console.log('[Farmer]: Schedule next farming operation for captain on:', scheduledDate);
           const scheduleTimeout = setTimeout(() => {
@@ -680,8 +682,8 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
       : (this.schedule.map(s => [s.scheduledDate.getTime(), 5000]) as [[number, number]]);
   }
 
-  public onConfigChange(configChanges: Partial<{ farmInterval: boolean; humanize: boolean; farmingCities: boolean }>) {
-    if (configChanges.farmingCities) {
+  public onConfigChange(configChanges: Partial<TConfigChanges['farmer']>) {
+    if (configChanges.farmingCities && this.RUN) {
       if (this.getFarmingWay() === FarmingSolution.Manual) {
         this.schedule.forEach(s => clearTimeout(s.timeout));
         this.schedule = [];

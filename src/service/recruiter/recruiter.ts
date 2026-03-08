@@ -143,7 +143,7 @@ export default class Recruiter implements Service<'recruiter'> {
     document.body.appendChild(recruiterDialogContainer);
   }
 
-  // nothing applies to it
+  // managed by master-queue
   public getScheduledActionTimes = () => [] as [number, number][];
   public onConfigChange = (configChanges: Partial<TConfigChanges['recruiter']>) => {};
 
@@ -422,8 +422,7 @@ export default class Recruiter implements Service<'recruiter'> {
       const sourceCity = this.citySwitchManager.getCurrentCity();
       // const shipmentTime = Number(shipmentTimeSelect!.value);
       const charms = this.getSelectedCharms();
-      const { maxShipmentTime, blocking, autoSuppliers, supplierCityNames } =
-        this.getScheduleBaseFormValues!();
+      const { maxShipmentTime, blocking, autoSuppliers, supplierCityNames } = this.getScheduleBaseFormValues!();
 
       const { unitImageClass } = this.currentUnitContext!;
 
