@@ -107,7 +107,6 @@ export type MasterQueueInlineUtility = ReturnType<typeof useMasterQueueInline>;
 export const useMasterQueueInline = () => {
   let container: HTMLElement | null = null;
   let prevProps: MasterQueueInlineProps | null = null;
-  const eventEmitter = new EventEmitter();
 
   /**
    * Mounts the queue component into provided container
@@ -151,8 +150,6 @@ export const useMasterQueueInline = () => {
     render(null, container);
 
     container = null;
-
-    eventEmitter.removeAllListeners();
   };
 
   return {

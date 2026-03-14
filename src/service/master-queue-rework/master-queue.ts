@@ -283,8 +283,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     );
 
     // Persist changes
-    this.rerenderInjectedQueuesUI(citySchedule);
-    this.tableUIUtility.update(this.queue);
+    this.refreshUI();
     this.persistCitySchedule(citySchedule);
   }
 
@@ -464,8 +463,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
           supplierCities: item.supplierCities ?? [],
         });
 
-        this.rerenderInjectedQueuesUI(citySchedule);
-        this.tableUIUtility.update(this.queue);
+        this.refreshUI();
         this.persistCitySchedule(citySchedule);
         return citySchedule;
       } else {
@@ -489,8 +487,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
            supplierem i samo się zreewaluuje
            */
           this.runNextAction(citySchedule);
-          this.rerenderInjectedQueuesUI(citySchedule);
-          this.tableUIUtility.update(this.queue);
+          this.refreshUI();
           this.persistCitySchedule(citySchedule);
           return citySchedule;
         }
@@ -498,8 +495,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     }
 
     this.reevaluateProviderCities();
-    this.rerenderInjectedQueuesUI(citySchedule);
-    this.tableUIUtility.update(this.queue);
+    this.refreshUI();
     this.persistCitySchedule(citySchedule);
     return citySchedule;
   }
@@ -643,8 +639,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
         citySchedule.queue.unshift(...subsequentItems);
 
         this.persistCitySchedule(citySchedule);
-        this.rerenderInjectedQueuesUI(citySchedule);
-        this.tableUIUtility.update(this.queue);
+        this.refreshUI();
         await this.runNextAction(citySchedule);
       } else {
         await this.cleanAndRunNext(citySchedule, finishedItem);
@@ -745,8 +740,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
     this.stopCityScheduleMainQueueAction(citySchedule);
     this.reevaluateProviderCities();
     this.persistCitySchedule(citySchedule);
-    this.rerenderInjectedQueuesUI(citySchedule);
-    this.tableUIUtility.update(this.queue);
+    this.refreshUI();
   }
 
   // TODO: potentially make it use this.supplierCities reference
@@ -958,8 +952,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
       }
     }
     console.log(`[MasterQueue] → Updating UI queues after timeout scheduling`);
-    this.rerenderInjectedQueuesUI();
-    this.tableUIUtility.update(this.queue);
+    this.refreshUI();
   }
 
   /**
@@ -1459,8 +1452,7 @@ export default class MasterQueue extends EventEmitter implements Service<'master
         this.getExecutor(removedQueueItem.itemType).postDeleteAction!(itemsToUpdate, removedQueueItem.itemDetails);
       }
 
-      this.rerenderInjectedQueuesUI(citySchedule);
-      this.tableUIUtility.update(this.queue);
+      this.refreshUI();
       // reevaluate only if city can become supplier
       if (!citySchedule.queue.length) {
         this.reevaluateProviderCities();

@@ -156,7 +156,6 @@ const CityScheduleRow = ({
 };
 
 interface MasterQueueTableProps {
-  eventEmitter: EventEmitter;
   initialQueue: CitySchedule[];
   onRunAll: () => void;
   onResetAll: () => void;
@@ -178,7 +177,6 @@ interface MasterQueueTableProps {
 export type QueueDisplay = 'main' | QueueItemType;
 
 const MasterQueueTable = ({
-  eventEmitter,
   initialQueue,
   onRunAll,
   onResetAll,
@@ -194,37 +192,6 @@ const MasterQueueTable = ({
   const [open, setOpen] = useState(false);
   const [queue, setQueue] = useState<CitySchedule[]>(initialQueue);
   const [queueDisplay, setQueueDisplay] = useState<QueueDisplay>('main');
-
-  // Listen for queue updates from MasterQueue
-  useEffect(() => {
-    const handleQueueUpdate = (newQueue: CitySchedule[]) => {
-      setQueue([...newQueue]); // spread to create new reference and trigger re-render
-    };
-
-    const handleToggle = () => {
-      setOpen(prev => !prev);
-    };
-
-    const handleShow = () => {
-      setOpen(true);
-    };
-
-    const handleHide = () => {
-      setOpen(false);
-    };
-
-    eventEmitter.on('queue-update', handleQueueUpdate);
-    eventEmitter.on('toggle', handleToggle);
-    eventEmitter.on('show', handleShow);
-    eventEmitter.on('hide', handleHide);
-
-    return () => {
-      eventEmitter.off('queue-update', handleQueueUpdate);
-      eventEmitter.off('toggle', handleToggle);
-      eventEmitter.off('show', handleShow);
-      eventEmitter.off('hide', handleHide);
-    };
-  }, [eventEmitter]);
 
   const activeSchedules = queue.filter(
     citySchedule =>
@@ -347,9 +314,9 @@ const MasterQueueTable = ({
 export type MasterQueueTableUtility = ReturnType<typeof useMasterQueueTable>;
 export const useMasterQueueTable = () => {
   let container: HTMLElement | null = null;
-  const eventEmitter = new EventEmitter();
+  let prevProps!: MasterQueueTableProps;
 
-  const mount = (targetContainer: HTMLElement | null, props: Omit<MasterQueueTableProps, 'eventEmitter'>) => {
+  const mount = (targetContainer: HTMLElement | null, props: MasterQueueTableProps) => {
     // NOTE: component is done with tailwind, and talwind.css is injected on script load, so it's no necessery anymore
     // use it however when for example lazy loading is preferred
     // addStyleIfNotAdded();
@@ -362,38 +329,30 @@ export const useMasterQueueTable = () => {
       container.dataset.componentName = componentName;
       document.body.appendChild(container);
     }
+    prevProps = props;
 
     // Render component
     render(
       h(MasterQueueTable, {
-        eventEmitter,
         ...props,
       }),
       container,
     );
   };
 
-  // NOTE: potentially just rerender, and eliminate event emitter
   const update = (newQueue: CitySchedule[]) => {
     if (!container) {
       console.warn('Cannot update: component not mounted');
       return;
     }
 
-    // Emit event to update queue in component
-    eventEmitter.emit('queue-update', newQueue);
-  };
-
-  const toggle = () => {
-    eventEmitter.emit('toggle');
-  };
-
-  const show = () => {
-    eventEmitter.emit('show');
-  };
-
-  const hide = () => {
-    eventEmitter.emit('hide');
+    render(
+      h(MasterQueueTable, {
+        ...prevProps,
+        initialQueue: [...newQueue],
+      }),
+      container,
+    );
   };
 
   const unmount = () => {
@@ -409,17 +368,11 @@ export const useMasterQueueTable = () => {
     // Remove styles (only queue styles)
     // document.head.querySelector(`[data-for="${componentName}-queue"]`)?.remove();
     // styleAdded = false;
-
-    // Remove all event listeners
-    eventEmitter.removeAllListeners();
   };
 
   return {
     mount,
     update,
-    toggle,
-    show,
-    hide,
     unmount,
     get container() {
       return container;
