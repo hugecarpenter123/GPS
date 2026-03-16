@@ -5,8 +5,9 @@
   "description": "",
   "main": "main.ts",
   "scripts": {
-    "build": "webpack",
-    "build:readable": "webpack --mode development --devtool source-map",
+    "build": "webpack --mode production",
+    "build:dev": "webpack --mode development",
+    "build:debug": "webpack --mode development --devtool inline-source-map",
     "start": "webpack serve --mode development",
     "playground": "vite playground",
     "play": "node playground/play.mjs",

@@ -5,7 +5,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export default {
-  mode: 'production',
   entry: './src/main.ts',
   module: {
     rules: [
@@ -62,11 +61,9 @@ export default {
     path: path.resolve(__dirname, 'dist'),
   },
   optimization: {
-    minimize: true,
     usedExports: true,
     sideEffects: true,
   },
-  devtool: 'source-map',
   devServer: {
     contentBase: path.resolve(__dirname, 'dist'),
     compress: true,
