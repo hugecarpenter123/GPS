@@ -12,7 +12,7 @@
 
 /*! ../../gps.config */
 
-/*! ../../master-queue-rework/master-queue.rework */
+/*! ../../master-queue-rework/master-queue */
 
 /*! ../../master/ui/general-info */
 
@@ -34,19 +34,27 @@
 
 /*! ../Scheduler */
 
+/*! ../academy/academy */
+
 /*! ../army/army-movement */
+
+/*! ../army/army-units */
 
 /*! ../charms/charms-utility */
 
 /*! ../city-switch-manager */
 
+/*! ../city/builder/buildings */
+
 /*! ../city/builder/city-builder */
 
 /*! ../city/city-switch-manager */
 
+/*! ../farm/bandit-camp-manager */
+
 /*! ../farm/farm-manager */
 
-/*! ../master-queue-rework/master-queue.rework */
+/*! ../master-queue-rework/master-queue */
 
 /*! ../master/master-manager */
 
@@ -66,6 +74,8 @@
 
 /*! ./Scheduler */
 
+/*! ./academy-items */
+
 /*! ./builder-prod.html */
 
 /*! ./buildings */
@@ -82,15 +92,11 @@
 
 /*! ./general-info.css?raw */
 
-/*! ./info-template.html?raw */
-
 /*! ./inline-queue-navigation */
 
 /*! ./master-queue-inline */
 
 /*! ./master-queue-table */
-
-/*! ./master-queue.rework */
 
 /*! ./plain-utility */
 
@@ -114,7 +120,7 @@
 
 /*! ./storage-manager */
 
-/*! ./ui/general-info */
+/*! ./template.html?raw */
 
 /*! ./utility/plain-utility */
 
@@ -134,9 +140,19 @@
 
 /*! tailwind-merge */
 
+/*! ~/service/master-queue-rework/master-queue */
+
+/*! ~/service/master/master-manager */
+
+/*! ~/service/scheduler/Scheduler */
+
 /*! ~/styles/tailwind.css */
 
 /*! ~/utility/plain-utility */
+
+/*! ~/utility/ui-lock */
+
+/*! ~/utility/ui-utility */
 
 /*!*********************!*\
   !*** ./src/main.ts ***!
@@ -183,6 +199,14 @@
   \****************************************/
 
 /*!****************************************!*\
+  !*** ./src/service/academy/academy.ts ***!
+  \****************************************/
+
+/*!****************************************!*\
+  !*** ./src/service/army/army-units.ts ***!
+  \****************************************/
+
+/*!****************************************!*\
   !*** ./src/utility/storage-manager.ts ***!
   \****************************************/
 
@@ -211,6 +235,10 @@
   \********************************************/
 
 /*!**********************************************!*\
+  !*** ./src/service/academy/academy-items.ts ***!
+  \**********************************************/
+
+/*!**********************************************!*\
   !*** ./src/service/charms/charms-utility.ts ***!
   \**********************************************/
 
@@ -236,6 +264,14 @@
 
 /*!*************************************************!*\
   !*** ./src/service/city/city-switch-manager.ts ***!
+  \*************************************************/
+
+/*!*************************************************!*\
+  !*** ./src/service/farm/bandit-camp-manager.ts ***!
+  \*************************************************/
+
+/*!*************************************************!*\
+  !*** ./src/service/master/ui/template.html?raw ***!
   \*************************************************/
 
 /*!*************************************************!*\
@@ -267,10 +303,6 @@
   \****************************************************/
 
 /*!******************************************************!*\
-  !*** ./src/service/master/ui/info-template.html?raw ***!
-  \******************************************************/
-
-/*!******************************************************!*\
   !*** ./src/service/scheduler/scheduler-table-ui.tsx ***!
   \******************************************************/
 
@@ -285,6 +317,10 @@
 /*!********************************************************!*\
   !*** ./node_modules/tailwind-merge/dist/bundle-cjs.js ***!
   \********************************************************/
+
+/*!*********************************************************!*\
+  !*** ./src/service/master-queue-rework/master-queue.ts ***!
+  \*********************************************************/
 
 /*!**********************************************************!*\
   !*** ./node_modules/preact/compat/dist/compat.module.js ***!
@@ -304,10 +340,6 @@
 
 /*!****************************************************************!*\
   !*** ./src/service/master-queue-rework/master-queue-table.tsx ***!
-  \****************************************************************/
-
-/*!****************************************************************!*\
-  !*** ./src/service/master-queue-rework/master-queue.rework.ts ***!
   \****************************************************************/
 
 /*!*****************************************************************!*\

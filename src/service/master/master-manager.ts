@@ -6,6 +6,7 @@ import { addDelay, getCookie, setCookie, waitWhile } from '../../utility/plain-u
 import { Academy } from '../academy/academy';
 import CityBuilder from '../city/builder/city-builder';
 import CitySwitchManager from '../city/city-switch-manager';
+import BanditCampManager from '../farm/bandit-camp-manager';
 import Farmer from '../farm/farm-manager';
 import MasterQueue from '../master-queue-rework/master-queue';
 import Recruiter from '../recruiter/recruiter';
@@ -15,6 +16,7 @@ export default class MasterManager {
   private static instance: MasterManager;
   private config!: TConfig;
   private farmer!: Farmer;
+  private bandit!: BanditCampManager;
   private switchManager!: CitySwitchManager;
   private scheduler!: Scheduler;
   private builder!: CityBuilder;
@@ -27,6 +29,7 @@ export default class MasterManager {
 
   private pausedManagersSnapshot: Record<Managers, boolean> = {
     farmer: false,
+    bandit: false,
     scheduler: false,
     builder: false,
     recruiter: false,
@@ -42,6 +45,7 @@ export default class MasterManager {
       MasterManager.instance.config = ConfigManager.getInstance().getConfig();
       MasterManager.instance.switchManager = await CitySwitchManager.getInstance();
       MasterManager.instance.farmer = await Farmer.getInstance();
+      MasterManager.instance.bandit = await BanditCampManager.getInstance();
       MasterManager.instance.scheduler = await Scheduler.getInstance();
       MasterManager.instance.builder = await CityBuilder.getInstance();
       MasterManager.instance.recruiter = await Recruiter.getInstance();
@@ -81,6 +85,7 @@ export default class MasterManager {
       async () => {
         const canRefresh = [
           this.farmer,
+          this.bandit,
           this.masterQueue,
           this.recruiter,
           this.builder,
@@ -185,6 +190,7 @@ export default class MasterManager {
     (
       [
         [this.farmer, 'farmer'],
+        [this.bandit, 'bandit'],
         [this.masterQueue, 'masterQueue'],
         [this.recruiter, 'recruiter'],
         [this.builder, 'builder'],
@@ -241,6 +247,7 @@ export default class MasterManager {
 
   public stopAll(): void {
     this.farmer.stop();
+    this.bandit.stop();
     this.switchManager.stop();
     this.scheduler.stop();
     this.builder.stop();

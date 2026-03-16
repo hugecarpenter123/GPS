@@ -14,6 +14,9 @@ const config = {
     humanize: false,
     farmingCities: [] as CityInfo[],
   },
+  bandit: {
+    enabled: false,
+  },
   builder: {
     enabled: true,
   },
@@ -47,7 +50,7 @@ const config = {
   },
 };
 
-export const MANAGER_KEYS = ['farmer', 'builder', 'recruiter', 'scheduler', 'academy', 'masterQueue'] as const;
+export const MANAGER_KEYS = ['farmer', 'bandit', 'builder', 'recruiter', 'scheduler', 'academy', 'masterQueue'] as const;
 export type Managers = (typeof MANAGER_KEYS)[number];
 export type TConfig = typeof config;
 export default config;

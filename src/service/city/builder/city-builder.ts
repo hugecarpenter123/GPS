@@ -544,12 +544,21 @@ export default class CityBuilder implements Service<'builder'> {
       } else {
         // set timeout to speed up first build when ready and call itself recursively to check if there are any other items in the queue
         const timeout = setTimeout(async () => {
+          let infoId!: number;
           try {
-            console.log('[Builder]: SpeedUpFirstBuild inside timeout, speeding up first build');
-            await this.speedUpFirstBuild(city);
-            await this.setInternalSpeedUpFlow(city);
+            await this.lock.performWithLock(
+              async () => {
+                infoId = this.generalInfo.showInfo('Builder', 'Performing internal speedup flow', 'info');
+                console.log('[Builder]: SpeedUpFirstBuild inside timeout, speeding up first build');
+                await this.speedUpFirstBuild(city);
+                await this.setInternalSpeedUpFlow(city);
+              },
+              { manager: 'builder', method: 'setInternalSpeedUpFlow-timeout' },
+            );
           } catch (e) {
-            console.error('[Builder]: Error when setting up internal spee-up flow:', city.name, e);
+            console.error('[Builder]: Error when setting up internal speed-up flow (timeout):', city.name, e);
+          } finally {
+            this.generalInfo.hideInfo(infoId);
           }
         }, timeToSpeedUp + 1000);
         const scheduleTime = Date.now() + timeToSpeedUp + 1000;
@@ -864,7 +873,7 @@ export default class CityBuilder implements Service<'builder'> {
    * @throws Error if no free button is found
    */
   private async speedUpFirstBuild(city: CityInfo) {
-    await city.switchAction();
+    await Promise.all([city.switchAction(), this.goToCityView()]);
     const freeButton = await waitForElementInterval('[data-order_index="0"] .type_free', {
       retries: 6,
       interval: 400,

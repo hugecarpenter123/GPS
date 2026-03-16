@@ -1,11 +1,18 @@
 /*
  * Stworzyć utility, które będzie śledziło i rejestrowało ruch
+TODO: it's not a service so move it to different folder
  */
 
 import { TConfig } from '../../../gps.config';
 import ConfigManager from '../../utility/config-manager';
 import { addDelay, doWhile, getDaysAhead, getTopmostAncestorByClass, waitWhile } from '../../utility/plain-utility';
-import { performComplexClick, waitForElement, waitForElementInterval } from '../../utility/ui-utility';
+import {
+  cancelHover,
+  performComplexClick,
+  triggerHover,
+  waitForElement,
+  waitForElementInterval,
+} from '../../utility/ui-utility';
 import { CharmDetails } from '../charms/charms-utility';
 import { CityInfo } from '../city/city-switch-manager';
 import { AttackStrategy, OperationType, ScheduleItem, SchedulerExecutor } from '../scheduler/Scheduler';
@@ -255,7 +262,8 @@ export default class ArmyMovement implements SchedulerExecutor {
 
     if (item.precision) {
       let totalTtrials = 0;
-      const timeToRealExecution = item.timeDetails.executionStartTime + this.configManager.getTimeDifference() - Date.now();
+      const timeToRealExecution =
+        item.timeDetails.executionStartTime + this.configManager.getTimeDifference() - Date.now();
       utils.assignTimeout(
         setTimeout(async () => {
           try {
@@ -319,7 +327,8 @@ export default class ArmyMovement implements SchedulerExecutor {
     }
     // no precision operation
     else {
-      const timeToRealExecution = item.timeDetails.executionStartTime + this.configManager.getTimeDifference() - Date.now();
+      const timeToRealExecution =
+        item.timeDetails.executionStartTime + this.configManager.getTimeDifference() - Date.now();
 
       utils.assignTimeout(
         setTimeout(async () => {
@@ -376,15 +385,35 @@ export default class ArmyMovement implements SchedulerExecutor {
   }
 
   private async cancelMovement(movementId: string) {
-    await this.openActivityCommandsPanel();
-    // .game_arrow_delete
-    const movement = document.getElementById(movementId);
-    if (!movement) throw new Error('Movement to cancel not found');
-    movement.querySelector<HTMLAnchorElement>('.game_arrow_delete')?.click();
-    await waitWhile(() => !!document.getElementById(movementId)?.querySelector('.game_arrow_delete'), {
-      delay: 100,
-      maxIterations: 10,
-    });
+    if (!this.hasCaptain()) {
+      const activityIcon = document.querySelector<HTMLElement>('#toolbar_activity_commands')!;
+      triggerHover(activityIcon);
+      const movement = Array.from(
+        document.querySelector('#toolbar_activity_commands_list .content.js-dropdown-item-list')!.children,
+      ).find(el => el.id === movementId);
+      cancelHover(activityIcon);
+      if (!movement) throw new Error('Movement to cancel not found');
+      const cancel = movement.querySelector<HTMLDivElement>('.remove.cancelable');
+      if (!cancel) throw new Error('cannot cancel');
+      cancel.click();
+      await waitWhile(
+        () => !!document.querySelector(`#toolbar_activity_commands_list #${movementId} .remove.cancelable`),
+        {
+          delay: 100,
+          maxIterations: 10,
+        },
+      );
+    } else {
+      await this.openActivityCommandsPanel();
+      // .game_arrow_delete
+      const movement = document.getElementById(movementId);
+      if (!movement) throw new Error('Movement to cancel not found');
+      movement.querySelector<HTMLAnchorElement>('.game_arrow_delete')?.click();
+      await waitWhile(() => !!document.getElementById(movementId)?.querySelector('.game_arrow_delete'), {
+        delay: 100,
+        maxIterations: 10,
+      });
+    }
   }
 
   /**
@@ -539,5 +568,71 @@ export default class ArmyMovement implements SchedulerExecutor {
     if (shouldCloseAfterwards) this.closeActivityCommandsPanel();
 
     return { movementId: newestOperationLi!.id, landedTime: arrivalTime };
+  }
+
+  public getArmyMovementDetails = async (
+    townLink: string,
+  ): Promise<
+    {
+      movementId: string;
+      title: string;
+      direction: 'outgoing' | 'returning';
+      movementType: 'attack' | 'support';
+      arrivalTime: number;
+      cancellableUntil: number;
+      href?: string;
+    }[]
+  > => {
+    if (!this.hasCaptain()) {
+      triggerHover(document.querySelector<HTMLElement>('#toolbar_activity_commands')!);
+      const movementList = await waitForElementInterval(
+        '#toolbar_activity_commands_list .content.js-dropdown-item-list',
+      );
+      const array = Array.from(movementList.children)
+        .filter(
+          (el): el is HTMLDivElement =>
+            townLink === (el as HTMLElement).querySelector('.details_wrapper .town_link')?.textContent?.trim(),
+        )
+        .map(el => {
+          const iconClassList = el.querySelector('.icon')!.classList;
+          return {
+            movementId: el.id,
+            cancellableUntil: Number(el.dataset.cancelable) * 1000,
+            arrivalTime: Number(el.dataset.timestamp) * 1000,
+            movementType: iconClassList.item(2)!.split('_')[0] as 'attack' | 'support',
+            direction: iconClassList.item(3) as 'outgoing' | 'returning',
+            title: el.querySelector('.town_link')!.textContent!.trim(),
+            href: el.querySelector('a')?.href,
+          };
+        });
+      cancelHover(document.querySelector<HTMLElement>('#toolbar_activity_commands')!);
+      return array;
+    }
+    return [];
+  };
+
+  // private cancelMovement(movemendId: string) {
+  //   triggerHover(document.querySelector<HTMLElement>('#toolbar_activity_commands')!);
+  //   Array.from(document.querySelector('#toolbar_activity_commands_list .content.js-dropdown-item-list')!.children).find(
+  //     el => el.id === movemendId,
+  //   );
+  // }
+
+  public async getArmyMovementSnapshot() {
+    triggerHover(document.querySelector<HTMLElement>('#toolbar_activity_commands')!);
+    const movementList = await waitForElementInterval('#toolbar_activity_commands_list .content.js-dropdown-item-list');
+    cancelHover(document.querySelector<HTMLElement>('#toolbar_activity_commands')!);
+    return Array.from(movementList.children).map(el => {
+      const iconClassList = el.querySelector('.icon')!.classList;
+      return {
+        movementId: el.id,
+        cancellableUntil: Number((el as HTMLDivElement).dataset.cancelable) * 1000,
+        arrivalTime: Number((el as HTMLDivElement).dataset.timestamp) * 1000,
+        movementType: iconClassList.item(2)!.split('_')[0] as 'attack' | 'support',
+        direction: iconClassList.item(3) as 'outgoing' | 'returning',
+        title: el.querySelector('.town_link')!.textContent!.trim(),
+        href: el.querySelector('a')?.href,
+      };
+    });
   }
 }

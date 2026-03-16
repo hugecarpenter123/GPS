@@ -333,4 +333,8 @@ export default class CitySwitchManager extends EventEmitter {
       await addDelay(100);
     }
   }
+
+  public jumpToCurrentCity() {
+    document.querySelector<HTMLDivElement>('.btn_jump_to_town.circle_button.jump_to_town')!.click();
+  }
 }

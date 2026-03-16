@@ -26,6 +26,9 @@ export type TConfigChanges = {
     humanize: boolean;
     farmingCities: boolean;
   };
+  bandit: {
+    enabled: boolean;
+  };
   builder: {
     enabled: boolean;
   };
@@ -160,6 +163,7 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList, initialOpen
 
   // Manager toggles
   const [farmer, setFarmer] = useState(initialConfig.farmer.enabled);
+  const [bandit, setBandit] = useState(initialConfig.bandit.enabled);
   const [recruiter, setRecruiter] = useState(initialConfig.recruiter.enabled);
   const [builder, setBuilder] = useState(initialConfig.builder.enabled);
   const [masterQueue, setMasterQueue] = useState(initialConfig.masterQueue.enabled);
@@ -287,6 +291,9 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList, initialOpen
         humanize: initialConfig.farmer.humanize !== humanize,
         farmingCities: conflictingCitiesChanged,
       },
+      bandit: {
+        enabled: initialConfig.bandit.enabled !== bandit,
+      },
       builder: {
         enabled: initialConfig.builder.enabled !== builder,
       },
@@ -326,6 +333,7 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList, initialOpen
       config.farmer.humanize = humanize;
       config.farmer.farmingCities = Object.values(uniquelySelectedFarmingCitiesPerIsle);
 
+      config.bandit.enabled = bandit;
       config.builder.enabled = builder;
       config.recruiter.enabled = recruiter;
       config.masterQueue.enabled = masterQueue;
@@ -364,6 +372,7 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList, initialOpen
 
   const handleCancelAll = () => {
     setFarmer(false);
+    setBandit(false);
     setBuilder(false);
     setRecruiter(false);
     setMasterQueue(false);
@@ -377,6 +386,7 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList, initialOpen
 
       // Manager toggles
       setFarmer(config.farmer.enabled);
+      setBandit(config.bandit.enabled);
       setBuilder(config.builder.enabled);
       setRecruiter(config.recruiter.enabled);
       setMasterQueue(config.masterQueue.enabled);
@@ -529,6 +539,9 @@ const ConfigPopup = ({ eventEmitter, initialConfig, initialCityList, initialOpen
               </>
             }
           />
+
+          {/* Bandit Camp */}
+          <InputWrapper id="bandit" label="Bandit Camp" checked={bandit} onChange={setBandit} />
 
           {/* Builder */}
           <InputWrapper id="builder" label="Builder" checked={builder} onChange={setBuilder} />

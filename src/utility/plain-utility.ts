@@ -193,7 +193,7 @@ export async function doWhile(
 
   if (counter >= finalConfig.maxIterations) {
     if (finalConfig.onError) finalConfig.onError();
-    else throw new Error('Max iterations reached');
+    else throw new Error(`doWhile: Max iterations (${finalConfig.maxIterations}) reached. Condition: ${condition.toString()}`);
   }
 }
 
