@@ -5,10 +5,16 @@
   <div class="recruiter-dialog-header">
     <div style="display: flex; align-items: center; gap: 4px">
       <h2>Recruiter</h2>
-      <svg class="recruiter-dialog-header-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24"
-        height="24">
+      <svg
+        class="recruiter-dialog-header-icon"
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        width="24"
+        height="24"
+      >
         <path
-          d="M12 20q-3.35 0-5.675-2.325Q4 15.35 4 12q0-3.35 2.325-5.675Q8.65 4 12 4q1.725 0 3.3.713 1.575.712 2.7 2.037V4h2v7h-7V9h4.2q-.8-1.4-2.187-2.2Q13.625 6 12 6 9.5 6 7.75 7.75T6 12q0 2.5 1.75 4.25T12 18q1.925 0 3.475-1.1T17.65 14h2.1q-.7 2.65-2.85 4.325Q14.75 20 12 20Z" />
+          d="M12 20q-3.35 0-5.675-2.325Q4 15.35 4 12q0-3.35 2.325-5.675Q8.65 4 12 4q1.725 0 3.3.713 1.575.712 2.7 2.037V4h2v7h-7V9h4.2q-.8-1.4-2.187-2.2Q13.625 6 12 6 9.5 6 7.75 7.75T6 12q0 2.5 1.75 4.25T12 18q1.925 0 3.475-1.1T17.65 14h2.1q-.7 2.65-2.85 4.325Q14.75 20 12 20Z"
+        />
       </svg>
     </div>
     <!-- <button type="button" id="recruiter-close-btn">x</button> -->
@@ -19,11 +25,11 @@
       <h2>Recruitment amount type</h2>
       <div class="input-wrapper">
         <label for="recruiter-type-units">Units</label>
-        <input type="radio" id="recruiter-type-units" value="units" name="recruiter-type">
+        <input type="radio" id="recruiter-type-units" value="units" name="recruiter-type" />
       </div>
       <div class="input-wrapper">
         <label for="recruiter-type-slots">Slots</label>
-        <input type="radio" checked id="recruiter-type-slots" value="slots" name="recruiter-type">
+        <input type="radio" checked id="recruiter-type-slots" value="slots" name="recruiter-type" />
       </div>
     </div>
 
@@ -31,38 +37,11 @@
       <h2>Amount</h2>
       <div class="input-wrapper">
         <label for="recruiter-ammount">Units/Slots</label>
-        <input disabled type="number" id="recruiter-ammount" name="recruiter-ammount">
+        <input disabled type="number" id="recruiter-ammount" name="recruiter-ammount" />
       </div>
       <div class="input-wrapper">
         <label for="recruiter-amount-max">Max</label>
-        <input type="checkbox" checked id="recruiter-amount-max" value="max" name="recruiter-amount-max">
-      </div>
-    </div>
-
-    <div class="recruiter-cities-section">
-      <h2>Supplier cities</h2>
-      <p id="recruiter-cities-list"></p>
-      <div class="input-wrapper">
-        <label for="recruiter-cities">Cities</label>
-        <select name="recruiter-cities" id="recruiter-cities" multiple size="0">
-        </select>
-      </div>
-      <div class="input-wrapper" style="margin-top: 8px;">
-        <label for="shipment-time">Max shipment time</label>
-        <select id="shipment-time" name="shipment-time">
-          <option value="300000">5 min</option>
-          <option value="600000">10 min</option>
-          <option value="900000">15 min</option>
-          <option value="1200000">20 min</option>
-          <option value="1500000" selected>25 min</option>
-          <option value="1800000">30 min</option>
-          <option value="2100000">35 min</option>
-          <option value="2400000">40 min</option>
-          <option value="2700000">45 min</option>
-          <option value="3000000">50 min</option>
-          <option value="3300000">55 min</option>
-          <option value="3600000">60 min</option>
-        </select>
+        <input type="checkbox" checked id="recruiter-amount-max" value="max" name="recruiter-amount-max" />
       </div>
     </div>
 
@@ -71,28 +50,37 @@
       <div id="recruiter-charms-content">
         <div id="recruiter-charms-required">
           <span>Required</span>
-          <div id="recruiter-charms-required-list">
-          </div>
+          <div id="recruiter-charms-required-list"></div>
         </div>
         <div id="recruiter-charms-optional">
           <span>Optional</span>
-          <div id="recruiter-charms-optional-list">
-          </div>
+          <div id="recruiter-charms-optional-list"></div>
         </div>
       </div>
     </div>
 
+    <!-- injected from master-queue (queue item specific settings + navigation)-->
+    <div id="recruiter-navigation-section" style="margin: 12px 0"></div>
+    <button
+      id="recruiter-add-item"
+      style="
+        width: fit-content;
+        padding: 4px 16px;
+        background: rgb(51 144 51);
+        border: 1px solid #0b4d0b;
+        border-radius: 8px;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+      "
+    >
+      Add
+    </button>
+
     <div class="recruiter-queue-section">
       <h2>Queue</h2>
+      <!-- injected from master-queue -->
       <div id="recruiter-queue-content"></div>
-    </div>
-
-    <div class="recruiter-buttons-section">
-      <button type="reset" id="recruiter-cancel-btn">Clear</button>
-      <button type="button" id="recruiter-add-btn">Add</button>
-      <button type="submit" id="recruiter-confirm-btn">Start this</button>
-      <button type="button" id="recruiter-run-all-btn">Run all</button>
-      <button type="button" id="recruiter-restart-btn">Restart recruiter</button>
     </div>
   </div>
 </div>

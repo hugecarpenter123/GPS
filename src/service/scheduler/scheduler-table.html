@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+    <link rel="stylesheet" href="scheduler-table.css" />
+  </head>
+
+  <body>
+    <div id="scheduler-table-container">
+      <table id="scheduler-table">
+        <thead>
+          <tr>
+            <th class="scheduler-table-th-id">ID</th>
+            <th id="operation-type">Operation Type</th>
+            <th>Sync with</th>
+            <th class="source-city">Source City</th>
+            <th class="destination-city">Destination City</th>
+            <th class="departure-time">Departure Time</th>
+            <th class="arrival-time">Arrival Time</th>
+            <th class="arrival-time">Tolerance [s]</th>
+            <th>Army</th>
+            <th class="actions">
+              <div class="close-icon">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="3"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  style="display: block"
+                >
+                  <line x1="1" y1="1" x2="23" y2="23"></line>
+                  <line x1="23" y1="1" x2="1" y2="23"></line>
+                </svg>
+              </div>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td colspan="6" id="no-schedules" class="hidden">No schedules</td>
+          </tr>
+          <tr class="scheduler-item">
+            <td style="color: #ff6b6b; font-weight: 600">1</td>
+            <td class="operation-type support">Support</td>
+            <td>-</td>
+            <td class="source-city">city of madagaskar</td>
+            <td class="destination-city">twoja stara</td>
+            <td class="departure-time">12:11:52</td>
+            <td class="arrival-time">13:24:21</td>
+            <td>+2</td>
+            <td>
+              <div class="scheduler-army-details-container">
+                <div></div>
+              </div>
+            </td>
+            <td class="actions">
+              <button class="cancel-button">Cancel</button>
+            </td>
+          </tr>
+          <tr class="scheduler-item">
+            <td>2</td>
+            <td class="operation-type attack">Attack</td>
+            <td>-</td>
+            <td class="source-city">city of madagaskar</td>
+            <td class="destination-city">twoja stara</td>
+            <td class="departure-time">12:11:52</td>
+            <td class="arrival-time">13:24:21</td>
+            <td>+/-10</td>
+            <td>
+              <div class="scheduler-army-details-container">
+                <div class="scheduler-army-details-item">
+                  <div class="scheduler-army-details-item-bg"></div>
+                  <span class="scheduler-army-details-item-caption">300</span>
+                </div>
+                <div class="scheduler-army-details-item">
+                  <span class="scheduler-army-details-item-caption">200</span>
+                </div>
+                <div class="scheduler-army-details-item">
+                  <span class="scheduler-army-details-item-caption">1100</span>
+                </div>
+                <div class="scheduler-army-details-item">
+                  <span class="scheduler-army-details-item-caption">50</span>
+                </div>
+              </div>
+            </td>
+            <td class="actions">
+              <button class="cancel-button">Cancel</button>
+            </td>
+          </tr>
+          <tr class="scheduler-item">
+            <td>3</td>
+            <td class="operation-type support">Support</td>
+            <td style="color: #ff6b6b; font-weight: 600">1</td>
+            <td class="source-city">05. Babab</td>
+            <td class="destination-city">exkdes</td>
+            <td class="departure-time">
+              <span style="font-size: 12px; color: rgb(150, 150, 150)">13:24:21 - 13:24:26</span>
+            </td>
+            <td class="arrival-time">
+              <span style="font-size: 12px; color: rgb(150, 150, 150)">13:24:21 - 13:24:26</span>
+            </td>
+            <td>-3</td>
+            <td>
+              <div class="scheduler-army-details-container"></div>
+            </td>
+            <td>
+              <!-- <button class="cancel-button">Cancel</button> -->
+              <button class="scheduler-actions">
+                <svg
+                  class="scheduler-actions-icon"
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <circle cx="2" cy="10" r="2" />
+                  <circle cx="10" cy="10" r="2" />
+                  <circle cx="18" cy="10" r="2" />
+                </svg>
+                <div class="scheduler-action-dropdown">
+                  <div class="scheduler-action-dropdown-item">edit</div>
+                  <div class="dropdown-menu-separator"></div>
+                  <div class="scheduler-action-dropdown-item">remove</div>
+                </div>
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <button id="scheduler-toggle-button">scheduler</button>
+  </body>
+</html>

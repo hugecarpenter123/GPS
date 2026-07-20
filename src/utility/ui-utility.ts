@@ -1,4 +1,4 @@
-import { addDelay, isVisible } from "./plain-utility";
+import { addDelay, isVisible } from './plain-utility';
 
 export function simulateClick(element: HTMLElement) {
   if (element) {
@@ -8,25 +8,31 @@ export function simulateClick(element: HTMLElement) {
       clientY: rect.top + rect.height / 2,
       bubbles: true,
       cancelable: true,
-      view: window
+      view: window,
     });
     element.dispatchEvent(event);
   }
 }
 
 export const triggerHover = (element: HTMLElement) => {
-  element && element.dispatchEvent(new Event('mouseover', {
-    bubbles: true,
-    cancelable: true,
-  }));
-}
+  element &&
+    element.dispatchEvent(
+      new Event('mouseover', {
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+};
 
 export const cancelHover = (element: HTMLElement) => {
-  element && element.dispatchEvent(new Event('mouseout', {
-    bubbles: true,
-    cancelable: true,
-  }));
-}
+  element &&
+    element.dispatchEvent(
+      new Event('mouseout', {
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+};
 
 function appendChildAtIndex(parent: HTMLElement, newChild: HTMLElement, index: number) {
   const children = parent.children;
@@ -42,7 +48,7 @@ export function setInputValue(inputElement: HTMLInputElement, value: string | nu
   // Sprawdzenie, czy element jest rzeczywiście <input>
   if (inputElement && inputElement.tagName === 'INPUT') {
     // Ustawienie wartości inputu
-    inputElement.value = typeof value === "number" ? value.toString() : value;
+    inputElement.value = typeof value === 'number' ? value.toString() : value;
 
     // Tworzenie zdarzenia input
     const inputEvent = new Event('input', { bubbles: true });
@@ -52,7 +58,7 @@ export function setInputValue(inputElement: HTMLInputElement, value: string | nu
     const changeEvent = new Event('change', { bubbles: true });
     inputElement.dispatchEvent(changeEvent);
   } else {
-    console.warn(`setInputValue(${inputElement.name}) unsuccessful`)
+    console.warn(`setInputValue(${inputElement.name}) unsuccessful`);
   }
 }
 
@@ -62,15 +68,14 @@ export function waitForElements(selector: string, timeoutMs: number = 8000): Pro
     const elements = document.querySelectorAll(selector) as NodeListOf<HTMLElement>;
     if (elements.length > 0) {
       resolve(elements);
-    }
-    else {
+    } else {
       // Ustawienie observera do monitorowania DOM
       let timeout = setTimeout(() => {
         observer.disconnect();
         reject(`waitForElements(${selector}) - not found within timeout`);
       }, timeoutMs);
 
-      const observer = new MutationObserver((mutations) => {
+      const observer = new MutationObserver(mutations => {
         for (const mutation of mutations) {
           if (mutation.type === 'childList') {
             const elements = document.querySelectorAll(selector) as NodeListOf<HTMLElement>;
@@ -85,32 +90,28 @@ export function waitForElements(selector: string, timeoutMs: number = 8000): Pro
 
       observer.observe(document.body, { childList: true, subtree: true });
     }
-
   });
 }
 
-
-export function waitForElement(selector: string, timeout: number = 8000): Promise<HTMLElement> {
+export function waitForElement(selector: string, timeout: number = 3000): Promise<HTMLElement> {
   return new Promise((resolve, reject) => {
     const element = document.querySelector(selector) as HTMLElement;
 
     if (element) {
       return resolve(element);
     } else {
-
       const timeoutId = setTimeout(() => {
         observer.disconnect();
         reject(`${selector} - not found within timeout`);
       }, timeout);
 
-
-      const observer = new MutationObserver((mutations) => {
+      const observer = new MutationObserver(mutations => {
         for (const mutation of mutations) {
           if (mutation.type === 'childList') {
             for (const node of mutation.addedNodes) {
               if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).matches(selector)) {
                 observer.disconnect();
-                clearTimeout(timeout);
+                clearTimeout(timeoutId);
                 resolve(node as HTMLElement);
               }
             }
@@ -129,17 +130,17 @@ type WaitForElementOptions = {
   fromNode?: HTMLElement | Document;
   interval?: number;
   retries?: number;
-}
+};
 const WaitForElementOptionsDefaults: WaitForElementOptions = {
   timeout: 8000,
   fromNode: document,
   interval: 333,
   retries: undefined,
-}
+};
 
 export function waitForElementInterval(
   selector: string,
-  options: WaitForElementOptions = WaitForElementOptionsDefaults
+  options: WaitForElementOptions = WaitForElementOptionsDefaults,
 ): Promise<HTMLElement> {
   const { timeout = 8000, fromNode = document, interval = 333, retries } = options;
 
@@ -148,11 +149,12 @@ export function waitForElementInterval(
     if (element) {
       resolve(element);
     } else {
-      const timeoutId = retries ? setTimeout(() => {
-        clearInterval(observer);
-        reject(`${selector} - not found within timeout`);
-      }, timeout)
-        : undefined;
+      const timeoutId = retries
+        ? undefined
+        : setTimeout(() => {
+            clearInterval(observer);
+            reject(`${selector} - not found within timeout`);
+          }, timeout);
 
       let retryCount = 0;
       const observer = setInterval(() => {
@@ -171,7 +173,10 @@ export function waitForElementInterval(
   });
 }
 
-export function waitForElementsInterval(selector: string, options: WaitForElementOptions = WaitForElementOptionsDefaults): Promise<NodeListOf<HTMLElement>> {
+export function waitForElementsInterval(
+  selector: string,
+  options: WaitForElementOptions = WaitForElementOptionsDefaults,
+): Promise<NodeListOf<HTMLElement>> {
   const { timeout = 8000, fromNode = document, interval = 333, retries } = options;
 
   return new Promise((resolve, reject) => {
@@ -180,11 +185,11 @@ export function waitForElementsInterval(selector: string, options: WaitForElemen
     if (elements.length > 0) {
       resolve(elements);
     } else {
-
-      const timeoutId = retries ? setTimeout(() => {
-        clearInterval(observer);
-        reject(`${selector} - not found within timeout`);
-      }, timeout)
+      const timeoutId = !retries
+        ? setTimeout(() => {
+            clearInterval(observer);
+            reject(`${selector} - not found within timeout`);
+          }, timeout)
         : undefined;
 
       let retryCount = 0;
@@ -204,7 +209,11 @@ export function waitForElementsInterval(selector: string, options: WaitForElemen
   });
 }
 
-export function waitForElementFromNode(parentNode: HTMLElement | Document, selector: string, timeout: number = 8000): Promise<HTMLElement> {
+export function waitForElementFromNode(
+  parentNode: HTMLElement | Document,
+  selector: string,
+  timeout: number = 8000,
+): Promise<HTMLElement> {
   return new Promise((resolve, reject) => {
     const element = parentNode.querySelector(selector) as HTMLElement;
 
@@ -222,7 +231,7 @@ export function waitForElementFromNode(parentNode: HTMLElement | Document, selec
       }, timeout);
 
       // Inicjalizacja MutationObserver
-      const observer = new MutationObserver((mutations) => {
+      const observer = new MutationObserver(mutations => {
         for (const mutation of mutations) {
           if (mutation.type === 'childList') {
             for (const node of mutation.addedNodes) {
@@ -237,10 +246,10 @@ export function waitForElementFromNode(parentNode: HTMLElement | Document, selec
       });
 
       // Rozpoczęcie obserwacji
-      observer.observe(
-        parentNode instanceof Document ? parentNode.body : parentNode,
-        { childList: true, subtree: true }
-      );
+      observer.observe(parentNode instanceof Document ? parentNode.body : parentNode, {
+        childList: true,
+        subtree: true,
+      });
     }
   });
 }
@@ -253,7 +262,7 @@ export function onPageLoad(callback: () => Promise<void>) {
       clearTimeout(timeout);
       setTimeout(callback, 2000);
     }, 500);
-  }
+  };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initWrapper);
@@ -270,7 +279,7 @@ function simulateKeyPress(key: string) {
     keyCode: key.charCodeAt(0), // Kod klawisza w starszych przeglądarkach
     which: key.charCodeAt(0),
     bubbles: true,
-    cancelable: true
+    cancelable: true,
   });
 
   // Tworzenie zdarzenia keyup
@@ -280,7 +289,7 @@ function simulateKeyPress(key: string) {
     keyCode: key.charCodeAt(0),
     which: key.charCodeAt(0),
     bubbles: true,
-    cancelable: true
+    cancelable: true,
   });
 
   // Wywoływanie zdarzeń na całym dokumencie
@@ -303,7 +312,7 @@ export function mouseDownEvent(element: HTMLElement) {
 
 export async function performComplexClick(element: HTMLElement | null | undefined) {
   if (!element) return;
-  console.log('performComplexClick() - window:', window);
+  console.log('performComplexClick() - at:', element);
   mouseDownEvent(element);
   await addDelay(50);
   mouseUpEvent(element);
@@ -326,7 +335,7 @@ export function triggerKeydown(element: HTMLElement, key: string) {
   const event = new KeyboardEvent('keydown', {
     key: key,
     bubbles: true,
-    cancelable: true
+    cancelable: true,
   });
   element.dispatchEvent(event);
 }
@@ -335,7 +344,7 @@ export function triggerPaste(element: HTMLElement, pasteData: string) {
   const event = new ClipboardEvent('paste', {
     bubbles: true,
     cancelable: true,
-    clipboardData: new DataTransfer()
+    clipboardData: new DataTransfer(),
   });
   if (event.clipboardData) {
     event.clipboardData.setData('text/plain', pasteData);
@@ -357,7 +366,7 @@ export function performComplexInput(inputElement: HTMLElement, value: string) {
     const keydownEvent = new KeyboardEvent('keydown', {
       key: char,
       bubbles: true,
-      cancelable: true
+      cancelable: true,
     });
     inputElement.dispatchEvent(keydownEvent);
 
@@ -365,7 +374,7 @@ export function performComplexInput(inputElement: HTMLElement, value: string) {
     const keypressEvent = new KeyboardEvent('keypress', {
       key: char,
       bubbles: true,
-      cancelable: true
+      cancelable: true,
     });
     inputElement.dispatchEvent(keypressEvent);
 
@@ -378,8 +387,94 @@ export function performComplexInput(inputElement: HTMLElement, value: string) {
     const keyupEvent = new KeyboardEvent('keyup', {
       key: char,
       bubbles: true,
-      cancelable: true
+      cancelable: true,
     });
     inputElement.dispatchEvent(keyupEvent);
   }
+}
+
+export class OperationTimedOutError extends Error {
+  constructor(message: string = 'Operation timed out') {
+    super(message);
+    this.name = 'OperationTimedOutError';
+  }
+}
+
+/**
+ * Wrapper around operation that which throws error if it takes more than or equal 5 minutes.
+ * @param fn - operation which is to be wrapped
+ * @throws OperationTimedOutError
+ * @returns
+ */
+export const executionWrapper = <T>(
+  fn: () => Promise<T> | T,
+  config: { timeoutMs: number } = { timeoutMs: 300000 },
+) => {
+  return Promise.race([
+    new Promise((_, rej) => {
+      setTimeout(() => {
+        rej(new OperationTimedOutError('Operation timed out'));
+      }, config.timeoutMs);
+    }),
+    fn,
+  ]);
+};
+
+export interface BrowserExecutionContextInfo {
+  /** Stan widoczności dokumentu: 'visible' | 'hidden' | 'prerender' */
+  visibilityState: DocumentVisibilityState;
+  /** Czy dokument ma fokus */
+  hasFocus: boolean;
+  isOnline: boolean;
+  windowSize: { width: number; height: number };
+}
+
+/**
+ * Zwraca obiekt z informacjami o kontekście wykonywania skryptów JS w przeglądarce.
+ * Przydatne do diagnostyki problemów z niewykonywaniem się skryptów.
+ */
+export function getBrowserExecutionContextInfo(): BrowserExecutionContextInfo {
+  // Sprawdzenie czy navigator.connection i saveData są dostępne
+  const connection = (navigator as any).connection;
+  const saveDataEnabled = connection?.saveData ?? false;
+
+  // deviceMemory może nie być dostępne we wszystkich przeglądarkach
+  const deviceMemory = (navigator as any).deviceMemory;
+
+  return {
+    // Widoczność zakładki (Page Visibility API)
+    visibilityState: document.visibilityState,
+
+    // Fokus
+    hasFocus: document.hasFocus(),
+
+    // Połączenie sieciowe
+    isOnline: navigator.onLine,
+    windowSize: { width: window.innerWidth, height: window.innerHeight },
+  };
+}
+
+export const performOnDocumentVisibilityReturn = (clb: () => any) => {
+  const visibilityChangeClb = () => {
+    if (document.visibilityState === 'visible') {
+      console.log('[VISIBILITY]:', 'document visible, performing callback, removing event');
+      document.removeEventListener('visibilitychange', visibilityChangeClb);
+      clb();
+    }
+  };
+  document.addEventListener('visibilitychange', visibilityChangeClb);
+};
+
+export function setNativeValue(element: HTMLInputElement, value: string) {
+  const valueSetter = Object.getOwnPropertyDescriptor(element, 'value')?.set;
+  const prototype = Object.getPrototypeOf(element);
+  const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+
+  if (valueSetter && valueSetter !== prototypeValueSetter && prototypeValueSetter) {
+    prototypeValueSetter.call(element, value);
+  } else if (valueSetter) {
+    valueSetter.call(element, value);
+  }
+
+  element.dispatchEvent(new Event('input', { bubbles: true }));
 }

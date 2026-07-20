@@ -20,11 +20,18 @@
   border: 1px solid black;
 }
 
-#recruiter-dialog * {
+#recruiter-dialog
+  *:not(
+    #recruiter-navigation-section,
+    #recruiter-navigation-section *,
+    #recruiter-queue-content,
+    #recruiter-queue-content *,
+    button
+  ) {
   /* box-sizing: border-box; */
   padding: 0;
   margin: 0;
-  font-family: "Roboto", sans-serif;
+  font-family: 'Roboto', sans-serif;
 }
 
 #recruiter-dialog h2 {
@@ -67,7 +74,7 @@
   /* animation: rotate .5s linear infinite;
   fill: rgba(0, 0, 0, 0.7); */
   transform: scale(1.1);
-  transition: transform .1s ease;
+  transition: transform 0.1s ease;
 }
 
 @keyframes rotate {
@@ -85,7 +92,6 @@
   height: 48px;
   background-color: blue;
 }
-
 
 #recruiter-dialog .recruiter-dialog-content {
   margin-top: 8px;
@@ -106,9 +112,8 @@
   gap: 4px;
 }
 
-
 /* #recruiter-dialog .recruiter-ammount-section {} */
-#recruiter-dialog .recruiter-ammount-section input[name="recruiter-ammount"] {
+#recruiter-dialog .recruiter-ammount-section input[name='recruiter-ammount'] {
   max-width: 54px;
 }
 
@@ -153,12 +158,6 @@
 
 /* end charms */
 
-#recruiter-dialog #recruiter-queue-content {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
 #recruiter-dialog .recruiter-queue-item {
   display: flex;
   align-items: center;
@@ -189,8 +188,6 @@
 .recruiter-queue-item-info {
   font-size: 0.8rem;
 }
-
-#recruiter-dialog .recruiter-queue-item-number {}
 
 #recruiter-dialog .recruiter-buttons-section {
   margin: 0 auto;
@@ -230,4 +227,9 @@
   color: orange;
   padding: 4px 8px;
   cursor: pointer;
+}
+
+#recruiter-dialog.hidden,
+#recruiter-dialog .hidden {
+  display: none;
 }

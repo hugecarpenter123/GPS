@@ -1,89 +1,187 @@
-import { TConfig } from "../../../gps.config";
-import ConfigManager from "../../utility/config-manager";
-import { InfoError } from "../../utility/info-error";
-import { addDelay, getBrowserStateSnapshot, getElementStateSnapshot, textToMs, waitUntil } from "../../utility/plain-utility";
-import Lock from "../../utility/ui-lock";
-import { performComplexClick, setInputValue, triggerHover, waitForElement, waitForElementInterval, waitForElements } from "../../utility/ui-utility";
-import ArmyMovement from "../army/army-movement";
-import CitySwitchManager, { CityInfo } from "../city/city-switch-manager";
-import MasterManager from "../master/master-manager";
-import GeneralInfo from "../master/ui/general-info";
-import buttonPanelExtension from './button-panel-extension.html';
-import schedulerListHtml from './scheduler-list-prod.html';
-import schedulerListCss from './scheduler-list.css';
-
 /*
- TODO: Pomysły:
- -dodać możliwość schedulowania w krótkim odstępnie czasowym, 
- : implementacja :
-    wiedząc że managery są wyłączone przez poprzednią operację nie potrzeba dużo czasu do ustawienia nastepnej operacji
-    -dodać w locku metodę lofkc(force, shiftQueueIfManger) lub lock('priority'), które appenduje na początku (chyba że inny ma priority to za nim)
-    -zmienić ify sprawdzające możliwość dodania itemu
-*/
+ * Scheduler catch block: Latest operation not found - error stopped sync execution
+ */
 
-enum OperationType {
-  ARMY_ATTACK,
-  ARMY_SUPPORT,
-  ARMY_WITHDRAW,
-  RESOURCE_SHIPMENT,
+import { it, SuiteContext } from 'node:test';
+import { TConfig } from '../../../gps.config';
+import { TConfigChanges } from '../../config-popup/config-popup';
+import ConfigManager from '../../utility/config-manager';
+import { addDelay, HHMMSS_toMS, msToHHMMSS, waitWhile } from '../../utility/plain-utility';
+import Service from '../../utility/Service';
+import Lock, { LockHandle } from '../../utility/ui-lock';
+import {
+  getBrowserExecutionContextInfo,
+  setInputValue,
+  waitForElement,
+  waitForElementInterval,
+} from '../../utility/ui-utility';
+import ArmyMovement from '../army/army-movement';
+import CharmsUtility, { CharmDetails } from '../charms/charms-utility';
+import CitySwitchManager, { CityInfo } from '../city/city-switch-manager';
+import MasterManager from '../master/master-manager';
+import GeneralInfo from '../master/ui/general-info';
+import { SchedulerTableUtility, useSchedulerTable } from './scheduler-table-ui';
+import { SchedulerUIExtensionUIUtility, useSchedulerUIExtensionUI } from './scheduler-ui-extension';
+
+export enum OperationType {
+  Attack = 'Attack',
+  Support = 'Support',
+  Withdraw = 'Withdraw',
 }
 
-type TimeoutStructure = {
-  timeoutPreparation: NodeJS.Timeout | null;
-  timeoutPreAction: NodeJS.Timeout | null;
-  timeoutAction: NodeJS.Timeout | null;
-}
+export type AttackStrategy = 'regular' | 'breach';
 
-type ScheduleItem = {
+export type ScheduleItemEditData = {
+  operationType: OperationType;
+  attackStrategy?: AttackStrategy;
+  power: CharmDetails | null;
+  includeHero: boolean;
+  armyDetails: { name: string; value: string }[];
+  targetTime: number | null;
+  synchronizedWith?: {
+    scheduleId: string;
+    deviation: number; // [ms]
+  };
+  precision?: {
+    tolerance: number; // [ms]
+    allowedToleranceIfFailed?: number; // [ms]
+  };
+};
+
+export type ScheduleItem = {
   id: string;
   operationType: OperationType;
-  attackTypeSelector?: string;
-  attackStrategySelector?: string;
-  powerSelector?: string | null;
-  movementId: string | null;
-  undoMovementAction: (() => void) | null;
-  targetDate: Date;
-  actionDate: Date;
-  realActionTime: number;
+  attackStrategy?: AttackStrategy;
   sourceCity: CityInfo;
-  targetCitySelector: string;
-  targetCityName: string;
-  data: any;
-  includeHero?: boolean;
-  /**
-   * Przechowuje timeouty do anulowania operacji, które są wykonują etapy przygotowawcze do operacji oraz samą operację
-   */
-  timeoutStructure: TimeoutStructure;
-  /**
-   * Anuluje timeouty, usuwa item z schedulera, przywraca działanie managerów i zwalnia locka
-   */
-  cancelSchedule: () => Promise<void>;
-  /**
-   * Po wykonaniu operacji, przywraca działanie managerów, zwalnia locka a po 10/0 minutach usuwa item z schedulera
-   */
-  postActionCleanup: () => Promise<void>;
+  power: CharmDetails | null;
+  includeHero: boolean;
+  armyDetails: { name: string; value: string }[];
+  targetCityDetails: {
+    name: string;
+    coords: [string, string];
+    selector: string;
+  };
+  timeDetails: {
+    // całość w [ms]
+    targetTime: number | null; // istnieje gdy konkretna data jest wybrana, w przeciwnym razie jest synchronizedWith
+    movementDuration: number; // czas trwania ruchu jednostek
+    targetTimeStart: number; // dolna granica tolerancji
+    targetTimeDuration: number; // wartość bewzględna tolerancji
+    exclusionTime: number; // czas w którym element rozpoczyna całość operacji, jeżeli "switchesOffManagers" to jest to czas ich wyłączeni, else === preparationTime
+    exclusionDuration: number; // czas trwania całości operacji
+    switchesOffManagers: boolean; // czy musi wyłączyć menadżery w ramach swojej operacji
+    preparationTime: number; // czas w którym powinno rozpocząć się wypełnianie pól dla operacji
+    executionStartTime: number;
+  };
+  synchronizedWith?: {
+    scheduleId: string;
+    deviation: number; // [ms]
+  };
+  precision?: {
+    tolerance: number; // [ms]
+    allowedToleranceIfFailed?: number; // [ms]
+  };
+  movementId: string | null;
+  actionTimeout: NodeJS.Timeout | null;
+  dependentScheduleItems: { scheduleId: string; deviation: number }[];
+};
+
+type DisplayFormattedSchedulerItem = {
+  id: string;
+  operationType: OperationType;
+  attackStrategy?: AttackStrategy;
+  sourceCity: Omit<CityInfo, 'switchAction'>;
+  power: CharmDetails | null;
+  includeHero: boolean;
+  armyDetails: any;
+  targetCityDetails: {
+    name: string;
+    coords: [string, string];
+    selector: string;
+  };
+  timeDetails: {
+    targetTime: string | null;
+    movementDuration: string;
+    targetTimeStart: string;
+    targetTimeDuration: string;
+    exclusionTime: string;
+    exclusionDuration: string;
+    switchesOffManagers: boolean;
+
+    switchOffManagersTime: string | null;
+    preparationTime: string;
+    executionStartTime: string;
+  };
+  synchronizedWith?: {
+    scheduleId: string;
+    deviation: number;
+  };
+  precision?: {
+    tolerance: number;
+    allowedToleranceIfFailed?: number;
+  };
+  movementId: string | null;
+  dependentScheduleItems: { scheduleId: string; deviation: number }[];
+};
+
+type PreregisteredScheduleItem = Omit<ScheduleItem, 'timeDetails'> & {
+  timeDetails: {
+    targetTime: number | null;
+    movementDuration: number;
+  };
+};
+
+export type SchedulerUIExtensionSubmitDetails = {
+  timeDetails: {
+    targetTime: number | null;
+  };
+  precision?: {
+    tolerance: number;
+    allowedToleranceIfFailed?: number;
+  };
+  syncWith?: {
+    scheduleId: string;
+    deviation: number;
+  };
+};
+
+export type SchedulerExecute = (
+  item: ScheduleItem,
+  utils: {
+    successCallback: (landedTime: number, movementId: string) => void;
+    failureCallback: (reason?: string) => void;
+    assignTimeout: (timeoutId: NodeJS.Timeout) => void;
+  },
+) => Promise<void> | void;
+
+export interface SchedulerExecutor {
+  execute: SchedulerExecute;
 }
 
-export default class Scheduler {
+export default class Scheduler implements Service<'scheduler'> {
   public static readonly MIN_PRECEDENCE_TIME_MS = 10 * 1000;
-  public static readonly TURN_OFF_MANAGERS_TIME_MS = 20 * 1000;
-  public static readonly PREPARATION_TIME_MS = 10 * 1000;
+  public static readonly TURN_OFF_MANAGERS_TIME_MS = 15 * 1000;
+  public static readonly TIME_TO_RESTORE_MANAGERS_AFTER_ACTION = 1000 * 60; // 1min
+  public static readonly PREPARATION_TIME_MS = 4 * 1000;
+  public static readonly LOCAL_STORAGE_KEY = 'scheduler';
 
   private static instance: Scheduler;
   private lock!: Lock;
-  private isLockTakenByScheduler: boolean = false;
   private generalInfo!: GeneralInfo;
   private masterManager!: MasterManager;
+  private configManager!: ConfigManager;
   private config!: TConfig;
   private citySwitchManager!: CitySwitchManager;
-  private scheduler: ScheduleItem[] = [];
-  private _error: string | null = null;
-  private _hydrationError: string | null = null;
-  private _info: string | null = null;
-  private RUN: boolean = true;
+  private schedule: ScheduleItem[] = [];
+  private landedSchedules: ScheduleItem[] = [];
+  private RUN: boolean = false;
   private armyMovement!: ArmyMovement;
+  private schedulerUIExtensionUI!: SchedulerUIExtensionUIUtility;
+  private schedulerTableUI!: SchedulerTableUtility;
+  private cityDialogObserver?: MutationObserver;
+  private attackSupportCardObserver?: MutationObserver;
 
-  privateconstructor() { }
+  privateconstructor() {}
 
   public static async getInstance(): Promise<Scheduler> {
     if (!Scheduler.instance) {
@@ -93,439 +191,441 @@ export default class Scheduler {
       Scheduler.instance.armyMovement = ArmyMovement.getInstance();
       Scheduler.instance.masterManager = await MasterManager.getInstance();
       Scheduler.instance.citySwitchManager = await CitySwitchManager.getInstance();
-      Scheduler.instance.config = ConfigManager.getInstance().getConfig();
-      Scheduler.instance.addUIExtenstion();
-      Scheduler.instance.addSchedulerListConfigWindow();
-      Scheduler.instance.synchronizeSchedulerWithStorage();
+      Scheduler.instance.configManager = ConfigManager.getInstance();
+      Scheduler.instance.config = Scheduler.instance.configManager.getConfig();
+      // ui
+      Scheduler.instance.schedulerUIExtensionUI = useSchedulerUIExtensionUI();
+      Scheduler.instance.schedulerTableUI = useSchedulerTable();
     }
+    console.log('Scheduler instance created');
     return Scheduler.instance;
   }
 
-  private async addUIExtenstion() {
-    await this.mountCityDialogObserver();
+  // service implementation ----------
+  public start() {
+    if (!this.RUN) {
+      this.RUN = true;
+      this.mountCityDialogObserver();
+      this.loadScheduleFromStorage();
+      this.schedulerTableUI.mount({
+        scheduleList: this.schedule,
+        onCancel: (item: ScheduleItem) => this.removeScheduleItem(item),
+        onEdit: (item, data) => this.editScheduleItem(item, data),
+      });
+      this.schedule.forEach(s => this.activateSchedule(s));
+    }
   }
-
-  public async run() {
-    this.RUN = true;
-  }
-
   public async stop() {
     this.RUN = false;
+    // ui
+    this.schedulerTableUI.unmount();
+    this.schedulerUIExtensionUI.unmount();
+    // observers
+    this.cityDialogObserver?.disconnect();
+    this.attackSupportCardObserver?.disconnect();
+    // operations:
+    this.stopAllSchedules();
+  }
+
+  public pause() {
+    this.RUN = false;
+    this.stopAllSchedules();
+  }
+
+  public resume() {
+    this.RUN = true;
+    this.schedule.forEach(s => this.activateSchedule(s));
   }
 
   public isRunning(): boolean {
     return this.RUN;
   }
 
-  /**
-   * Potrzebny będzie dodatkowy identyfikator ruchu, ponieważ z danego miasta, do danego miasta może miec miejsce wiele ruchów 
-   * i wówczas może zostać anulowany zły ruch. Nie jest to zatem bezpieczna metoda na tą chilę.
-   * Możliwe rozwiązania:
-   * -Mozna zamontować obserwera ruchów wojsk, przekażać mu samo usuwającego się callbacka, któyry otrzyma informację o najnowszym ruchu
-   *  np. unikalne [id="movement_1820489002"], które zostanie przypisane do danego obiektu ruchu. Wówczas cancelowanie ruchów, będzie odbywało się
-   *  po tym id. Przed przypisaniem 'movementId' do obiektu schedulera, będzie miało miejsce sprawdzenie czy parametry ataku się zgadzają, na wypadek, gdyby
-   *  najbliższym ruchem się okazała napaść na wioskę (której nie da się anulować bo nie należy do właściciela)
-   */
-  private async undoArmyMovement(fromTown: CityInfo, id: string) {
-    await fromTown.switchAction();
-    await addDelay(100);
-    const hoverElement = document.querySelector('#toolbar_activity_commands') as HTMLElement;
-    triggerHover(hoverElement);
-    document.querySelector<HTMLDivElement>(`#${id}`)?.click()
+  // TODO: better action times with span
+  public getScheduledActionTimes = () => {
+    return this.schedule.map(s => [s.timeDetails.exclusionTime, s.timeDetails.exclusionDuration]) as [number, number][];
+  };
+
+  public onConfigChange = (_configChanges: Partial<TConfigChanges['scheduler']>) => {};
+  // END service implementation --------
+
+  private stopAllSchedules() {
+    this.schedule.forEach(e => clearTimeout(e.actionTimeout ?? undefined));
   }
 
+  private stopSchedule(item: ScheduleItem) {
+    console.log('stopSchedule.item:', item);
+    clearTimeout(item?.actionTimeout ?? undefined);
+  }
 
   /**
-   * Ma rozpoznawać, czy znajduje się na karcie ATAK/OBRONA
-   * Ma dodać schdule button i inputy do podania czasu wykonania operacji.
-   * Na schedule click:
-   * -zczytać i zapamiętać wartości imputów
-   * -zczytać czas podróży jednostek i obliczyć na podstawie tych danych timeout
-   * -zczytać wioskę źródłową oraz gridy wioski na której operacja ma być wykonana
-   * -dodać obiekt ScheduleItem do listy oraz do LocaleStorage oraz ustawic timeout
-   * -timeout powinien usunąć wszstko co z nim związane powykonaniu operacji
+   * Wykonawcę ma interesować minimum informacji, wykonawca nie dba o to co ustawiać. Wykonawca robi robotę i zwraca informacje o efekcie swojej pracy.
+   * Zakres pracy wykonawcy:
+   * -przejście do miasta docelowego
+   * -ustawienie pól do operacji + odczekanie
+   * -wykonanie operacji w zależności od tego czy opeacja jest precyzyjna czy nie
+   * -zwrócenie info o efekcie pracy: successCallback / failureCallback
    */
-  private async extendAttackSupportUI(node: HTMLElement): Promise<void> {
-    // observer mounted, argument is the grand parent of the button panel
-    const buttonWrapper = node.querySelector('.button_wrapper')!;
-    const div = document.createElement('div');
-    div.innerHTML = buttonPanelExtension;
-    buttonWrapper.appendChild(div);
+  private async activateSchedule(item: ScheduleItem) {
+    let lockHandle!: LockHandle;
+    let infoId: number | undefined = undefined;
+    try {
+      await new Promise((res, rej) => {
+        item.actionTimeout = setTimeout(
+          async () => {
+            // first timeout can be either PREPARATION or MANAGERS PAUSE
+            if (item.timeDetails.switchesOffManagers) {
+              infoId = this.generalInfo.showInfo(
+                'Scheduler: ',
+                `pausing managers before "${item.operationType}" on city "${item.targetCityDetails.name}" at: ${new Date(
+                  item.timeDetails.targetTime!,
+                ).toLocaleString(navigator.language, {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                  hour12: false,
+                })}`,
+                'info',
+              );
+            } else {
+              // await this.lock.forceAcquire({ method: 'activateSchedule', manager: 'scheduler' });
+              lockHandle = await this.lock.acquire({ method: 'activateSchedule', manager: 'scheduler', forced: true });
+              if (infoId) this.generalInfo.hideInfo(infoId);
+              infoId = this.generalInfo.showInfo(
+                'Scheduler: ',
+                `performing "${item.operationType}" on city "${item.targetCityDetails.name}" at: ${new Date(
+                  item.timeDetails.targetTime!,
+                ).toLocaleString(navigator.language, {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                  hour12: false,
+                })}`,
+                'info',
+              );
+            }
 
-    // Element ready, logic below:
-    const inputDateElement = document.querySelector<HTMLInputElement>('#schedule-date')!;
+            // even though they may have been already stopped by other action, it doesn't hurt to call this just in case
+            this.masterManager.pauseRunningManagers(['scheduler']);
+            // real action there
+            item.actionTimeout = setTimeout(
+              async () => {
+                // if previous timeout was switching off the managers, then this one should acquire LOCK and perform preparation
+                if (item.timeDetails.switchesOffManagers) {
+                  // await this.lock.forceAcquire({ method: 'activateSchedule', manager: 'scheduler' });
+                  lockHandle = await this.lock.acquire({
+                    method: 'activateSchedule',
+                    manager: 'scheduler',
+                    forced: true,
+                  });
+                  if (infoId) this.generalInfo.hideInfo(infoId);
+                  infoId = this.generalInfo.showInfo(
+                    'Scheduler: ',
+                    `performing "${item.operationType}" on city "${item.targetCityDetails.name} at: ${new Date(
+                      item.timeDetails.targetTime!,
+                    ).toLocaleString(navigator.language, {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                      hour12: false,
+                    })}"`,
+                    'info',
+                  );
+                }
+                const successCallback = async (landedTime: number, movementId: string) => {
+                  item.movementId = movementId;
+                  const dependantSchduleItemIds = item.dependentScheduleItems.map(i => i.scheduleId);
+                  const dependantSchduleItems = this.schedule.filter(e => dependantSchduleItemIds.includes(e.id));
+                  console.log('dependant schedule items:', dependantSchduleItems);
+                  if (dependantSchduleItemIds.length) {
+                    this.hydrateDependantSchedules(dependantSchduleItems, landedTime);
+                  }
+                  // dodaj element do listy operacji, które da się wycofać w razie W
+                  this.landedSchedules.push(item);
 
-    // prefill date input with current date
-    inputDateElement.value = this.getFormattedInputValueFromDate(new Date());
+                  // po 10 minutaach usuń element z tej listy bo po tym czasie nie da się anulować tej operacji i tak
+                  setTimeout(() => {
+                    this.landedSchedules = this.landedSchedules.filter(e => !e);
+                  }, 600000);
 
-    const scheduleButton = div.querySelector('#schedule-button')!;
-    scheduleButton.addEventListener('click', async () => {
-      this.error = null;
-      // get way duration time
-      const wayDurationText = node.querySelector('.way_duration')!.textContent!.slice(1);
-      const wayDurationMs = textToMs(wayDurationText);
-      // get input data (all unit inputs)
-      const inputData = Array.from(node.querySelectorAll<HTMLInputElement>('.unit_input')).map(inputEl => {
-        return {
-          name: inputEl.getAttribute('name')!,
-          value: inputEl.value
-        }
-      })
-      // const inputData = Array.from(node.querySelectorAll<HTMLInputElement>('.unit_input')).map(inputEl => {
-      //   return inputEl.value ? {
-      //     name: inputEl.getAttribute('name')!,
-      //     value: inputEl.value
-      //   } : null
-      // }).filter(data => data !== null);
+                  await this.postActionCleanup(item);
 
-      // hero related
-      const includeHero = node.querySelector<HTMLElement>('.cbx_include_hero')?.classList.contains('checked');
-      // -------------
+                  // allows to go to finally block
+                  res(null);
+                };
 
-      // operation type related
-      const operationType = node.firstElementChild!.getAttribute('data-type') === 'attack' ? OperationType.ARMY_ATTACK : OperationType.ARMY_SUPPORT;
-      const attackTypeSelector = operationType === OperationType.ARMY_ATTACK ?
-        (`[data-attack='${(document.querySelector('.attack_type.checked') as HTMLElement)?.dataset['attack']}']`) : undefined;
+                const failureCallback = (reason?: string) => {
+                  this.removeScheduleItem(item);
 
-      const allCheckedStrategies = document.querySelectorAll<HTMLElement>('.attack_strategy.checked');
-      const lastCheckedStrategy = Array.from(allCheckedStrategies).at(-1);
-      const attackStrategySelector = lastCheckedStrategy ? `#${lastCheckedStrategy?.id}` : undefined;
-      // -------------
+                  // allows to go to finally block and release the lock
+                  if (reason) rej(reason);
+                  else
+                    rej(
+                      `Something went wrong when performing ${item.operationType} on "${item.targetCityDetails.name}"`,
+                    );
+                };
 
-      // power related
-      const powerElement = document.querySelector<HTMLElement>('.spells.power.power_icon45x45');
-      let powerSelector = null;
-      if (!powerElement?.classList.contains('no_power')) {
-        const powerDataName = powerElement?.classList.item(3);
-        powerSelector = `[data-power_id='${powerDataName}']`;
+                const assignTimeout = (timeoutId: NodeJS.Timeout) => {
+                  item.actionTimeout = timeoutId;
+                };
+
+                await this.armyMovement.execute(item, {
+                  assignTimeout,
+                  successCallback,
+                  failureCallback,
+                });
+              },
+              // jeżeli item obejmuje wyłączenie managerów, to odczekaj czas potrzebny do ich wyłączenia i wywołaj execute w momencie preparation
+              // jezeli item nie obejmuje wyłączenia managerów, to oznacza że exclusionTime === preparationTime -> więc wykonaj natychmiast
+              item.timeDetails.preparationTime + this.configManager.getTimeDifference() - Date.now(),
+            );
+          },
+          // exclustion time = preparation time || managers switch off time, timeDiff w przypadku gdy czas JS jest inny od czasu aplikacji
+          item.timeDetails.exclusionTime + this.configManager.getTimeDifference() - Date.now(),
+        );
+      });
+    } catch (e) {
+      // FUTURE: manual lock handling doesn't throw timeoutError, but implement when ready
+      if (infoId) this.generalInfo.hideInfo(infoId);
+      this.generalInfo.showInfo('Scheduler: ', `Schedule failed - "${e}"`, 'error', 4000);
+      console.warn('[Scheduler]: catch block:', e, getBrowserExecutionContextInfo());
+      const dependantSchduleItemIds = item.dependentScheduleItems.map(i => i.scheduleId);
+      // usuń zależne elementy
+      if (dependantSchduleItemIds.length) {
+        this.schedule = this.schedule.filter(el => !dependantSchduleItemIds.includes(el.id));
       }
-      // -------------
+      // usuń ze schedula
+      await this.postActionCleanup(item);
+    } finally {
+      if (infoId) this.generalInfo.hideInfo(infoId);
+      lockHandle.release();
+      // this.lock.release();
+      this.tryRestoreManagers();
+    }
+  }
 
-      const inputDateValue = inputDateElement.value
-      // Wartość z inputu type="date" będzie w formacie "YYYY-MM-DD"
-      // Na przykład: "2023-05-25" dla 25 maja 2023
+  /**
+   * Removes element from scheduler list, updates table ui and persist newest state.
+   */
+  private async postActionCleanup(item: ScheduleItem) {
+    await this.removeSavedCoords(item.id);
+    this.schedule = this.schedule.filter(i => i !== item);
+    this.updateUITable();
+    // this.tryRestoreManagers();
+    this.persist();
+  }
 
-      // #schedule-time      
-      const inputTimeValue = document.querySelector<HTMLInputElement>('#schedule-time')!.value
-      const targetDate = this.getDateFromDateTimeInputValues(inputDateValue, inputTimeValue);
-      const actionDate = new Date(targetDate.getTime() - wayDurationMs);
-      const sourceCity = this.citySwitchManager.getCurrentCity()
-      // attack_support_tab_target_9542
-      const targetCitySelector = '#town_' + Array.from(node.classList).find(cls => cls.match(/attack_support_tab_target_\d+/))!.match(/\d+/)![0];
-
-      if (!this.canAddSchedulerItem(actionDate)) {
-        console.warn('unsafe operation, failed to be scheudled');
-        this.error = 'Schedule failed. Cannot safely schedule operation.';
-        return;
-      }
-      // jezeli inputy nie są wypełnione, nie dodawaj do schedulera
-      if (!inputData.some(data => data.value)) {
-        this.error = 'Schedule failed. All units are empty.';
-        return;
-      }
-
-      document.querySelector<HTMLInputElement>('[data-menu_name="Info"]')!.click();
-      await addDelay(100);
-
-      const targetCityName = await waitForElementInterval('#towninfo_towninfo .game_header.bold', { interval: 500, timeout: 2000 }).then(el => (el as HTMLElement).textContent!.trim());
-      const id = `${operationType}_${sourceCity!.name}_${targetCityName}_${actionDate.getTime()}`;
-
-      await waitForElementInterval('.info_jump_to_town', { interval: 500, retries: 3 })
-        .then(el => el.click())
-        .catch(() => {
-          this.error = 'Nie udało się przeskoczyć do wioski, aby zapisać współrzędne.'
-          return;
-        });
-
-      await addDelay(100);
-
-      await waitUntil(() => !document.querySelector<HTMLElement>(targetCitySelector),
-        {
-          onError: () => {
-            this.error = 'Nie udało się zapisać współrzędnych wioski, zamknij okna innych wiosek i spróbuj ponownie.';
-            throw new Error('Target city not found during scheduling process')
-          }
-        });
-
-      await this.closeAllDialogs('minimized');
-      await addDelay(100);
-
-      document.querySelector<HTMLInputElement>('.btn_save_location')?.click();
-      await addDelay(100);
-
-      await waitForElement('.save_coordinates input', 3000)
-        .then(el => {
-          setInputValue(el as HTMLInputElement, id);
-          el.blur();
-        })
-        .catch(() => {
-          this.error = 'Error during saving coordinates, try again.'
-          throw new Error('Failed to save coordinates')
-        });
-      await addDelay(100);
-
-      await waitForElement('.save_coordinates .btn_confirm', 3000)
-        .then(el => (el as HTMLButtonElement).click())
-        .catch(() => {
-          this.error = 'Error during saving coordinates, try again.'
-          throw new Error('Failed to confirm saving coordinates')
-        });
-
-
-      const scheduleTimeout: TimeoutStructure = {
-        timeoutPreparation: null,
-        timeoutPreAction: null,
-        timeoutAction: null,
-      }
-
-      const schedulerItem: ScheduleItem = {
-        id: id,
-        operationType: operationType,
-        attackTypeSelector: attackTypeSelector,
-        attackStrategySelector: attackStrategySelector,
-        powerSelector: powerSelector,
-        targetDate: targetDate,
-        targetCityName: targetCityName,
-        actionDate: actionDate,
-        realActionTime: actionDate.getTime() + this.config.general.timeDifference,
-        sourceCity: sourceCity!,
-        targetCitySelector: targetCitySelector,
-        data: inputData,
-        includeHero: includeHero,
-        timeoutStructure: scheduleTimeout,
-        movementId: null,
-        undoMovementAction: null,
-        cancelSchedule: async () => await this.cancelSchedule(schedulerItem),
-        postActionCleanup: async () => await this.postActionCleanup(schedulerItem),
-      }
-      this.addActionTimeouts(schedulerItem);
-      this.scheduler.push(schedulerItem);
-      this.addSchedulerItemToUI(schedulerItem);
-      localStorage.setItem('scheduler', JSON.stringify(this.scheduler));
-      this.info = 'Operation scheduled'
-      console.log('Scheduler.extendAttackSupportUI.schedulerItem', schedulerItem);
+  private updateUITable() {
+    this.schedulerTableUI.update({
+      scheduleList: this.schedule,
+      onCancel: item => this.removeScheduleItem(item),
+      onEdit: (item, data) => this.editScheduleItem(item, data),
     });
   }
 
-  private async postActionCleanup(schedulerItem: ScheduleItem) {
-    setTimeout(() => {
-      this.removeSchedulerItemFromUI(schedulerItem);
-      this.scheduler = this.scheduler.filter((item) => item !== schedulerItem);
-      localStorage.setItem('scheduler', JSON.stringify(this.scheduler));
-    }, 0);
-    if (this.isLockTakenByScheduler) this.lock.release();
-    this.isLockTakenByScheduler = false;
-    this.generalInfo.showInfo('Scheduler:', 'Czyszczenie cache po operacji.');
-    await this.removeSavedCoords(schedulerItem.id);
-    this.generalInfo.hideInfo();
+  /**
+   * Removes saved coords, stops schedule if running, removes schedule item from the queue along with all dependant schedules,
+   * updates the ui and persists the latest scheduler state.
+   * @param item
+   */
+  private async removeScheduleItem(item: ScheduleItem) {
+    console.log('removed schedule item', item);
+    await this.removeSavedCoords(item.id);
+    this.stopSchedule(item);
+    this.schedule = this.schedule.filter(i => i !== item);
+
+    const dependantSchduleItemIds = item.dependentScheduleItems.map(i => i.scheduleId);
+    // usuń zależne elementy
+    if (dependantSchduleItemIds.length) {
+      this.schedule = this.schedule.filter(el => !dependantSchduleItemIds.includes(el.id));
+    }
+
+    this.updateUITable();
+    this.persist();
+    // if removal happens midtime, then managers won't be restored automatically so call this (if managers are running they won't be called anyways)
     this.tryRestoreManagers();
   }
 
-  private async cancelSchedule(schedulerItem: ScheduleItem) {
-    this.generalInfo.showInfo('Scheduler:', 'Anulowanie operacji.');
-    const { timeoutStructure } = schedulerItem;
-    if (timeoutStructure.timeoutPreparation) clearTimeout(timeoutStructure.timeoutPreparation)
-    if (timeoutStructure.timeoutPreAction) clearTimeout(timeoutStructure.timeoutPreAction)
-    if (timeoutStructure.timeoutAction) clearTimeout(timeoutStructure.timeoutAction)
-    if (this.isLockTakenByScheduler) {
-      this.lock.release();
-      this.isLockTakenByScheduler = false;
+  private editScheduleItem(item: ScheduleItem, data: ScheduleItemEditData) {
+    const editedItem = this.cloneScheduleItem(item);
+    editedItem.operationType = data.operationType;
+    editedItem.armyDetails = data.armyDetails;
+    editedItem.attackStrategy = data.attackStrategy;
+    editedItem.includeHero = data.includeHero;
+    editedItem.power = data.power;
+    editedItem.precision = data.precision;
+    editedItem.synchronizedWith = data.synchronizedWith;
+    editedItem.timeDetails.targetTime = data.targetTime;
+
+    console.log('editedItem:', editedItem);
+
+    this.assignTimeDetailsToScheduleItem(editedItem);
+
+    // time details borders changed flag
+    const exclusionTimesChanged =
+      item.timeDetails.exclusionTime !== editedItem.timeDetails.exclusionTime ||
+      item.timeDetails.exclusionDuration !== editedItem.timeDetails.exclusionDuration;
+
+    console.log('exclusionTimesChanged:', exclusionTimesChanged);
+
+    // find all dependent schedules, make clones and assign to them reevaluated time details
+    const nestedDependentScheduleItems = this.getReevaluatedDependentSchedules(editedItem, this.schedule);
+    const nestedDependentScheduleItemIDs = nestedDependentScheduleItems.map(e => e.id);
+
+    console.log('nestedDependentScheduleItems:', nestedDependentScheduleItems);
+
+    // check possibility of adding schedule
+    if (
+      exclusionTimesChanged &&
+      !this.canAddSchedule(editedItem, this.schedule, [item.id, ...nestedDependentScheduleItemIDs])
+    ) {
+      return {
+        success: false,
+        message: "Item's time details are conflicting with existing schedules or are in the past",
+      };
     }
-    this.scheduler = this.scheduler.filter(item => item !== schedulerItem)
-    localStorage.setItem('scheduler', JSON.stringify(this.scheduler));
-    this.removeSchedulerItemFromUI(schedulerItem);
-    await this.removeSavedCoords(schedulerItem.id);
-    this.generalInfo.hideInfo();
-    this.tryRestoreManagers();
+
+    // makes copy of existing schedule without edited item and all its nested dependancies
+    const fictionalScheduleListWithoutDependentItems = this.schedule.reduce((acc: ScheduleItem[], iteratedItem) => {
+      if (![item.id, ...nestedDependentScheduleItemIDs].includes(iteratedItem.id)) {
+        const iteratedItemClone = this.cloneScheduleItem(iteratedItem);
+        acc.push(iteratedItemClone);
+      }
+      return acc;
+    }, []);
+
+    console.log('fictionalScheduleListWithoutDependentItems:', fictionalScheduleListWithoutDependentItems);
+
+    // adds validated edited item
+    fictionalScheduleListWithoutDependentItems.push(editedItem);
+
+    // loops over all newly assigned dependent items and checks if hyphotetically they could be added
+    if (nestedDependentScheduleItems.length) {
+      console.log('nestedDependentScheduleItems are not empty');
+      if (
+        !nestedDependentScheduleItems.every(dependentSchedule => {
+          const canAdd = this.canAddSchedule(dependentSchedule, fictionalScheduleListWithoutDependentItems);
+          console.log('canAdd for dependentSchedule:', dependentSchedule.id, canAdd);
+          if (canAdd) {
+            fictionalScheduleListWithoutDependentItems.push(dependentSchedule);
+          }
+          return canAdd;
+        })
+      ) {
+        return {
+          success: false,
+          message: 'Cannot edit schedule because some dependant items are in conflict with other schedules.',
+        };
+      }
+      // validated, remove all old dependent schedules and add reeveluated
+      else {
+        this.schedule = this.schedule
+          .filter(e => !nestedDependentScheduleItemIDs.includes(e.id))
+          .concat(nestedDependentScheduleItems);
+      }
+    }
+
+    // at this point nothing can be unsuccessful
+
+    // Stop existing schedule
+    this.stopSchedule(editedItem);
+
+    // Remove old item and add edited one
+    this.schedule = this.schedule.filter(i => i !== item);
+    this.schedule.push(editedItem);
+
+    // if edited item is synchronized with other schedule than before, clean the old and update the new
+    if (editedItem.synchronizedWith && item.synchronizedWith?.scheduleId !== editedItem.synchronizedWith.scheduleId) {
+      console.log('editedItem has changed item its sychronized with');
+      // referential schedule has been changed, so remove reference from its array (so that id doesn't trigger action after execution)
+      const oldReferentialSchedule = this.schedule.find(s => s.id === item.synchronizedWith?.scheduleId)!;
+      console.log('oldReferentialSchedule:', oldReferentialSchedule);
+
+      oldReferentialSchedule.dependentScheduleItems = oldReferentialSchedule.dependentScheduleItems.filter(
+        e => e.scheduleId !== item.id,
+      );
+
+      const newReferentialSchedule = this.schedule.find(s => s.id === editedItem.synchronizedWith?.scheduleId)!;
+      console.log('newReferentialSchedule:', newReferentialSchedule);
+
+      newReferentialSchedule.dependentScheduleItems.push({
+        scheduleId: editedItem.id,
+        deviation: editedItem.synchronizedWith.deviation,
+      });
+    }
+
+    if (!editedItem.synchronizedWith && editedItem.timeDetails.targetTime) this.activateSchedule(editedItem);
+
+    // Update UI and persist changes
+    this.updateUITable();
+    this.persist();
+    return { success: true };
+  }
+
+  /**
+   * Takes an schedule and allSchedules and recursively stacks all dependent schedules to single array, makes their clone (new reference with same props),
+   * assigns reevaluataed timeDetails and returns ready to concat Array of unique items. Those items are not checked for
+   * their timeline validity.
+   * @returns
+   */
+  private getReevaluatedDependentSchedules(
+    clonedReevaluatedScheduleItem: ScheduleItem,
+    allItems: ScheduleItem[],
+  ): ScheduleItem[] {
+    const allNestedDependentItems = new Array<ScheduleItem>();
+
+    // Funkcja pomocnicza do rekurencyjnego zbierania ID
+    const collectDependentItems = (currentItem: ScheduleItem) => {
+      // Dodaj bezpośrednie zależności
+      for (const dep of currentItem.dependentScheduleItems) {
+        // always reevaluate afresh
+        const allNestedDependentItemIDs = allNestedDependentItems.map(e => e.id);
+
+        const dependentItem = allItems.find(e => e.id === dep.scheduleId)!;
+
+        if (!allNestedDependentItemIDs.includes(dependentItem.id)) {
+          const clonedDependentItem = this.cloneScheduleItem(dependentItem);
+          this.assignTimeDetailsToScheduleItem(clonedDependentItem, currentItem);
+          allNestedDependentItems.push(clonedDependentItem);
+          collectDependentItems(clonedDependentItem);
+        }
+      }
+    };
+
+    collectDependentItems(clonedReevaluatedScheduleItem);
+
+    return allNestedDependentItems;
+  }
+
+  private hydrateDependantSchedules(items: ScheduleItem[], landedTime: number) {
+    items.forEach(schedule => {
+      schedule.timeDetails.targetTime = landedTime + schedule.synchronizedWith!.deviation;
+      // table needs to see it's undefined to fill data for unsynchronized (is's raw at the moment)
+      schedule.synchronizedWith = undefined;
+      this.reevaluateItemTimeDetails(schedule);
+      this.updateUITable();
+      this.activateSchedule(schedule);
+    });
   }
 
   private async removeSavedCoords(id: string) {
     Array.from(document.querySelectorAll<HTMLInputElement>('.content.js-dropdown-item-list .item.bookmark'))
-      .find(el => el.textContent?.trim() === id)?.querySelector<HTMLElement>('.remove')?.click();
+      .find(el => el.textContent?.trim() === id)
+      ?.querySelector<HTMLElement>('.remove')
+      ?.click();
 
-    await waitForElementInterval('.confirmation .btn_confirm', { interval: 500, timeout: 2000 })
-      .then(el => (el as HTMLButtonElement).click());
+    await waitForElementInterval('.confirmation .btn_confirm', {
+      interval: 500,
+      timeout: 2000,
+    })
+      .then(el => (el as HTMLButtonElement).click())
+      .catch(e => console.warn('removeSavedCoords catch:', e));
   }
 
-  private readCords(): [string, string] {
+  private readCoords(): [string, string] {
     const gridXInput = document.querySelector<HTMLInputElement>('.coord.coord_x.js-coord-x input[type="text"]')!;
     const gridYInput = document.querySelector<HTMLInputElement>('.coord.coord_y.js-coord-y input[type="text"]')!;
     return [gridXInput.value, gridYInput.value];
-  }
-
-  private addActionTimeouts(schedulerItem: ScheduleItem) {
-    const {
-      actionDate,
-      realActionTime,
-      timeoutStructure,
-      targetCitySelector,
-      data: inputData,
-      operationType,
-      attackTypeSelector,
-      attackStrategySelector,
-      powerSelector
-    } = schedulerItem;
-
-    const turnOffManagersTime = realActionTime - new Date().getTime() - Scheduler.TURN_OFF_MANAGERS_TIME_MS;
-    // console.log('calculated turn off managers time:', turnOffManagersTime);
-    timeoutStructure.timeoutPreparation = setTimeout(() => {
-      this.generalInfo.showInfo('Scheduler:', 'pauzowanie kolidujących managerów przed operacją.')
-      // console.log('NOW half minute before action, time is:', formatDateToSimpleString(new Date()))
-      this.masterManager.pauseRunningManagersIfNeeded(realActionTime, ['scheduler']);
-      const preparationTime = realActionTime - new Date().getTime() - Scheduler.PREPARATION_TIME_MS;
-      timeoutStructure.timeoutPreAction = setTimeout(async () => {
-        try {
-          // console.log('NOW ten seconds before action, time is:', formatDateToSimpleString(new Date()), 'try take lock');
-          await this.lock.forceAcquire({ manager: 'scheduler' });
-          // console.log('lock taken');
-          this.isLockTakenByScheduler = true;
-          this.generalInfo.showInfo('Scheduler:', 'przygotowanie do operacji.')
-
-          // console.log('switch to sourceCity:', schedulerItem.sourceCity);
-          await schedulerItem.sourceCity.switchAction(false);
-
-          // przejdź do współrzędnych
-          document.querySelector<HTMLButtonElement>('.js-coord-button')?.click();
-          const dropdownList = await waitForElement('.content.js-dropdown-item-list', 4000);
-          const dropdownItem = Array.from(dropdownList.querySelectorAll<HTMLElement>(`.item.bookmark.option`))
-            .find(el => el.textContent?.trim() === schedulerItem.id);
-          if (!dropdownItem) {
-            this.error = 'Failed to find saved coordinates from the list'
-            throw new Error('Failed to find saved coordinates from the list')
-          };
-          dropdownItem.click();
-          await addDelay(400);
-
-          // pozamykaj okna ----------------
-          for (const el of document.querySelectorAll<HTMLElement>('.minimized_windows_area .btn_wnd.close')) {
-            el.click();
-            await waitForElementInterval('.dialog_buttons [href="#cancel"]', { interval: 333, retries: 1 })
-              .then(() => el.click())
-              .catch(() => { });
-          }
-
-          for (const el of document.querySelectorAll<HTMLElement>('.ui-dialog-titlebar-close')) {
-            el.click();
-            await waitForElementInterval('.dialog_buttons [href="#cancel"]', { interval: 333, retries: 1 })
-              .then(() => el.click())
-              .catch(() => { });
-          }
-          // --------------------------------
-          await addDelay(100);
-
-          const targetCityElement = await waitForElementInterval(targetCitySelector, { interval: 500, retries: 5 })
-            .catch(() => {
-              this.error = 'Nie udało się znaleźć wioski na mapie, operacja anulowana, współrzędne zostaną usunięte.'
-              throw new InfoError('target city not found', {
-                browserState: getBrowserStateSnapshot(),
-              })
-            })
-
-          const targetCityElementSnapshot = getElementStateSnapshot(targetCityElement);
-          // console.log('targetCityElement', targetCityElement);
-
-          let counter = 0;
-          do {
-            await performComplexClick(targetCityElement);
-            counter++;
-            await addDelay(333);
-          }
-          while (!document.querySelector<HTMLElement>('#context_menu') && counter < 4)
-
-          if (counter === 4) {
-            const snapshot = {
-              browserState: getBrowserStateSnapshot(),
-              elementState: targetCityElementSnapshot,
-            }
-            throw new InfoError('target city not found', snapshot);
-          }
-
-          if (operationType === OperationType.ARMY_ATTACK) {
-            console.log('operationType === OperationType.ARMY_ATTACK');
-            (await waitForElementInterval('#attack', { interval: 500, timeout: 2000 })).click();
-            console.log('attack clicked', document.querySelector<HTMLElement>('#attack'));
-            attackTypeSelector && await waitForElementInterval(attackTypeSelector, { interval: 500, timeout: 2000 }).then(el => (el as HTMLElement).click());
-            console.log('attackTypeSelector clicked', document.querySelector<HTMLElement>(attackTypeSelector!));
-            attackStrategySelector && await waitForElementInterval(attackStrategySelector, { interval: 500, timeout: 2000 }).then(el => (el as HTMLElement).click())
-            console.log('attackStrategySelector clicked', document.querySelector<HTMLElement>(attackStrategySelector!));
-
-            if (powerSelector) {
-              console.log('powerSelector', powerSelector);
-              await waitForElementInterval('#spells_1', { interval: 500, timeout: 2000 }).then(el => (el as HTMLElement).click());
-              console.log('spells_1', document.querySelector<HTMLElement>('#spells_1'));
-              await waitForElementInterval(powerSelector, { interval: 500, timeout: 2000 }).then(el => (el as HTMLElement).click());
-              console.log('powerSelector', document.querySelector<HTMLElement>(powerSelector));
-            } else {
-              console.log('no powerSelector');
-            }
-          } else {
-            (await waitForElementInterval('#support', { interval: 500, timeout: 2000 })).click();
-          }
-
-          // wypełnij inputy
-          console.log('fill inputData');
-          for (const data of inputData) {
-            if (data.value) {
-              const input = await waitForElementInterval(`input[name="${data.name}"]`, { interval: 500, timeout: 2000 }) as HTMLInputElement;
-              setInputValue(input, data.value);
-              input.blur();
-            }
-          };
-
-          if (schedulerItem.includeHero) {
-            console.log('should include hero');
-            (await waitForElementInterval('.cbx_include_hero')).click();
-          }
-
-          console.log('action prepared successfully, snapshot:', {
-            browserState: getBrowserStateSnapshot(),
-            elementState: targetCityElementSnapshot,
-          });
-
-        } catch (error) {
-          if (error instanceof InfoError) {
-            console.warn('Error during 10 seconds before action:', error.message, error.details);
-          } else {
-            console.error('Error during 10 seconds before action:', error);
-          }
-          this.error = 'Schedule failed. Check console for more details.'
-          this.generalInfo.hideInfo();
-          schedulerItem.cancelSchedule();
-          return;
-        }
-
-        timeoutStructure.timeoutAction = setTimeout(async () => {
-          try {
-            // console.log('NOW ACTION, time is:', formatDateToSimpleString(new Date()))
-            // console.log('now time + way duration:', formatDateToSimpleString(new Date(new Date().getTime() + wayDurationMs)))
-            if (operationType === OperationType.ARMY_ATTACK) {
-              (await waitForElement('#btn_attack_town')).click();
-              await waitForElement('.js-window-main-container.classic_window.dialog .btn_confirm.button_new', 1000)
-                .then(el => el.click())
-                .catch(() => { });
-            } else {
-              (await waitForElement('.attack_support_window a .middle')).click();
-            }
-
-            this.armyMovement.setCallback((id: string) => {
-              schedulerItem.movementId = id;
-              schedulerItem.undoMovementAction = () => this.undoArmyMovement(schedulerItem.sourceCity, id);
-            });
-
-            await this.closeAllDialogs('opened');
-            this.error = null;
-          } catch (error) {
-            schedulerItem.cancelSchedule();
-            console.error('Error during action:', error);
-            this.error = 'Schedule failed. Check console for more details.'
-          } finally {
-            schedulerItem.postActionCleanup();
-          }
-        }, realActionTime - new Date().getTime());
-
-      }, preparationTime)
-
-    }, turnOffManagersTime);
   }
 
   private goToCoords(coords: [string, string]) {
@@ -540,153 +640,104 @@ export default class Scheduler {
     if (type === 'opened' || type === 'all') {
       for (const el of document.querySelectorAll<HTMLElement>('.ui-dialog-titlebar-close')) {
         el.click();
-        await waitForElementInterval(`.dialog_buttons [href="#${force ? 'confirm' : 'cancel'}"]`, { interval: 400, retries: 1 })
+        await waitForElementInterval(`.dialog_buttons [href="#${force ? 'confirm' : 'cancel'}"]`, {
+          interval: 400,
+          retries: 1,
+        })
           .then(() => el.click())
-          .catch(() => { });
+          .catch(() => {});
       }
     }
     if (type === 'minimized' || type === 'all') {
       for (const el of document.querySelectorAll<HTMLElement>('.minimized_windows_area .btn_wnd.close')) {
         el.click();
-        await waitForElementInterval(`.dialog_buttons [href="#${force ? 'confirm' : 'cancel'}"]`, { interval: 400, retries: 1 })
+        await waitForElementInterval(`.dialog_buttons [href="#${force ? 'confirm' : 'cancel'}"]`, {
+          interval: 400,
+          retries: 1,
+        })
           .then(() => el.click())
-          .catch(() => { });
+          .catch(() => {});
       }
     }
   }
 
-  /*
-  Wczytuje storage, w którym znajduje się niebędne info do wykonania timeoutów z planem operacji.
-  Iteruje po każdym itemie i uzupełnia jego objekt o id timeoutów, oraz funkcję do anulowania operacji.
-  */
-  private synchronizeSchedulerWithStorage() {
-    const storageScheduler = JSON.parse(localStorage.getItem('scheduler') || '[]') as ScheduleItem[];
-    storageScheduler.forEach(schedulerItem => this.hydrateSchedulerItem(schedulerItem));
-    this.handleIfSchedulerListIsEmpty();
+  private loadScheduleFromStorage() {
+    const storageScheduler = JSON.parse(localStorage.getItem(Scheduler.LOCAL_STORAGE_KEY) || '[]') as ScheduleItem[];
+    console.log('storageScheduler:', storageScheduler);
+    const hyratedSchedule = storageScheduler
+      .map(preHydratedItem => this.hydrateSchedulerItem(preHydratedItem))
+      .filter(e => e !== null);
+    this.schedule = hyratedSchedule;
+
+    // hydration may reject some items, but they still are in the storage
+    this.persist();
   }
 
-  private hydrateSchedulerItem(schedulerItem: ScheduleItem) {
-    if (schedulerItem.operationType === OperationType.ARMY_ATTACK || schedulerItem.operationType === OperationType.ARMY_SUPPORT) {
-      schedulerItem.actionDate = new Date(schedulerItem.actionDate)
-      schedulerItem.targetDate = new Date(schedulerItem.targetDate)
-      schedulerItem.sourceCity = this.citySwitchManager.getCityByName(schedulerItem.sourceCity.name)!; //TODO: possible erorr
+  private hydrateSchedulerItem(schedulerItem: ScheduleItem): ScheduleItem | null {
+    console.log('hydrate scheduler item called, preHydratedItem:', schedulerItem);
+    if (schedulerItem.operationType === OperationType.Attack || schedulerItem.operationType === OperationType.Support) {
+      console.log('this.citySwitchManager:', this.citySwitchManager);
+      const sourceCity = this.citySwitchManager.getCityByName(schedulerItem.sourceCity.name);
+      // at this point source city doesn't exist, so it's not possible to add operation to scheduler
+      if (!sourceCity) {
+        return null;
+      }
+      schedulerItem.sourceCity = sourceCity;
 
-      if (!this.canAddSchedulerItem(schedulerItem.actionDate)) {
-        console.warn('unsafe operation, failed to be scheudled during hydration');
-        this.hydrationError = `${schedulerItem.sourceCity.name} ${schedulerItem.operationType === OperationType.ARMY_ATTACK ? 'attack' : 'support'} operation  at '${schedulerItem.targetDate}' on city "${schedulerItem.targetCitySelector}" failed to be scheduled during hydration.`;
-        return;
+      if (!this.canAddSchedule(schedulerItem)) {
+        console.warn('Scheduler hydration rejected item:', schedulerItem);
+        return null;
       }
 
-      schedulerItem.cancelSchedule = async () => await this.cancelSchedule(schedulerItem);
-      schedulerItem.postActionCleanup = async () => await this.postActionCleanup(schedulerItem);
-
-      this.addActionTimeouts(schedulerItem);
-      this.scheduler.push(schedulerItem);
-      this.addSchedulerItemToUI(schedulerItem);
+      return schedulerItem;
     }
+    return null;
   }
 
   private set error(error: string | null) {
-    const errorElement = document.querySelector<HTMLElement>('#schedule-error');
     if (error) {
-      if (errorElement) {
-        errorElement.textContent = error;
-      }
-      this.generalInfo.showError('Scheduler:', error, 5000);
-    } else {
-      if (errorElement) {
-        errorElement.textContent = '';
-      }
+      this.generalInfo.showInfo('Scheduler: ', error, 'error', 5000);
     }
-    this._error = error;
   }
 
   private set hydrationError(error: string | null) {
-    // TODO: add error display container
-    this._hydrationError = error;
+    if (error) {
+      this.generalInfo.showInfo('Scheduler-hydration: ', error, 'error', 5000);
+    }
   }
 
   private set info(info: string | null) {
-    const infoElement = document.querySelector<HTMLElement>('#schedule-info');
     if (info) {
-      if (infoElement) {
-        infoElement.textContent = info;
-        setTimeout(() => {
-          infoElement.textContent = '';
-        }, 4000);
-      }
-    } else {
-      if (infoElement) {
-        infoElement.textContent = '';
-      }
+      this.generalInfo.showInfo('Scheduler: ', info, 'info', 5000);
     }
-    this._info = info;
   }
 
-  /**
-   * Sprawdza czy można dodać operację do schedulera ze względu na czas do wykonania operacji oraz czas do najbliższej akcji w schedulerze.
-   * Jezeli odstęp czasowy pomiędzy tą operacją a teraz lub najbliższą zaplanowaną operacją jest mniejszy niż 10s zwraca fałsz.
-   */
-  private canAddSchedulerItem(actionDate: Date): boolean {
-    // jeżeli czas do wykonbania operacji jest większy niż 10s, sprawdź czy czas do najbliższej akcji jest większy niż 10s
-    if (actionDate.getTime() - new Date().getTime() > 10 * 1000) {
-      // jeżeli scheduler jest pusty, można dodać operację
-      if (this.scheduler.length === 0) {
-        return true;
-      }
-      const hasNoInterlacingTimes = !this.scheduler.some((item) => {
-        if (Math.abs(item.actionDate.getTime() - actionDate.getTime()) < 10 * 1000) {
-          console.log('Interlacing times:', item.actionDate, actionDate);
-          console.log('\t:', item.actionDate.getTime() - actionDate.getTime(), (item.actionDate.getTime() - actionDate.getTime()) / 1000);
-          return true;
-        }
-        console.log('Not interlacing times:', item.actionDate, actionDate);
-        return false;
-      });
-      return hasNoInterlacingTimes;
-    }
-    // jeżeli czas do wykonbania operacji jest mniejszy niż 10s, nie podejmuj się operacji
-    else {
-      return false;
-    }
-  }
   /**
    * Sprawdza czy przywrócenie działania managerów nie koliduje z obecną kolejką schedulera, (minumum 60s do najbliższej akcji)
-   * jeżeli nie koliduje to przywraca działanie managerów.
+   * oraz czy nie wydarzy się to w trakcie działania jakiegokolwiek schedula.
+   * Jeżeli nie koliduje to przywraca działanie managerów.
+   * (LEGIT)
    */
   private tryRestoreManagers(): void {
-    if (this.scheduler.length === 0) {
-      console.log('RESTORE MANAGERS')
-      this.masterManager.resumeRunningManagers(['scheduler']);
+    if (this.schedule.length === 0) {
+      console.log('RESTORE MANAGERS');
+      this.masterManager.resumePausedManagers(['scheduler']);
     } else {
-      // znajdź najbliższą akcję w schedulerze
-      const now = new Date();
-      const nextClosestActionTime = this.scheduler.reduce((acc: Date | null, item: ScheduleItem) => {
-        if (item.actionDate < now) {
-          return acc;
-        }
-        if (acc && acc < item.actionDate) {
-          return acc;
-        }
-        return item.actionDate;
-      }, null);
-
-      if (nextClosestActionTime) {
-        const timeDiff = nextClosestActionTime.getTime() - new Date().getTime();
-        // jeżeli czas do najbliższej akcji jest większy niż 60s to przywróć działanie managerów
-        if (timeDiff > 60 * 1000) {
-          console.log('RESTORE MANAGERS')
-          this.masterManager.resumeRunningManagers(['scheduler']);
-        } else {
-          console.log('DO NOT RESTORE MANAGERS')
-        }
-        return
+      const now = Date.now();
+      const isTooSoonOrMidTime = this.schedule.some(el => {
+        const elExclusionStartTime = el.timeDetails.exclusionTime;
+        const elExclusionEndTime = el.timeDetails.exclusionTime + el.timeDetails.exclusionDuration;
+        return (
+          elExclusionStartTime < now + Scheduler.TIME_TO_RESTORE_MANAGERS_AFTER_ACTION ||
+          (elExclusionStartTime < now && now < elExclusionEndTime)
+        );
+      });
+      if (!isTooSoonOrMidTime) {
+        console.log('RESTORE MANAGERS');
+        this.masterManager.resumePausedManagers(['scheduler']);
       }
-      // jeżeli czas Data jest zaprzeszła, przywróć działanie managerów
-      this.masterManager.resumeRunningManagers(['scheduler']);
     }
   }
-
 
   private getDateFromDateTimeInputValues(inputDateValue: string, inputTimeValue: string) {
     const timeRegex = /(\d{2})\D*(\d{2})\D*(\d{2})/;
@@ -699,44 +750,56 @@ export default class Scheduler {
     return new Date(`${inputDateValue}T${parsedTime}`);
   }
 
-  private getFormattedInputValueFromDate(date: Date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0'); // Miesiące są indeksowane od 0
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }
-
   private mountAttackSupportSubpageObserver(parentNode: HTMLElement): () => void {
-    const observer = new MutationObserver((mutations) => {
+    const observer = new MutationObserver(mutations => {
       for (const mutation of mutations) {
         if (mutation.type === 'childList') {
           for (const node of mutation.addedNodes) {
-            if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).classList.contains('attack_support_window')) {
-              this.extendAttackSupportUI(node as HTMLElement);
-              return
+            if (
+              node.nodeType === Node.ELEMENT_NODE &&
+              (node as HTMLElement).classList.contains('attack_support_window')
+            ) {
+              // element do którego na koniec będzie dodane rozszerzenie
+              const buttonWrapper = (node as HTMLElement).querySelector('.button_wrapper')!;
+              // kontener do którego będzie wyrenderowane rozszerzenie
+              const container = document.createElement('div');
+              // render
+              this.schedulerUIExtensionUI.mount(container, {
+                schedueList: this.schedule,
+                onSubmit: async (details: SchedulerUIExtensionSubmitDetails) =>
+                  await this.handleScheduleSubmit(details, node as HTMLElement),
+              });
+              // dodanie do UI wyrenderowanego komponentu
+              buttonWrapper.appendChild(container);
+              return;
             }
           }
         }
       }
-    })
+    });
     observer.observe(parentNode, { childList: true, subtree: true });
+    this.attackSupportCardObserver = observer;
     return () => observer.disconnect();
   }
 
   private async mountCityDialogObserver(): Promise<void> {
     let unobserveAttackSupportSubpages: (() => void) | null = null;
-    const observer = new MutationObserver((mutations) => {
+    const observer = new MutationObserver(mutations => {
       for (const mutation of mutations) {
         if (mutation.type === 'childList') {
           for (const node of mutation.addedNodes) {
-            if (node.nodeType === Node.ELEMENT_NODE &&
-              (node as HTMLElement).getAttribute('class') === 'ui-dialog ui-corner-all ui-widget ui-widget-content ui-front ui-draggable ui-resizable js-window-main-container') {
+            if (
+              node.nodeType === Node.ELEMENT_NODE &&
+              (node as HTMLElement).getAttribute('class') ===
+                'ui-dialog ui-corner-all ui-widget ui-widget-content ui-front ui-draggable ui-resizable js-window-main-container'
+            ) {
               unobserveAttackSupportSubpages = this.mountAttackSupportSubpageObserver(node as HTMLElement);
               return;
             }
           }
           for (const node of mutation.removedNodes) {
-            if (node.nodeType === Node.ELEMENT_NODE &&
+            if (
+              node.nodeType === Node.ELEMENT_NODE &&
               (node as HTMLElement).getAttribute('role') === 'dialog' &&
               (node as HTMLElement).classList.contains('ui-dialog') &&
               (node as HTMLElement).classList.contains('js-window-main-container')
@@ -750,86 +813,522 @@ export default class Scheduler {
           }
         }
       }
-    })
+    });
 
     observer.observe(document.body, {
       childList: true,
     });
+    this.cityDialogObserver = observer;
   }
 
-  private addSchedulerListConfigWindow(): void {
-    const style = document.createElement('style');
-    style.textContent = schedulerListCss;
-    document.head.appendChild(style);
+  private handleScheduleSubmit = async (details: SchedulerUIExtensionSubmitDetails, node: HTMLElement) => {
+    try {
+      // get way duration time
+      const wayDurationText = node.querySelector('.way_duration')!.textContent!.slice(1);
+      const wayDurationMs = HHMMSS_toMS(wayDurationText);
+      // get input data (all unit inputs)
+      // const inputData = Array.from(node.querySelectorAll<HTMLInputElement>('.unit_input')).map(inputEl => {
+      //   return {
+      //     name: inputEl.getAttribute('name')!,
+      //     value: inputEl.value,
+      //   };
+      // });
+      const inputData = Array.from(node.querySelectorAll<HTMLInputElement>('.unit_input'))
+        .map(inputEl => {
+          return inputEl.value
+            ? {
+                name: inputEl.getAttribute('name')!,
+                value: inputEl.value,
+              }
+            : null;
+        })
+        .filter(el => el !== null);
 
-    const schedulerListConfigWindow = document.createElement('div');
-    schedulerListConfigWindow.innerHTML = schedulerListHtml;
-    document.body.appendChild(schedulerListConfigWindow);
+      // jezeli inputy nie są wypełnione, nie dodawaj do schedulera
+      if (!inputData.length) {
+        this.error = 'Schedule failed. All units are empty.';
+        return;
+      }
 
-    this.addSchedulerListConfigListeners();
+      // hero related
+      const includeHero = node.querySelector<HTMLElement>('.cbx_include_hero')?.classList.contains('checked');
+      // -------------
+
+      // operation type related
+      const operationType =
+        node.firstElementChild!.getAttribute('data-type') === 'attack' ? OperationType.Attack : OperationType.Support;
+
+      const allCheckedStrategies = document.querySelectorAll<HTMLElement>('.attack_strategy.checked');
+      //  all previous for some reason are 'checked' too
+      const lastCheckedStrategy = Array.from(allCheckedStrategies).at(-1)?.dataset.attack;
+      const attackStrategy =
+        operationType === OperationType.Attack ? (lastCheckedStrategy as AttackStrategy) : undefined;
+      // -------------
+
+      // power related
+      const powerElement = document.querySelector<HTMLElement>('.spells.power.power_icon45x45');
+      let powerDataName = null;
+      if (!powerElement?.classList.contains('no_power')) {
+        powerDataName = powerElement?.classList.item(3);
+      }
+      console.log('powerDataName:', powerDataName);
+      // -------------
+
+      // #schedule-time
+      const sourceCity = this.citySwitchManager.getCurrentCity();
+
+      // attack_support_tab_target_9542
+      const targetCitySelector =
+        '#town_' +
+        Array.from(node.classList)
+          .find(cls => cls.match(/attack_support_tab_target_\d+/))!
+          .match(/\d+/)![0];
+
+      const coords = this.readCoords();
+
+      document.querySelector<HTMLInputElement>('[data-menu_name="Info"]')!.click();
+      await addDelay(100);
+
+      const targetCityName = await waitForElementInterval('#towninfo_towninfo .game_header.bold', {
+        interval: 333,
+        timeout: 2000,
+      }).then(el => (el as HTMLElement).textContent!.trim());
+
+      const id = new Date().toLocaleString();
+
+      const schedulerItem: PreregisteredScheduleItem = {
+        id: id,
+        operationType: operationType,
+        attackStrategy: attackStrategy,
+        sourceCity: sourceCity!,
+        power: powerDataName ? (CharmsUtility.getCharmByPowerId(powerDataName) ?? null) : null, // - TODO!!!
+        includeHero: !!includeHero,
+        armyDetails: inputData,
+        targetCityDetails: {
+          name: targetCityName,
+          coords,
+          selector: targetCitySelector,
+        },
+        precision: details.precision,
+        timeDetails: {
+          targetTime: details.timeDetails.targetTime,
+          movementDuration: wayDurationMs,
+        },
+        synchronizedWith: details.syncWith,
+        actionTimeout: null,
+        movementId: null,
+        dependentScheduleItems: [],
+      };
+
+      // spróbuj zarejestrować - niepowodzenie rzuca error
+      await this.tryRegisterSchedule(schedulerItem);
+    } catch (e) {
+      console.warn('[Scheduler]: handleScheduleSubmit catch block:', e, getBrowserExecutionContextInfo());
+      if (e instanceof Error) this.error = e.message;
+      else this.error = 'Schedule failed for unknkown reason, call your local dev';
+    } finally {
+      // nothing
+    }
+  };
+
+  private persist() {
+    localStorage.setItem(Scheduler.LOCAL_STORAGE_KEY, JSON.stringify(this.schedule));
   }
 
-  private addSchedulerListConfigListeners(): void {
-    const toggleButton = document.querySelector<HTMLButtonElement>('#scheduler-toggle-button');
-    const tableContainer = document.querySelector<HTMLDivElement>('#table-container');
-    toggleButton?.addEventListener('click', () => {
-      tableContainer?.classList.toggle('hidden');
+  /**
+   * @requires opened city info card
+   */
+  private async saveCoords(id: string, targetCitySelector: string) {
+    await waitForElementInterval('.info_jump_to_town', {
+      interval: 333,
+      retries: 6,
+    })
+      .then(el => el.click())
+      .catch(() => {
+        this.error = 'Nie udało się przeskoczyć do wioski, aby zapisać współrzędne.';
+        return;
+      });
+
+    await waitWhile(() => !document.querySelector<HTMLElement>(targetCitySelector), {
+      onError: () => {
+        this.error = 'Nie udało się zapisać współrzędnych wioski, zamknij okna innych wiosek i spróbuj ponownie.';
+        throw new Error('Target city not found during scheduling process');
+      },
     });
 
-    const closeIcon = document.querySelector<HTMLDivElement>('.close-icon');
-    closeIcon?.addEventListener('click', () => {
-      tableContainer?.classList.add('hidden');
-    });
+    await this.closeAllDialogs('minimized');
+    await addDelay(100);
+
+    document.querySelector<HTMLInputElement>('.btn_save_location')?.click();
+    await addDelay(100);
+
+    await waitForElement('.save_coordinates input', 3000)
+      .then(el => {
+        setInputValue(el as HTMLInputElement, id);
+        el.blur();
+      })
+      .catch(() => {
+        this.error = 'Error during saving coordinates, try again.';
+        throw new Error('Failed to save coordinates');
+      });
+    await addDelay(100);
+
+    await waitForElement('.save_coordinates .btn_confirm', 3000)
+      .then(el => (el as HTMLButtonElement).click())
+      .catch(() => {
+        this.error = 'Error during saving coordinates, try again.';
+        throw new Error('Failed to confirm saving coordinates');
+      });
   }
 
-  private addSchedulerItemToUI(schedulerItem: ScheduleItem): void {
-    const table = document.querySelector<HTMLTableElement>('#scheduler-lookup-table tbody');
-    const row = table!.insertRow();
-    const id = this.getSchedulerItemId(schedulerItem);
-    row.setAttribute('data-scheduler-item-id', id);
+  /**
+   * Assigns all time details to given schedule item based on its configuration and optional referential schedule (hypotethical).
+   * For synchronized items, calculates target times based on the referential schedule's timing.
+   * For precise items, includes tolerance windows and antitiming buffers.
+   * For non-precise items, uses exact target time.
+   * @param registeredItem The schedule item to assign time details to
+   * @param referentialSchedule Optional reference schedule item to sync with, else takes from real schedule (default)
+   */
+  private assignTimeDetailsToScheduleItem(registeredItem: ScheduleItem, referentialSchedule?: ScheduleItem) {
+    // synchronizowany
+    if (registeredItem.timeDetails.targetTime === null && !!registeredItem.synchronizedWith) {
+      referentialSchedule ||= this.schedule.find(s => s.id === registeredItem.synchronizedWith?.scheduleId)!;
+      // precyzyjny
+      if (registeredItem.precision) {
+        registeredItem.timeDetails.targetTimeStart =
+          referentialSchedule.timeDetails.targetTimeStart +
+          registeredItem.synchronizedWith.deviation +
+          (registeredItem.precision.tolerance < 0 ? registeredItem.precision.tolerance : 0);
+        registeredItem.timeDetails.targetTimeDuration =
+          referentialSchedule.timeDetails.targetTimeDuration + Math.abs(registeredItem.precision.tolerance);
+        console.log(
+          registeredItem.timeDetails.targetTimeDuration,
+          msToHHMMSS(registeredItem.timeDetails.targetTimeDuration),
+        );
 
-    const operaitonTypeCell = row.insertCell();
-    operaitonTypeCell.textContent = schedulerItem.operationType === OperationType.ARMY_ATTACK ? 'Attack' : 'Support';
-    operaitonTypeCell.classList.add(schedulerItem.operationType === OperationType.ARMY_ATTACK ? 'attack' : 'support');
-    row.insertCell().textContent = schedulerItem.sourceCity.name;
-    row.insertCell().textContent = schedulerItem.targetCityName;
-    row.insertCell().textContent = schedulerItem.actionDate.toLocaleTimeString();
-    row.insertCell().textContent = schedulerItem.targetDate.toLocaleTimeString();
+        const preparationTime =
+          registeredItem.timeDetails.targetTimeStart -
+          registeredItem.timeDetails.movementDuration -
+          this.config.app.antyTimingMs -
+          Scheduler.PREPARATION_TIME_MS;
 
-    const cancelButtonCell = row.insertCell();
-    const cancelButton = document.createElement('button');
-    cancelButton.classList.add('cancel-button');
-    cancelButton.textContent = 'Cancel';
-    cancelButton.addEventListener('click', () => {
-      schedulerItem.cancelSchedule();
-      this.removeSchedulerItemFromUI(schedulerItem);
-    });
-    cancelButtonCell.appendChild(cancelButton);
-    this.handleIfSchedulerListIsEmpty();
-  }
+        registeredItem.timeDetails.preparationTime = preparationTime;
+        registeredItem.timeDetails.executionStartTime = preparationTime + Scheduler.PREPARATION_TIME_MS;
 
-  private removeSchedulerItemFromUI(schedulerItem: ScheduleItem): void {
-    console.log('removeSchedulerItemFromUI', schedulerItem);
-    const table = document.querySelector<HTMLTableElement>('#scheduler-lookup-table tbody');
-    const row = table!.querySelector(`[data-scheduler-item-id="${this.getSchedulerItemId(schedulerItem)}"]`);
-    row?.remove();
-    this.handleIfSchedulerListIsEmpty();
-  }
+        const areManagersActiveAtTheTimeOfPreparation = this.getAreManagersActiveAt(preparationTime);
+        registeredItem.timeDetails.switchesOffManagers = areManagersActiveAtTheTimeOfPreparation;
 
-  private getSchedulerItemId(schedulerItem: ScheduleItem): string {
-    return `${schedulerItem.operationType}_${schedulerItem.sourceCity.name}_${schedulerItem.targetCityName}_${schedulerItem.actionDate.getTime()}`;
-  }
+        registeredItem.timeDetails.exclusionTime =
+          preparationTime - (areManagersActiveAtTheTimeOfPreparation ? Scheduler.TURN_OFF_MANAGERS_TIME_MS : 0);
 
-  private handleIfSchedulerListIsEmpty(): void {
-    const noSchedules = document.querySelector<HTMLTableElement>('#no-schedules');
-    if (this.scheduler.length === 0) {
-      noSchedules!.classList.remove('hidden');
-    } else {
-      noSchedules!.classList.add('hidden');
+        registeredItem.timeDetails.exclusionDuration =
+          registeredItem.timeDetails.targetTimeStart +
+          registeredItem.timeDetails.targetTimeDuration +
+          this.config.app.antyTimingMs -
+          registeredItem.timeDetails.movementDuration -
+          registeredItem.timeDetails.exclusionTime;
+      }
+      // w teorii tylko debil by użył tej opcji
+      // nieprecyzjny wykonuje się dokładnie we wskazanym czasie (bez uwzględniania czasu prób (+/-AT))
+      else {
+        registeredItem.timeDetails.targetTimeStart =
+          referentialSchedule.timeDetails.targetTimeStart + registeredItem.synchronizedWith.deviation;
+
+        registeredItem.timeDetails.targetTimeDuration = referentialSchedule.timeDetails.targetTimeDuration;
+
+        const preparationTime =
+          registeredItem.timeDetails.targetTimeStart -
+          registeredItem.timeDetails.movementDuration -
+          Scheduler.PREPARATION_TIME_MS;
+
+        registeredItem.timeDetails.preparationTime = preparationTime;
+        registeredItem.timeDetails.executionStartTime = preparationTime + Scheduler.PREPARATION_TIME_MS;
+
+        const areManagersActiveAtTheTimeOfPreparation = this.getAreManagersActiveAt(preparationTime);
+        registeredItem.timeDetails.switchesOffManagers = areManagersActiveAtTheTimeOfPreparation;
+
+        registeredItem.timeDetails.exclusionTime =
+          preparationTime - (areManagersActiveAtTheTimeOfPreparation ? Scheduler.TURN_OFF_MANAGERS_TIME_MS : 0);
+
+        registeredItem.timeDetails.exclusionDuration =
+          registeredItem.timeDetails.targetTimeStart +
+          registeredItem.timeDetails.targetTimeDuration -
+          registeredItem.timeDetails.movementDuration -
+          registeredItem.timeDetails.exclusionTime;
+      }
+    }
+    // niesynchronizowany - trzeba dodać timeouty odrazu (bo wiadomo jakie są czasy itp)
+    else {
+      // precyzyjny
+      if (registeredItem.precision) {
+        registeredItem.timeDetails.targetTimeStart =
+          registeredItem.timeDetails.targetTime! +
+          (registeredItem.precision!.tolerance < 0 ? registeredItem.precision!.tolerance : 0);
+
+        registeredItem.timeDetails.targetTimeDuration = Math.abs(registeredItem.precision?.tolerance!);
+
+        const preparationTime =
+          registeredItem.timeDetails.targetTimeStart -
+          registeredItem.timeDetails.movementDuration -
+          this.config.app.antyTimingMs -
+          Scheduler.PREPARATION_TIME_MS;
+
+        registeredItem.timeDetails.preparationTime = preparationTime;
+        registeredItem.timeDetails.executionStartTime = preparationTime + Scheduler.PREPARATION_TIME_MS;
+
+        const areManagersActiveAtTheTimeOfPreparation = this.getAreManagersActiveAt(preparationTime);
+        registeredItem.timeDetails.switchesOffManagers = areManagersActiveAtTheTimeOfPreparation;
+
+        registeredItem.timeDetails.exclusionTime =
+          preparationTime - (areManagersActiveAtTheTimeOfPreparation ? Scheduler.TURN_OFF_MANAGERS_TIME_MS : 0);
+
+        registeredItem.timeDetails.exclusionDuration =
+          registeredItem.timeDetails.targetTimeStart +
+          registeredItem.timeDetails.targetTimeDuration +
+          this.config.app.antyTimingMs -
+          registeredItem.timeDetails.movementDuration -
+          registeredItem.timeDetails.exclusionTime;
+      }
+      // nieprecyzjny wykonuje się dokładnie we wskazanym czasie (bez uwzględniania czasu prób (+/-AT))
+      else {
+        registeredItem.timeDetails.targetTimeStart = registeredItem.timeDetails.targetTime!;
+
+        registeredItem.timeDetails.targetTimeDuration = 0;
+
+        const preparationTime =
+          registeredItem.timeDetails.targetTimeStart -
+          registeredItem.timeDetails.movementDuration -
+          Scheduler.PREPARATION_TIME_MS;
+
+        registeredItem.timeDetails.preparationTime = preparationTime;
+        registeredItem.timeDetails.executionStartTime = preparationTime + Scheduler.PREPARATION_TIME_MS;
+
+        const areManagersActiveAtTheTimeOfPreparation = this.getAreManagersActiveAt(preparationTime);
+        registeredItem.timeDetails.switchesOffManagers = areManagersActiveAtTheTimeOfPreparation;
+
+        registeredItem.timeDetails.exclusionTime =
+          preparationTime - (areManagersActiveAtTheTimeOfPreparation ? Scheduler.TURN_OFF_MANAGERS_TIME_MS : 0);
+
+        registeredItem.timeDetails.exclusionDuration =
+          registeredItem.timeDetails.targetTimeStart +
+          registeredItem.timeDetails.targetTimeDuration -
+          registeredItem.timeDetails.movementDuration -
+          registeredItem.timeDetails.exclusionTime;
+      }
+      console.log('item with assigned timeDetails:', this.displayFormattedSchedulerItem(registeredItem));
     }
   }
 
-  public canSafelyRefresh(): boolean {
-    return this.scheduler.length === 0 || this.scheduler.every((item) => item.actionDate > new Date(new Date().getTime() + 120 * 1000));
+  /**
+   * Calculates timeDetails and adds to the item, checks if item can be added to schedule, saves coords in the ui, sets timeouts if possible,
+   * pushes new item to the schedule, shows info, persists the data and rerenders the table. Throws Error if something was not possible or unsuccessful.
+   * @requires opened city info window (for saveCoords implementation)
+   * @param item
+   */
+  private async tryRegisterSchedule(item: PreregisteredScheduleItem) {
+    const registeredItem = item as ScheduleItem;
+    this.assignTimeDetailsToScheduleItem(registeredItem);
+    console.log('prechecked registeredItem:', this.displayFormattedSchedulerItem(registeredItem));
+    if (!this.canAddSchedule(registeredItem)) {
+      throw new Error('Cannot add, becasuse schedule item is conflicting');
+    }
+
+    await this.saveCoords(registeredItem.id, registeredItem.targetCityDetails.selector);
+
+    // handle synchronized item details
+    if (registeredItem.synchronizedWith) {
+      const referentialSchedule = this.schedule.find(s => s.id === item.synchronizedWith?.scheduleId)!;
+      referentialSchedule.dependentScheduleItems.push({
+        scheduleId: registeredItem.id,
+        deviation: registeredItem.synchronizedWith.deviation,
+      });
+    }
+
+    this.schedule.push(registeredItem);
+
+    // handle not synchronized item
+    if (registeredItem.timeDetails.targetTime) {
+      this.activateSchedule(registeredItem);
+    }
+
+    console.log('registeredItem:', this.displayFormattedSchedulerItem(registeredItem));
+    this.info = 'Operation scheduled';
+    this.updateUITable();
+    this.persist();
+  }
+
+  // TODO
+  private recalculateExclusionTimes() {
+    this.schedule.forEach(schedule => {});
+  }
+
+  /* TODO: must be optimized in the future
+  -during hydration
+
+  /**
+   * Says if item is not scheduled in the past and don't conflict with existing schedule items. (LEGIT)
+   */
+  private canAddSchedule(newSchedule: ScheduleItem, scheduleList?: ScheduleItem[], omitCheckForIDs: string[] = []) {
+    const isInThePast = newSchedule.timeDetails.exclusionTime < Date.now();
+    return (
+      !isInThePast &&
+      (scheduleList ?? this.schedule).every(existingSchedule => {
+        // if this is hypotethical check then omit passed schedules
+        if (omitCheckForIDs.includes(existingSchedule.id)) return true;
+
+        const existingItemExclusionnStartTime = existingSchedule.timeDetails.exclusionTime;
+        const existingItemExclusionEndTime =
+          existingSchedule.timeDetails.exclusionTime + existingSchedule.timeDetails.exclusionDuration;
+
+        const newItemExclusionnStartTime = newSchedule.timeDetails.exclusionTime;
+        const newItemExclusionEndTime =
+          newSchedule.timeDetails.exclusionTime + newSchedule.timeDetails.exclusionDuration;
+
+        console.log(`existing schedule exluctions time: ${new Date(existingItemExclusionnStartTime).toLocaleString().split(', ')[1]}-${new Date(existingItemExclusionEndTime).toLocaleString().split(', ')[1]}
+        new schedule exluctions time: ${new Date(newItemExclusionnStartTime).toLocaleString().split(', ')[1]}-${new Date(newItemExclusionEndTime).toLocaleString().split(', ')[1]}`);
+
+        // początek lub koniec dodawanego schedula nie może występować w środku innego
+        // oraz początek/koniec istniejącego nie może występować w dodawanym
+        return !(
+          (existingItemExclusionnStartTime < newItemExclusionnStartTime &&
+            newItemExclusionnStartTime < existingItemExclusionEndTime) ||
+          (existingItemExclusionnStartTime < newItemExclusionEndTime &&
+            newItemExclusionEndTime < existingItemExclusionEndTime) ||
+          // reverse
+          (newItemExclusionnStartTime < existingItemExclusionEndTime &&
+            existingItemExclusionnStartTime < newItemExclusionEndTime) ||
+          (newItemExclusionnStartTime < existingItemExclusionEndTime &&
+            existingItemExclusionEndTime < newItemExclusionEndTime)
+        );
+      })
+    );
+  }
+
+  /**
+   * Calculates and assigns time details to ABSOLUTE-timed schedule (not relative), asesses if managers needs to be switched off as a part of the flow
+   */
+  private reevaluateItemTimeDetails(item: ScheduleItem) {
+    // precyzyjny
+    if (item.precision) {
+      item.timeDetails.targetTimeStart =
+        item.timeDetails.targetTime! + (item.precision!.tolerance < 0 ? item.precision!.tolerance : 0);
+
+      item.timeDetails.targetTimeDuration = Math.abs(item.precision?.tolerance!);
+
+      const preparationTime =
+        item.timeDetails.targetTimeStart -
+        item.timeDetails.movementDuration -
+        this.config.app.antyTimingMs -
+        Scheduler.PREPARATION_TIME_MS;
+
+      item.timeDetails.preparationTime = preparationTime;
+      item.timeDetails.executionStartTime = preparationTime + Scheduler.PREPARATION_TIME_MS;
+
+      const areManagersActiveAtTheTimeOfPreparation = this.getAreManagersActiveAt(preparationTime);
+      item.timeDetails.switchesOffManagers = areManagersActiveAtTheTimeOfPreparation;
+
+      item.timeDetails.exclusionTime =
+        preparationTime - (areManagersActiveAtTheTimeOfPreparation ? Scheduler.TURN_OFF_MANAGERS_TIME_MS : 0);
+
+      item.timeDetails.exclusionDuration =
+        item.timeDetails.targetTimeStart +
+        item.timeDetails.targetTimeDuration +
+        this.config.app.antyTimingMs -
+        item.timeDetails.movementDuration -
+        item.timeDetails.exclusionTime;
+    }
+    // nieprecyzjny wykonuje się dokładnie we wskazanym czasie (bez uwzględniania czasu prób (+/-AT))
+    else {
+      item.timeDetails.targetTimeStart = item.timeDetails.targetTime!;
+
+      item.timeDetails.targetTimeDuration = 0;
+
+      const preparationTime =
+        item.timeDetails.targetTimeStart - item.timeDetails.movementDuration - Scheduler.PREPARATION_TIME_MS;
+
+      item.timeDetails.preparationTime = preparationTime;
+      item.timeDetails.executionStartTime = preparationTime + Scheduler.PREPARATION_TIME_MS;
+
+      const areManagersActiveAtTheTimeOfPreparation = this.getAreManagersActiveAt(preparationTime);
+      item.timeDetails.switchesOffManagers = areManagersActiveAtTheTimeOfPreparation;
+
+      item.timeDetails.exclusionTime =
+        preparationTime - (areManagersActiveAtTheTimeOfPreparation ? Scheduler.TURN_OFF_MANAGERS_TIME_MS : 0);
+
+      item.timeDetails.exclusionDuration =
+        item.timeDetails.targetTimeStart +
+        item.timeDetails.targetTimeDuration -
+        item.timeDetails.movementDuration -
+        item.timeDetails.exclusionTime;
+    }
+  }
+
+  private getAreManagersActiveAt(time: number) {
+    return this.schedule.every(schedule => {
+      return (
+        schedule.timeDetails.exclusionTime < time &&
+        schedule.timeDetails.exclusionTime +
+          schedule.timeDetails.exclusionDuration +
+          Scheduler.TIME_TO_RESTORE_MANAGERS_AFTER_ACTION >
+          time
+      );
+    });
+  }
+
+  // TODO: rethink when needed
+  public canSafelyRefresh = () => false;
+
+  private cloneScheduleItem(item: ScheduleItem): ScheduleItem {
+    const { actionTimeout, ...rest } = item;
+    return {
+      ...rest,
+      sourceCity: { ...item.sourceCity },
+      power: item.power ? { ...item.power } : null,
+      armyDetails: item.armyDetails.map(item => ({ ...item })),
+      targetCityDetails: { ...item.targetCityDetails },
+      timeDetails: { ...item.timeDetails },
+      synchronizedWith: item.synchronizedWith ? { ...item.synchronizedWith } : undefined,
+      precision: item.precision ? { ...item.precision } : undefined,
+      actionTimeout: null,
+      dependentScheduleItems: item.dependentScheduleItems.map(item => ({ ...item })),
+    };
+  }
+
+  private displayFormattedSchedulerItem(item: ScheduleItem): DisplayFormattedSchedulerItem {
+    const isPrecise = !!item.precision;
+    return {
+      ...item,
+      timeDetails: {
+        ...item.timeDetails,
+        exclusionDuration: msToHHMMSS(item.timeDetails.exclusionDuration), // to [s]
+        exclusionTime: new Date(item.timeDetails.exclusionTime).toLocaleString(),
+        movementDuration: msToHHMMSS(item.timeDetails.movementDuration), // to [s]
+        targetTime: item.timeDetails.targetTime ? new Date(item.timeDetails.targetTime).toLocaleString() : null,
+        targetTimeDuration: msToHHMMSS(item.timeDetails.targetTimeDuration), // to [s]
+        targetTimeStart: new Date(item.timeDetails.targetTimeStart).toLocaleString(),
+
+        switchOffManagersTime: item.timeDetails.switchesOffManagers ? msToHHMMSS(item.timeDetails.exclusionTime) : null,
+        preparationTime: new Date(
+          item.timeDetails.targetTimeStart -
+            item.timeDetails.movementDuration -
+            Scheduler.PREPARATION_TIME_MS -
+            (isPrecise ? this.config.app.antyTimingMs : 0),
+        ).toLocaleString(),
+        executionStartTime: new Date(
+          item.timeDetails.targetTimeStart -
+            item.timeDetails.movementDuration -
+            (isPrecise ? this.config.app.antyTimingMs : 0),
+        ).toLocaleString(),
+      },
+      precision: item.precision
+        ? {
+            allowedToleranceIfFailed: item.precision.allowedToleranceIfFailed,
+            tolerance: item.precision.tolerance / 1000,
+          }
+        : item.precision,
+      synchronizedWith: item.synchronizedWith
+        ? { ...item.synchronizedWith, deviation: item.synchronizedWith.deviation / 1000 }
+        : item.synchronizedWith,
+    };
   }
 }

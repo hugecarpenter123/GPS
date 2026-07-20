@@ -1,0 +1,10 @@
+/* @import 'tailwindcss'; */
+@import 'tailwindcss/theme';
+@import 'tailwindcss/utilities';
+
+@theme {
+  /* GPS Custom Colors */
+  --color-gps-card: #faebd7;
+  --color-gps-toolbar: #443300;
+  --color-gps-border: #d1bf91;
+}

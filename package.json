@@ -1,31 +1,50 @@
 {
   "name": "gps",
   "version": "1.0.0",
+  "type": "module",
   "description": "",
   "main": "main.ts",
   "scripts": {
-    "build": "webpack",
-    "build:readable": "webpack --mode development --devtool source-map",
-    "start": "webpack serve --mode development"
+    "build": "webpack --mode production",
+    "build:dev": "webpack --mode development",
+    "build:debug": "webpack --mode development --devtool inline-source-map",
+    "start": "webpack serve --mode development",
+    "playground": "vite playground",
+    "play": "node playground/play.mjs",
+    "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,scss}\"",
+    "format:check": "prettier --check \"src/**/*.{js,jsx,ts,tsx,json,css,scss}\""
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@types/node": "^22.0.2",
+    "@preact/preset-vite": "^2.10.2",
+    "@tailwindcss/postcss": "^4.1.17",
+    "@types/node": "^22.14.1",
     "@types/webpack-env": "^1.18.5",
+    "autoprefixer": "^10.4.22",
     "css-loader": "^7.1.2",
     "json-loader": "^0.5.7",
+    "postcss": "^8.5.6",
+    "postcss-loader": "^8.2.0",
+    "prettier": "^3.5.3",
+    "prettier-plugin-imports": "^4.3.3",
+    "prettier-plugin-tailwindcss": "^0.7.1",
     "raw-loader": "^4.0.2",
     "style-loader": "^4.0.0",
+    "tailwindcss": "^4.1.17",
     "ts-loader": "^9.5.1",
     "typescript": "^5.5.4",
+    "vite": "^7.2.6",
     "webpack": "^5.93.0",
     "webpack-cli": "^5.1.4",
     "webpack-dev-server": "^5.0.4"
   },
   "dependencies": {
+    "clsx": "^2.1.1",
     "events": "^3.3.0",
-    "stream-browserify": "^3.0.0"
+    "preact": "^10.26.5",
+    "stream-browserify": "^3.0.0",
+    "tailwind-merge": "^3.4.0"
   }
 }

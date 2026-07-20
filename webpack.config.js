@@ -1,27 +1,40 @@
-const path = require('path');
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-module.exports = {
-  // mode: 'development',
-  mode: 'production',
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+export default {
   entry: './src/main.ts',
   module: {
     rules: [
       {
-        test: /\.ts$/,
+        test: /\.tsx?$/,
         use: 'ts-loader',
-        exclude: /node_modules/,
+        exclude: [/node_modules/, /playground/],
       },
       {
         test: /\.json$/,
         loader: 'json-loader',
-        type: 'javascript/auto'
+        type: 'javascript/auto',
       },
       {
         test: /\.css$/i,
-        rules: [
+        resourceQuery: /^\?raw$/,
+        use: 'raw-loader',
+      },
+      {
+        test: /\.css$/i,
+        resourceQuery: { not: [/^\?raw$/] },
+        use: [
+          'raw-loader',
           {
-            test: /\.css$/i,
-            use: 'raw-loader',
+            loader: 'postcss-loader',
+            options: {
+              postcssOptions: {
+                config: path.resolve(__dirname, 'postcss.config.js'),
+              },
+            },
           },
         ],
       },
@@ -29,34 +42,28 @@ module.exports = {
         test: /\.html$/i,
         use: 'raw-loader',
       },
-      // {
-      //   test: /\.css$/i,
-      //   // use: ['style-loader', 'css-loader'],
-      //   use: [
-      //     'style-loader',
-      //     {
-      //       loader: 'css-loader',
-      //       options: {
-      //         modules: true,
-      //         importLoaders: 1,
-      //       },
-      //     },
-      //   ],
-      // }
     ],
   },
   resolve: {
+    extensions: ['.ts', '.tsx', '.js', '.jsx'],
+    alias: {
+      react: 'preact/compat',
+      'react-dom': 'preact/compat',
+      '~': path.resolve(__dirname, 'src'),
+    },
     fullySpecified: false,
-    extensions: ['.ts', '.js', '.json', '.css'],
     fallback: {
-      events: require.resolve("events/"),
+      events: 'events/',
     },
   },
   output: {
     filename: 'bundle.js',
     path: path.resolve(__dirname, 'dist'),
   },
-  devtool: 'source-map',
+  optimization: {
+    usedExports: true,
+    sideEffects: true,
+  },
   devServer: {
     contentBase: path.resolve(__dirname, 'dist'),
     compress: true,

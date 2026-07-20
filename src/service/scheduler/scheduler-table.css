@@ -1,0 +1,218 @@
+#scheduler-table-container {
+  max-height: 50vh;
+  overflow-y: auto;
+  border: 1px solid #ddd;
+  width: fit-content;
+}
+
+#scheduler-table {
+  font-family: Arial, Helvetica, sans-serif;
+  border-collapse: collapse;
+  font-size: 18px;
+  text-align: left;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2000 !important;
+  background-color: antiquewhite;
+}
+
+#no-schedules {
+  text-align: center;
+  height: 50px;
+}
+
+#scheduler-table-container .attack {
+  font-weight: 600;
+  color: #d32f2f;
+}
+
+#scheduler-table-container .support {
+  font-weight: 600;
+  color: #2979ff;
+}
+
+#scheduler-table * {
+  font-size: 14px;
+}
+
+#scheduler-table th,
+#scheduler-table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+}
+
+#scheduler-table th {
+  background-color: #f2f2f2;
+  font-weight: bold;
+}
+
+#scheduler-table td {
+  text-wrap: nowrap;
+}
+
+#scheduler-table-container .cancel-button {
+  background-color: #f44336;
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition-duration: 150ms;
+}
+
+#scheduler-table-container .cancel-button:hover {
+  background-color: #d32f2f;
+}
+
+#scheduler-toggle-button {
+  padding: 4px 8px;
+  font-size: 12px;
+  font-variant: small-caps;
+  cursor: pointer;
+  border-radius: 20px;
+  position: absolute;
+  bottom: 98px;
+  left: 10px;
+  margin: 0;
+  z-index: 1000;
+  transition-duration: 150ms;
+}
+
+#scheduler-toggle-button:hover {
+  background-color: #ddd;
+}
+
+#scheduler-table-container .actions {
+  min-width: 22px;
+}
+
+#scheduler-table-container .close-icon {
+  position: absolute;
+  cursor: pointer;
+  right: 5px;
+  top: 5px;
+  color: #000;
+}
+
+#scheduler-table-container .close-icon:hover {
+  scale: 1.1;
+  transition-duration: 150ms;
+}
+
+#scheduler-table-container .hidden {
+  display: none;
+}
+
+#scheduler-table .td-col-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+#scheduler-table .scheduler-army-details-container {
+  width: fit-content;
+  display: flex;
+  /* gap: 2px; */
+  transition-duration: 200ms;
+  user-select: none;
+}
+
+#scheduler-table .scheduler-army-details-container:hover {
+  transform: scale(2);
+}
+
+#scheduler-table .scheduler-army-details-item {
+  width: 20px;
+  height: 20px;
+  position: relative;
+  box-shadow: black 0 0 1px;
+}
+#scheduler-table .scheduler-army-details-item-bg {
+  position: absolute;
+  width: 50px;
+  height: 50px;
+  top: -15px;
+  left: -15px;
+  transform: scale(0.4);
+  transform-origin: center center;
+}
+
+/* #scheduler-table .scheduler-army-details-item-caption {
+  position: absolute;
+  background-color: rgba(0, 0, 0, 0.4);
+  bottom: 10%;
+  height: fit-content;
+  font-size: 55%;
+  text-align: center;
+  color: white;
+  width: 100%;
+} */
+#scheduler-table .scheduler-army-details-item-caption {
+  position: absolute;
+  box-sizing: border-box;
+  text-shadow:
+    -0.6px -0.6px 0 #000,
+    0.6px -0.6px 0 #000,
+    -0.6px 0.6px 0 #000,
+    0.6px 0.6px 0 #000;
+  bottom: 0;
+  padding: 8%;
+  height: fit-content;
+  font-size: 55%;
+  text-align: right;
+  color: white;
+  width: 100%;
+}
+
+#scheduler-table .scheduler-actions {
+  margin-left: auto;
+  font-weight: bold;
+  font-size: large;
+  border: 1px solid #e0e0e0;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  background-color: transparent;
+  cursor: pointer;
+  transition-duration: 200ms;
+  display: flex;
+  justify-items: center;
+  align-items: center;
+  position: relative;
+}
+
+#scheduler-table .scheduler-actions:hover {
+  background-color: #f5f5f5;
+  border-color: #ccc;
+}
+
+#scheduler-table .scheduler-action-dropdown {
+  z-index: 3;
+  padding: 4px;
+  position: absolute;
+  background-color: white;
+  border: 1px solid lightgray;
+  height: fit-content;
+  right: 0;
+  top: 26px;
+  border-radius: 4px;
+}
+
+#scheduler-table .scheduler-action-dropdown-item {
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: normal;
+  transition-duration: 150ms;
+}
+
+.dropdown-menu-separator {
+  height: 0.5px;
+  width: 90%;
+  margin: 2px auto;
+  background-color: lightgray;
+}
+
+#scheduler-table .scheduler-action-dropdown-item:hover {
+  background-color: #f5f5f5;
+}

@@ -1,7 +1,7 @@
 export default class Cliner {
   private static instance: Cliner;
 
-  private constructor() { }
+  private constructor() {}
 
   public static getInstance(): Cliner {
     if (!Cliner.instance) {
