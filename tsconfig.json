@@ -1,17 +1,18 @@
 {
   "compilerOptions": {
     "target": "ES6",
-    "module": "commonjs",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
     "outDir": "./dist",
     "strict": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
-    "moduleResolution": "node",
-    "baseUrl": ".",
+    "moduleResolution": "bundler",
     "paths": {
-      "~/*": ["src/*"]
+      "~/*": ["./src/*"],
+      "gps.config": ["./gps.config.ts"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],

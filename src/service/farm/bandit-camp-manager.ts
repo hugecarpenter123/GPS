@@ -25,7 +25,7 @@ export default class BanditCampManager implements Service<'bandit'> {
   private citySwitchManager!: CitySwitchManager;
   private generalInfo!: GeneralInfo;
   private RUN: boolean = false;
-  private timeoutData: { timeoutId: NodeJS.Timeout | null; scheduledTime: number | null } = {
+  private timeoutData: { timeoutId: ReturnType<typeof setTimeout> | null; scheduledTime: number | null } = {
     timeoutId: null,
     scheduledTime: null,
   };
@@ -136,7 +136,7 @@ export default class BanditCampManager implements Service<'bandit'> {
         ...landArmyUnits[(box.children[0] as HTMLElement).getAttribute('data-unit_id') as LandArmyUnitName],
         count: Number((box.children[0] as HTMLElement).innerText),
       }))
-      .filter(unit => unit.count > 0 && offLandArmyUnitNames.includes(unit.name as any));
+      .filter(unit => unit.count > 0 && (offLandArmyUnitNames as readonly LandArmyUnitName[]).includes(unit.name));
 
     const ownedOffUnitsNames = ownedOffUnits.map(u => u.name);
     const ownedOffUnitsTotalCount = ownedOffUnits.reduce((acc, u) => (acc += u.count), 0);

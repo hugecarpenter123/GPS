@@ -4,6 +4,7 @@ import { ConfigPopupUtility, TConfigChanges, useConfigPopup } from '../../config
 import ConfigManager from '../../utility/config-manager';
 import { addDelay, getCookie, setCookie, waitWhile } from '../../utility/plain-utility';
 import { Academy } from '../academy/academy';
+import ArmyMovement from '../army/army-movement';
 import CityBuilder from '../city/builder/city-builder';
 import CitySwitchManager from '../city/city-switch-manager';
 import BanditCampManager from '../farm/bandit-camp-manager';
@@ -24,8 +25,8 @@ export default class MasterManager {
   private masterQueue!: MasterQueue;
   private academy!: Academy;
   private configPopupWindow!: ConfigPopupUtility;
-  private captchaObserver!: NodeJS.Timeout;
-  private refreshTimeoutId?: NodeJS.Timeout;
+  private captchaObserver!: ReturnType<typeof setTimeout>;
+  private refreshTimeoutId?: ReturnType<typeof setTimeout>;
 
   private pausedManagersSnapshot: Record<Managers, boolean> = {
     farmer: false,
@@ -53,6 +54,7 @@ export default class MasterManager {
       MasterManager.instance.masterQueue = await MasterQueue.getInstance();
       MasterManager.instance.initCaptchaPrevention();
       MasterManager.instance.initConfigDialog();
+      MasterManager.instance.exposeToWindow();
     }
     return MasterManager.instance;
   }
@@ -254,5 +256,21 @@ export default class MasterManager {
     this.recruiter.stop();
     this.academy.stop();
     this.masterQueue.stop();
+  }
+
+  private async exposeToWindow(): Promise<void> {
+    window.GPS = {
+      master: MasterManager.instance,
+      farmer: this.farmer,
+      bandit: this.bandit,
+      switchManager: this.switchManager,
+      builder: this.builder,
+      recruiter: this.recruiter,
+      scheduler: this.scheduler,
+      masterQueue: this.masterQueue,
+      academy: this.academy,
+      armyMovement: ArmyMovement.getInstance(),
+    };
+    console.log('[GPS]: Debug API exposed to window.GPS');
   }
 }

@@ -5,7 +5,14 @@ TODO: it's not a service so move it to different folder
 
 import { TConfig } from '../../../gps.config';
 import ConfigManager from '../../utility/config-manager';
-import { addDelay, doWhile, getDaysAhead, getTopmostAncestorByClass, waitWhile } from '../../utility/plain-utility';
+import {
+  addDelay,
+  doWhile,
+  getDaysAhead,
+  getTopmostAncestorByClass,
+  HHMMSS_toMS,
+  waitWhile,
+} from '../../utility/plain-utility';
 import {
   cancelHover,
   performComplexClick,
@@ -16,6 +23,14 @@ import {
 import { CharmDetails } from '../charms/charms-utility';
 import { CityInfo } from '../city/city-switch-manager';
 import { AttackStrategy, OperationType, ScheduleItem, SchedulerExecutor } from '../scheduler/Scheduler';
+import { LandArmyUnit, landArmyUnits, SeaArmyUnit, seaArmyUnits } from './army-units';
+import {
+  calculateCleanBaseDistanceTime,
+  detectCurrentPlayerBonuses,
+  findMatchingUnits,
+  PlayerSpeedBonuses,
+  SpeedBonusConfig,
+} from './speed-calculator';
 
 // interface OperationDetails {
 //   id: string;
@@ -244,7 +259,7 @@ export default class ArmyMovement implements SchedulerExecutor {
     utils: {
       successCallback: (landedTime: number, movementId: string) => void;
       failureCallback: (reason?: string) => void;
-      assignTimeout: (timeoutId: NodeJS.Timeout) => void;
+      assignTimeout: (timeoutId: ReturnType<typeof setTimeout>) => void;
     },
   ) {
     // preparation
@@ -288,7 +303,7 @@ export default class ArmyMovement implements SchedulerExecutor {
                 `canceling movement because landed at: "${new Date(operationDetails.landedTime).toLocaleString()}" instead of ${new Date(item.timeDetails.targetTimeStart).toLocaleString()} ~+${item.timeDetails.targetTimeDuration}`,
               );
               await addDelay(Math.random() * 200 + 200);
-              await this.cancelMovement(operationDetails.movementId);
+              await this.cancelCommand(operationDetails.movementId);
               // trial possibilities are done at this point
               if (Date.now() > item.timeDetails.exclusionTime + item.timeDetails.exclusionDuration) {
                 console.warn(`precision failure after ${totalTtrials} times`);
@@ -384,36 +399,16 @@ export default class ArmyMovement implements SchedulerExecutor {
     await waitForElementInterval('.cast_spell.confirmation .btn_confirm.button_new').then(e => e.click());
   }
 
-  private async cancelMovement(movementId: string) {
-    if (!this.hasCaptain()) {
-      const activityIcon = document.querySelector<HTMLElement>('#toolbar_activity_commands')!;
-      triggerHover(activityIcon);
-      const movement = Array.from(
-        document.querySelector('#toolbar_activity_commands_list .content.js-dropdown-item-list')!.children,
-      ).find(el => el.id === movementId);
-      cancelHover(activityIcon);
-      if (!movement) throw new Error('Movement to cancel not found');
-      const cancel = movement.querySelector<HTMLDivElement>('.remove.cancelable');
-      if (!cancel) throw new Error('cannot cancel');
-      cancel.click();
-      await waitWhile(
-        () => !!document.querySelector(`#toolbar_activity_commands_list #${movementId} .remove.cancelable`),
-        {
-          delay: 100,
-          maxIterations: 10,
-        },
-      );
-    } else {
-      await this.openActivityCommandsPanel();
-      // .game_arrow_delete
-      const movement = document.getElementById(movementId);
-      if (!movement) throw new Error('Movement to cancel not found');
-      movement.querySelector<HTMLAnchorElement>('.game_arrow_delete')?.click();
-      await waitWhile(() => !!document.getElementById(movementId)?.querySelector('.game_arrow_delete'), {
-        delay: 100,
-        maxIterations: 10,
-      });
-    }
+  private async cancelCommand(movementId: string) {
+    await this.openActivityCommandsPanel();
+    // .game_arrow_delete
+    const movement = document.getElementById(movementId);
+    if (!movement) throw new Error('Movement to cancel not found');
+    movement.querySelector<HTMLAnchorElement>('.game_arrow_delete')?.click();
+    await waitWhile(() => !!document.getElementById(movementId)?.querySelector('.game_arrow_delete'), {
+      delay: 100,
+      maxIterations: 10,
+    });
   }
 
   /**
@@ -570,20 +565,21 @@ export default class ArmyMovement implements SchedulerExecutor {
     return { movementId: newestOperationLi!.id, landedTime: arrivalTime };
   }
 
+  // NOTE: non-premium
   public getArmyMovementDetails = async (
     townLink: string,
   ): Promise<
     {
       movementId: string;
       title: string;
-      direction: 'outgoing' | 'returning';
       movementType: 'attack' | 'support';
+      direction: 'incoming' | 'returning' | 'outgoing';
       arrivalTime: number;
       cancellableUntil: number;
       href?: string;
     }[]
   > => {
-    if (!this.hasCaptain()) {
+    if (!this.hasCaptain() || true) {
       triggerHover(document.querySelector<HTMLElement>('#toolbar_activity_commands')!);
       const movementList = await waitForElementInterval(
         '#toolbar_activity_commands_list .content.js-dropdown-item-list',
@@ -595,12 +591,17 @@ export default class ArmyMovement implements SchedulerExecutor {
         )
         .map(el => {
           const iconClassList = el.querySelector('.icon')!.classList;
+          const directionClass = iconClassList.item(3) as 'outgoing' | 'returning';
           return {
             movementId: el.id,
             cancellableUntil: Number(el.dataset.cancelable) * 1000,
             arrivalTime: Number(el.dataset.timestamp) * 1000,
             movementType: iconClassList.item(2)!.split('_')[0] as 'attack' | 'support',
-            direction: iconClassList.item(3) as 'outgoing' | 'returning',
+
+            direction:
+              directionClass === 'returning' && el.dataset.cancelable === 'null'
+                ? 'incoming'
+                : (directionClass as 'incoming' | 'returning' | 'outgoing'),
             title: el.querySelector('.town_link')!.textContent!.trim(),
             href: el.querySelector('a')?.href,
           };
@@ -611,12 +612,25 @@ export default class ArmyMovement implements SchedulerExecutor {
     return [];
   };
 
-  // private cancelMovement(movemendId: string) {
-  //   triggerHover(document.querySelector<HTMLElement>('#toolbar_activity_commands')!);
-  //   Array.from(document.querySelector('#toolbar_activity_commands_list .content.js-dropdown-item-list')!.children).find(
-  //     el => el.id === movemendId,
-  //   );
-  // }
+  private async cancelMovement(movementId: string) {
+    const activityIcon = document.querySelector<HTMLElement>('#toolbar_activity_commands')!;
+    triggerHover(activityIcon);
+    const movement = Array.from(
+      document.querySelector('#toolbar_activity_commands_list .content.js-dropdown-item-list')!.children,
+    ).find(el => el.id === movementId);
+    cancelHover(activityIcon);
+    if (!movement) throw new Error('Movement to cancel not found');
+    const cancel = movement.querySelector<HTMLDivElement>('.remove.cancelable');
+    if (!cancel) throw new Error('cannot cancel');
+    cancel.click();
+    await waitWhile(
+      () => !!document.querySelector(`#toolbar_activity_commands_list #${movementId} .remove.cancelable`),
+      {
+        delay: 100,
+        maxIterations: 10,
+      },
+    );
+  }
 
   public async getArmyMovementSnapshot() {
     triggerHover(document.querySelector<HTMLElement>('#toolbar_activity_commands')!);
@@ -634,5 +648,130 @@ export default class ArmyMovement implements SchedulerExecutor {
         href: el.querySelector('a')?.href,
       };
     });
+  }
+
+  /**
+   * Assesses which unit could be the slowest in an incoming movement by:
+   * 1. Using UI to get reference travel time for a known unit
+   * 2. Calculating base distance from reference
+   * 3. Finding all units that could match observed travel time with various speed bonuses
+   */
+  public async assessSlowestUnitInTheMovement(
+    movementId: string,
+    againstCity: CityInfo,
+  ): Promise<{ unit: LandArmyUnit | SeaArmyUnit; possibleBonuses: Partial<SpeedBonusConfig>[] }[]> {
+    await againstCity.switchAction();
+    triggerHover(document.querySelector<HTMLElement>('#toolbar_activity_commands')!);
+    cancelHover(document.querySelector<HTMLElement>('#toolbar_activity_commands')!);
+
+    const movement = await waitForElementInterval(
+      `#toolbar_activity_commands_list .content.js-dropdown-item-list #${movementId}`,
+      { retries: 10, interval: 100 },
+    );
+
+    const iconClassList = movement.querySelector('.icon')!.classList;
+    const direction = iconClassList.item(3) as 'outgoing' | 'returning';
+    const href = movement.querySelector('a')?.href;
+    if (!(direction === 'returning' && href)) throw new Error('No attacking movement detected');
+
+    const arrivalTime = Number((movement as HTMLDivElement).dataset.timestamp) * 1000;
+    const observedTravelTimeMs = arrivalTime - Date.now();
+
+    const link = movement.querySelector('a')!;
+    link.click();
+
+    (await waitForElementInterval('#context_menu #info', { retries: 20, interval: 100 })).click();
+    const isleId = (await waitForElementInterval('#towninfo_towninfo .sea_coords'))
+      .parentElement!.innerText!.match(/(\d{3},\d{3})/g)![0]
+      .replace(',', '_');
+
+    const isTheSameIsle = againstCity.isleId === isleId;
+
+    const playerBonuses = await detectCurrentPlayerBonuses();
+    console.log('[ArmyMovement]: Detected player bonuses:', playerBonuses);
+
+    const cleanBaseDistanceTime = await this.getCleanBaseDistanceTimeFromUI(againstCity, playerBonuses);
+    if (!cleanBaseDistanceTime) throw new Error('Could not determine base distance time');
+
+    const potentialUnits: (LandArmyUnit | SeaArmyUnit)[] = [
+      ...(isTheSameIsle ? Object.values(landArmyUnits) : Object.values(landArmyUnits).filter(u => u.canFly)),
+      ...Object.values(seaArmyUnits),
+    ];
+
+    const matches = findMatchingUnits(potentialUnits, observedTravelTimeMs, cleanBaseDistanceTime, 10000);
+
+    console.log(
+      '[ArmyMovement]: Assessed movement matches:',
+      matches.map(m => ({
+        unit: m.unit.name,
+        possibleBonusesCount: m.possibleBonuses.length,
+      })),
+    );
+
+    return matches;
+  }
+
+  /**
+   * Uses UI to get a reference travel time and calculate clean base distance time.
+   * Opens support form and checks travel time for a reference unit (bireme).
+   * Then removes player's bonuses to get the actual distance-based time.
+   *
+   * @param targetCity - City to check travel time to
+   * @param playerBonuses - Player's active speed bonuses (to remove from calculation)
+   */
+  private async getCleanBaseDistanceTimeFromUI(
+    targetCity: CityInfo,
+    playerBonuses: PlayerSpeedBonuses,
+  ): Promise<number | null> {
+    await targetCity.switchAction();
+    document.querySelector<HTMLDivElement>('#town_info-support')?.click();
+    await waitForElementInterval('.attack_support_window', { retries: 20, interval: 100 });
+
+    const form = document.querySelector('form[data-type="support"]');
+    if (!form) return null;
+
+    const referenceUnit = 'bireme';
+    const referenceUnitSpeed = seaArmyUnits.bireme.speed;
+    const referenceUnitType = 'sea' as const;
+
+    const wayDurationTextSnapshot = form.querySelector<HTMLElement>('.duration_container .way_duration')!.innerText!;
+
+    const inputElement = form.querySelector<HTMLInputElement>(`input[name=${referenceUnit}]`)!;
+
+    inputElement.value = '1';
+
+    const refreshElement = form.querySelector<HTMLInputElement>('input[name=trireme]')!;
+    refreshElement.click();
+    refreshElement.click();
+
+    let wayDurationText = '';
+    await waitWhile(
+      () =>
+        wayDurationTextSnapshot ===
+          (wayDurationText = form.querySelector<HTMLDivElement>('.duration_container .way_duration')!.innerText) &&
+        !!wayDurationText,
+      { delay: 100, maxIterations: 30 },
+    );
+
+    document.querySelector<HTMLDivElement>('.ui-dialog-titlebar-close')?.click();
+
+    const referenceTimeWithBonusesMs = HHMMSS_toMS(wayDurationText);
+
+    const cleanBaseDistanceTime = calculateCleanBaseDistanceTime(
+      referenceTimeWithBonusesMs,
+      referenceUnitSpeed,
+      playerBonuses,
+      referenceUnitType,
+    );
+
+    console.log('[ArmyMovement]: Clean base distance time calculated:', {
+      referenceUnit,
+      referenceTimeWithBonusesMs,
+      referenceUnitSpeed,
+      playerBonuses,
+      cleanBaseDistanceTime,
+    });
+
+    return cleanBaseDistanceTime;
   }
 }

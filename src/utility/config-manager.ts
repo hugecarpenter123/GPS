@@ -38,15 +38,13 @@ export default class ConfigManager {
     appNow.setSeconds(parseInt(time[2]));
     this.runtime.timeDifference = Date.now() - appNow.getTime();
 
-    console.log(
-      `server time: ${appNow}\nreal time: ${new Date()}\ndiff in [s]: ${this.runtime.timeDifference / 1000}`,
-    );
+    console.log(`server time: ${appNow}\nreal time: ${new Date()}\ndiff in [s]: ${this.runtime.timeDifference / 1000}`);
   }
 
   private initConfig(): TConfig {
-    const stored = this.storageManager.readFromLocalStorage(ConfigManager.LOCAL_STORAGE_KEY);
+    const stored = this.storageManager.read(ConfigManager.LOCAL_STORAGE_KEY);
     if (!stored || !this.isConfigStructureEqual(stored, gpsConfig, ['farmingCities'])) {
-      this.storageManager.writeToLocalStorage(ConfigManager.LOCAL_STORAGE_KEY, gpsConfig);
+      this.storageManager.write(ConfigManager.LOCAL_STORAGE_KEY, gpsConfig);
       return structuredClone(gpsConfig);
     }
     return stored;
@@ -78,7 +76,7 @@ export default class ConfigManager {
   }
 
   public persist(): void {
-    this.storageManager.writeToLocalStorage(ConfigManager.LOCAL_STORAGE_KEY, this.config);
+    this.storageManager.write(ConfigManager.LOCAL_STORAGE_KEY, this.config);
   }
 
   public getConfigValue<K extends keyof TConfig>(key: K): TConfig[K] {

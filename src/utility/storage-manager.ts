@@ -10,12 +10,12 @@ export default class StorageManager {
     return StorageManager.instance;
   }
 
-  public readFromLocalStorage(key: string): any {
+  public read(key: string): any {
     const item = localStorage.getItem(key);
     return item ? JSON.parse(item) : null;
   }
 
-  public writeToLocalStorage(key: string, value: any): void {
+  public write(key: string, value: any): void {
     localStorage.setItem(key, JSON.stringify(value));
   }
 }
