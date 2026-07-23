@@ -3,7 +3,7 @@ import { addDelay, getCookie, setCookie } from './utility/plain-utility';
 import { onPageLoad, setNativeValue, waitForElementInterval } from './utility/ui-utility';
 import tailwindCssRaw from '~/styles/tailwind.css';
 
-let timeoutId: NodeJS.Timeout | undefined = undefined;
+let timeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 
 // https://pl-play.grepolis.com/?logout=true&lps_flow=after_glps_shim
 const main = async () => {

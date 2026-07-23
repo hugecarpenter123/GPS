@@ -1,4 +1,3 @@
-import EventEmitter from 'events';
 import { TConfigChanges } from '~/config-popup/config-popup';
 import Service from '~/utility/Service';
 import { FarmTimeInterval, TConfig } from '../../../gps.config';
@@ -25,16 +24,17 @@ import {
 } from '../../utility/ui-utility';
 import CitySwitchManager, { CityInfo } from '../city/city-switch-manager';
 import GeneralInfo from '../master/ui/general-info';
+import { EventEmitter } from 'events';
 
 type ScheduleItem = {
   scheduledDate: Date;
-  timeout: NodeJS.Timeout;
+  timeout: ReturnType<typeof setTimeout>;
   city: CityInfo;
 };
 
 type CaptainSchedulerItem = {
   scheduledDate: Date;
-  timeout: NodeJS.Timeout;
+  timeout: ReturnType<typeof setTimeout>;
 };
 
 export enum FarmingSolution {
@@ -525,7 +525,7 @@ export default class Farmer extends EventEmitter implements Service<'farmer'> {
     const scheduledDate = new Date(Date.now() + timeInterval);
     const scheduleItem = {
       scheduledDate,
-      timeout: null as NodeJS.Timeout | null,
+      timeout: null as ReturnType<typeof setTimeout> | null,
       city,
     };
 

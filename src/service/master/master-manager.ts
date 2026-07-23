@@ -74,6 +74,7 @@ export default class MasterManager {
           onError: () => {
             clearInterval(this.captchaObserver);
             if (this.config.app.signoutOnCaptchaFailure) {
+              // TODO: consider reloading game page with autoStart cookie
               window.location.replace('about:blank');
             }
           },
@@ -179,7 +180,7 @@ export default class MasterManager {
 
     if (autoStart) {
       console.log('autoStart', this.config.cyclicalRefresh.enabled, autoStart);
-      setCookie('autoStart', '0', { maxAge: -1 });
+      setCookie('autoStart', 0, { maxAge: -1 });
       await this.runManagersFromConfig(true);
     }
   }

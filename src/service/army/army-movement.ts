@@ -65,6 +65,16 @@ import {
 //   data: { name: string; value: string }[];
 // }
 
+type ArmyMovementDetails = {
+  movementId: string;
+  cancellableUntil: number;
+  arrivalTime: number;
+  movementType: 'attack' | 'support';
+  direction: 'outgoing' | 'returning' | 'incoming';
+  title: string;
+  href: string | undefined;
+};
+
 export default class ArmyMovement implements SchedulerExecutor {
   private error: string | null = null;
   private configManager!: ConfigManager;
@@ -283,16 +293,18 @@ export default class ArmyMovement implements SchedulerExecutor {
         setTimeout(async () => {
           try {
             // first execution --------------------
-            let operationsSnapshot = await this.doOperationsSnapshot();
+            // just id's of every movement within the city
+            let operationsSnapshot = (await this.getArmyMovementSnapshot()).map(el => el.movementId);
 
             const { isAttackingAlly } = await this.submitOperationWithFeedback(item.operationType);
             totalTtrials++;
 
-            let operationDetails = await this.getNewestOperationDetailsOfCity(
-              item.sourceCity,
-              item.timeDetails.movementDuration,
-              operationsSnapshot,
-            );
+            let operationDetails = await this.getNewestOperationDetailsOfCity({
+              sourceCity: item.sourceCity,
+              wayDuration: item.timeDetails.movementDuration,
+              snapshot: operationsSnapshot,
+              withCaptain: false,
+            });
             // END first execution ----------------
 
             while (
@@ -303,7 +315,8 @@ export default class ArmyMovement implements SchedulerExecutor {
                 `canceling movement because landed at: "${new Date(operationDetails.landedTime).toLocaleString()}" instead of ${new Date(item.timeDetails.targetTimeStart).toLocaleString()} ~+${item.timeDetails.targetTimeDuration}`,
               );
               await addDelay(Math.random() * 200 + 200);
-              await this.cancelCommand(operationDetails.movementId);
+              // await this.cancelCommand(operationDetails.movementId);
+              await this.cancelMovement(operationDetails.movementId);
               // trial possibilities are done at this point
               if (Date.now() > item.timeDetails.exclusionTime + item.timeDetails.exclusionDuration) {
                 console.warn(`precision failure after ${totalTtrials} times`);
@@ -311,7 +324,7 @@ export default class ArmyMovement implements SchedulerExecutor {
                 return;
               }
               // otherwise repeat
-              operationsSnapshot = await this.doOperationsSnapshot();
+              operationsSnapshot = (await this.getArmyMovementSnapshot()).map(el => el.movementId);
 
               // TODO: here add input policy (but must be specified by user in UI extension)
               // send without hero because of retries
@@ -324,14 +337,15 @@ export default class ArmyMovement implements SchedulerExecutor {
               if (wasImmadiate) await addDelay(Math.random() * 300 + 300);
               await this.submitOperation(item.operationType, isAttackingAlly);
               totalTtrials++;
-              operationDetails = await this.getNewestOperationDetailsOfCity(
-                item.sourceCity,
-                item.timeDetails.movementDuration,
-                operationsSnapshot,
-              );
+              operationDetails = await this.getNewestOperationDetailsOfCity({
+                sourceCity: item.sourceCity,
+                wayDuration: item.timeDetails.movementDuration,
+                snapshot: operationsSnapshot,
+                withCaptain: false,
+              });
             }
             console.log('success, landed time:', operationDetails.landedTime, `after ${totalTtrials} trials`);
-            await this.addPowerToMovement(operationDetails.movementId, item.power);
+            await this.addPowerToMovement(operationDetails.movementId, item.power, 'normal');
             utils.successCallback(operationDetails.landedTime, operationDetails.movementId);
           } catch (e) {
             if (e instanceof Error) utils.failureCallback(e.message);
@@ -349,7 +363,7 @@ export default class ArmyMovement implements SchedulerExecutor {
         setTimeout(async () => {
           try {
             // remember what elements are there before adding new
-            const operationsSnapshot = await this.doOperationsSnapshot();
+            const operationsSnapshot = (await this.getArmyMovementSnapshot()).map(el => el.movementId);
 
             if (item.operationType === OperationType.Attack) {
               (await waitForElement('#btn_attack_town')).click();
@@ -364,11 +378,12 @@ export default class ArmyMovement implements SchedulerExecutor {
               (await waitForElement('.attack_support_window a .middle')).click();
             }
 
-            const operationDetails = await this.getNewestOperationDetailsOfCity(
-              item.sourceCity,
-              item.timeDetails.movementDuration,
-              operationsSnapshot,
-            );
+            const operationDetails = await this.getNewestOperationDetailsOfCity({
+              sourceCity: item.sourceCity,
+              wayDuration: item.timeDetails.movementDuration,
+              snapshot: operationsSnapshot,
+              withCaptain: false,
+            });
 
             utils.successCallback(operationDetails.landedTime, operationDetails.movementId);
           } catch (e) {
@@ -380,17 +395,31 @@ export default class ArmyMovement implements SchedulerExecutor {
     }
   }
 
-  private async addPowerToMovement(movementId: string, power: CharmDetails | null) {
+  /**
+   *
+   * @param movementId either id derived from command panel (premium) or non-premium dropdown
+   * @param power
+   * @param idType
+   * @returns
+   */
+  private async addPowerToMovement(movementId: string, power: CharmDetails | null, idType: 'premium' | 'normal') {
     console.log('power to be added:', power);
     if (!power) return;
 
-    await this.openActivityCommandsPanel();
+    if (idType === 'premium') {
+      await this.openActivityCommandsPanel();
 
-    const movement = document.getElementById(movementId);
-    if (!movement) throw new Error('Movement to add power to not found');
+      const movement = document.getElementById(movementId);
+      if (!movement) throw new Error('Movement to add power to not found');
 
-    // cmd_info_box
-    movement.querySelector<HTMLElement>('.cmd_info_box a')?.click();
+      // cmd_info_box
+      movement.querySelector<HTMLElement>('.cmd_info_box a')?.click();
+    } else {
+      triggerHover(document.getElementById('toolbar_activity_commands')!);
+      document.querySelector<HTMLElement>(`$${movementId} .icon`)?.click();
+      cancelHover(document.getElementById('toolbar_activity_commands')!);
+    }
+
     await waitForElementInterval('#command_info-god', { interval: 250, timeout: 2000 }).then(e => e.click());
     await waitForElementInterval(`[data-power_id="${power.dataPowerId}"`, { interval: 100, timeout: 2000 }).then(el =>
       (el as HTMLElement).click(),
@@ -399,13 +428,16 @@ export default class ArmyMovement implements SchedulerExecutor {
     await waitForElementInterval('.cast_spell.confirmation .btn_confirm.button_new').then(e => e.click());
   }
 
-  private async cancelCommand(movementId: string) {
+  /**
+   * Premium only army movement cancellers
+   */
+  private async cancelCommand(commandId: string) {
     await this.openActivityCommandsPanel();
     // .game_arrow_delete
-    const movement = document.getElementById(movementId);
+    const movement = document.getElementById(commandId);
     if (!movement) throw new Error('Movement to cancel not found');
     movement.querySelector<HTMLAnchorElement>('.game_arrow_delete')?.click();
-    await waitWhile(() => !!document.getElementById(movementId)?.querySelector('.game_arrow_delete'), {
+    await waitWhile(() => !!document.getElementById(commandId)?.querySelector('.game_arrow_delete'), {
       delay: 100,
       maxIterations: 10,
     });
@@ -479,7 +511,14 @@ export default class ArmyMovement implements SchedulerExecutor {
 
   private async openActivityCommandsPanel() {
     if (this.hasCaptain()) {
-      if (!!document.querySelector('#command_overview')) return;
+      const openCommandsPanel = document.querySelector('#command_overview');
+      if (!!openCommandsPanel) {
+        document.getElementById('town_overviews-command_overview')?.click();
+        await waitWhile(
+          () => openCommandsPanel.isConnected && !document.getElementById('town_overviews-command_overview'),
+          { delay: 100, maxIterations: 15 },
+        );
+      }
 
       document.querySelector<HTMLElement>('#toolbar_activity_commands')?.click();
       await waitWhile(() => !document.querySelector('#command_overview'), { delay: 200, maxIterations: 5 });
@@ -509,63 +548,123 @@ export default class ArmyMovement implements SchedulerExecutor {
     return ids;
   }
 
+  // TODO potentially should specify what newest operation type should it be - incomning/outgoing attack/support etc
   /**
    * Tries to find newest operation initiated by a given city whose id is not in the spiecified list of ids.
    * If cannot find such an element within 1600ms then throws an Error.
    * @returns Object with operation id and landed time.
    */
-  private async getNewestOperationDetailsOfCity(
-    cityInfo: CityInfo,
-    wayDuration: number,
-    snapshot: string[],
-    shouldCloseAfterwards: boolean = false,
-  ) {
-    await this.openActivityCommandsPanel();
+  private async getNewestOperationDetailsOfCity({
+    sourceCity,
+    wayDuration,
+    snapshot,
+    shouldCloseAfterwards,
+    withCaptain,
+    direction,
+    movementType,
+  }: {
+    sourceCity: CityInfo;
+    wayDuration: number;
+    snapshot: string[];
+    shouldCloseAfterwards?: boolean;
+    withCaptain?: boolean;
+    direction?: ArmyMovementDetails['direction'];
+    movementType?: ArmyMovementDetails['movementType'];
+  }) {
+    if ((withCaptain ?? true) && this.hasCaptain()) {
+      await this.openActivityCommandsPanel();
 
-    let newestOperationLi: HTMLElement | undefined;
-    await waitWhile(
-      () =>
-        !(newestOperationLi = Array.from(document.querySelectorAll<HTMLElement>('#command_overview li')).find(el => {
-          return (
-            !snapshot.includes(el.id) &&
-            el.querySelector<HTMLElement>('.cmd_info_box .gp_town_link')?.textContent === cityInfo.name
-          );
-        })),
-      {
-        delay: 200,
-        maxIterations: 8,
-        onError() {
-          throw new Error('Latest operation not found');
+      let newestOperationLi: HTMLElement | undefined;
+      await waitWhile(
+        () =>
+          !(newestOperationLi = Array.from(document.querySelectorAll<HTMLElement>('#command_overview li')).find(el => {
+            return (
+              !snapshot.includes(el.id) &&
+              el.querySelector<HTMLElement>('.cmd_info_box .gp_town_link')?.textContent === sourceCity.name
+            );
+          })),
+        {
+          delay: 200,
+          maxIterations: 8,
+          onError() {
+            throw new Error('Latest operation not found');
+          },
         },
-      },
-    );
+      );
 
-    // \.match(/\d+/g)
-    const arrivalTimeArray = newestOperationLi!
-      .querySelector('.troops_arrive_at')
-      ?.textContent?.match(/\d+/g)
-      ?.slice(-3);
+      // \.match(/\d+/g)
+      const arrivalTimeArray = newestOperationLi!
+        .querySelector('.troops_arrive_at')
+        ?.textContent?.match(/\d+/g)
+        ?.slice(-3);
 
-    if (arrivalTimeArray?.length !== 3) throw new Error("Couldn't parse arrival time from command");
-    const now = new Date();
-    const daysAhead = getDaysAhead(new Date(now.getTime() + wayDuration));
-    const arrivalDate = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() + daysAhead,
-      Number(arrivalTimeArray[0]),
-      Number(arrivalTimeArray[1]),
-      Number(arrivalTimeArray[2]),
-      0, // milisekundy
-    );
-    const arrivalTime = arrivalDate.getTime();
+      if (arrivalTimeArray?.length !== 3) throw new Error("Couldn't parse arrival time from command");
+      const now = new Date();
+      const daysAhead = getDaysAhead(new Date(now.getTime() + wayDuration));
+      const arrivalDate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + daysAhead,
+        Number(arrivalTimeArray[0]),
+        Number(arrivalTimeArray[1]),
+        Number(arrivalTimeArray[2]),
+        0, // milisekundy
+      );
+      const arrivalTime = arrivalDate.getTime();
 
-    if (shouldCloseAfterwards) this.closeActivityCommandsPanel();
+      if (shouldCloseAfterwards) this.closeActivityCommandsPanel();
 
-    return { movementId: newestOperationLi!.id, landedTime: arrivalTime };
+      return { movementId: newestOperationLi!.id, landedTime: arrivalTime };
+    }
+    // non-premium
+    else {
+      await sourceCity.switchAction();
+      let newestMovement: ArmyMovementDetails | undefined;
+
+      await waitWhile(
+        async () => {
+          const newestSnapshot = await this.getArmyMovementSnapshot();
+          console.log('snapsho:', newestSnapshot);
+          newestMovement = newestSnapshot.find(
+            el =>
+              !snapshot.includes(el.movementId) &&
+              (direction ? direction === el.direction : true) &&
+              (movementType ? movementType === el.movementType : true),
+          );
+          return !newestMovement;
+        },
+        {
+          delay: 200,
+          maxIterations: 8,
+          onError() {
+            throw new Error('Latest operation not found');
+          },
+        },
+      );
+
+      const now = new Date();
+      const daysAhead = getDaysAhead(new Date(now.getTime() + wayDuration));
+      // newestMovement!.arrivalTime doesn't account for days difference, only raw clock time
+      const flatArrivalTime = new Date(newestMovement!.arrivalTime);
+      const arrivalDate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + daysAhead,
+        Number(flatArrivalTime.getHours()),
+        Number(flatArrivalTime.getMinutes()),
+        Number(flatArrivalTime.getSeconds()),
+        0, // milisekundy
+      );
+
+      return { movementId: newestMovement!.movementId, landedTime: arrivalDate.getTime() };
+    }
   }
 
-  // NOTE: non-premium
+  /**
+   * Non-premium army movement parser
+   * @param townLink
+   * @returns
+   */
   public getArmyMovementDetails = async (
     townLink: string,
   ): Promise<
@@ -612,6 +711,10 @@ export default class ArmyMovement implements SchedulerExecutor {
     return [];
   };
 
+  /**
+   * Non-premium movement canceller
+   * @param movementId
+   */
   private async cancelMovement(movementId: string) {
     const activityIcon = document.querySelector<HTMLElement>('#toolbar_activity_commands')!;
     triggerHover(activityIcon);
@@ -632,18 +735,30 @@ export default class ArmyMovement implements SchedulerExecutor {
     );
   }
 
-  public async getArmyMovementSnapshot() {
+  /**
+   * Non-premium army movement parser.
+   * @param city
+   * @returns
+   */
+  public async getArmyMovementSnapshot(city?: CityInfo): Promise<ArmyMovementDetails[]> {
+    if (city) await city.switchAction();
     triggerHover(document.querySelector<HTMLElement>('#toolbar_activity_commands')!);
     const movementList = await waitForElementInterval('#toolbar_activity_commands_list .content.js-dropdown-item-list');
     cancelHover(document.querySelector<HTMLElement>('#toolbar_activity_commands')!);
+
+    console.log('Array.from(movementList.children):', Array.from(movementList.children));
     return Array.from(movementList.children).map(el => {
       const iconClassList = el.querySelector('.icon')!.classList;
+      const directionClass = iconClassList.item(3) as 'outgoing' | 'returning';
       return {
         movementId: el.id,
         cancellableUntil: Number((el as HTMLDivElement).dataset.cancelable) * 1000,
         arrivalTime: Number((el as HTMLDivElement).dataset.timestamp) * 1000,
         movementType: iconClassList.item(2)!.split('_')[0] as 'attack' | 'support',
-        direction: iconClassList.item(3) as 'outgoing' | 'returning',
+        direction:
+          directionClass === 'returning' && (el as HTMLElement).dataset.cancelable === 'null'
+            ? ('incoming' as const)
+            : directionClass,
         title: el.querySelector('.town_link')!.textContent!.trim(),
         href: el.querySelector('a')?.href,
       };

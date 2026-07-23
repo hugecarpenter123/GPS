@@ -2,7 +2,6 @@
  * Scheduler catch block: Latest operation not found - error stopped sync execution
  */
 
-import { it, SuiteContext } from 'node:test';
 import { TConfig } from '../../../gps.config';
 import { TConfigChanges } from '../../config-popup/config-popup';
 import ConfigManager from '../../utility/config-manager';
@@ -67,7 +66,7 @@ export type ScheduleItem = {
     movementDuration: number; // czas trwania ruchu jednostek
     targetTimeStart: number; // dolna granica tolerancji
     targetTimeDuration: number; // wartość bewzględna tolerancji
-    exclusionTime: number; // czas w którym element rozpoczyna całość operacji, jeżeli "switchesOffManagers" to jest to czas ich wyłączeni, else === preparationTime
+    exclusionTime: number; // czas w którym element rozpoczyna całość operacji, jeżeli "switchesOffManagers" to jest to czas ich wyłączenia, else === preparationTime
     exclusionDuration: number; // czas trwania całości operacji
     switchesOffManagers: boolean; // czy musi wyłączyć menadżery w ramach swojej operacji
     preparationTime: number; // czas w którym powinno rozpocząć się wypełnianie pól dla operacji
@@ -82,7 +81,7 @@ export type ScheduleItem = {
     allowedToleranceIfFailed?: number; // [ms]
   };
   movementId: string | null;
-  actionTimeout: NodeJS.Timeout | null;
+  actionTimeout: ReturnType<typeof setTimeout> | null;
   dependentScheduleItems: { scheduleId: string; deviation: number }[];
 };
 
@@ -150,7 +149,7 @@ export type SchedulerExecute = (
   utils: {
     successCallback: (landedTime: number, movementId: string) => void;
     failureCallback: (reason?: string) => void;
-    assignTimeout: (timeoutId: NodeJS.Timeout) => void;
+    assignTimeout: (timeoutId: ReturnType<typeof setTimeout>) => void;
   },
 ) => Promise<void> | void;
 
@@ -365,7 +364,7 @@ export default class Scheduler implements Service<'scheduler'> {
                     );
                 };
 
-                const assignTimeout = (timeoutId: NodeJS.Timeout) => {
+                const assignTimeout = (timeoutId: ReturnType<typeof setTimeout>) => {
                   item.actionTimeout = timeoutId;
                 };
 
